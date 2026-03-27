@@ -1,0 +1,14 @@
+{
+  "$schema": "https://code.claude.com/docs/en/plugins-reference#plugin-manifest-schema",
+  "name": "neuroloom-sdlc",
+  "version": "0.1.0",
+  "description": "cc-sdlc process knowledge survives context clears. Deliverables, playbooks, and discipline captures become searchable memory across sessions.",
+  "author": {
+    "name": "Endless Galaxy Studios"
+  },
+  "homepage": "https://neuroloom.dev",
+  "repository": "https://github.com/endless-galaxy-studios/neuroloom-sdlc-plugin",
+  "license": "MIT",
+  "keywords": ["neuroloom", "claude-code", "workflow-automation", "sdlc", "persistent-memory", "session-memory", "semantic-search", "process"],
+  "dependencies": ["neuroloom"]
+}
