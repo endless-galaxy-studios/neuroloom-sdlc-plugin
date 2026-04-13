@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/og-github.png" alt="Neuroloom — The Memory Engine for Agentic Coding" width="100%" />
+</p>
+
 # Neuroloom SDLC Plugin
 
 cc-sdlc knowledge lives in files that die when the context window clears. This plugin backs cc-sdlc with Neuroloom persistent memory — knowledge stores become searchable, deliverable docs sync across sessions, and version updates arrive at session start. It is a companion to the base Neuroloom Claude Code plugin, not a standalone tool.
