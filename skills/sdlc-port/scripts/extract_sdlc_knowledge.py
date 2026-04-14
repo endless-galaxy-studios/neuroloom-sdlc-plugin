@@ -470,11 +470,16 @@ def _collect_all_entries(
     skipped_count = 0
 
     # YAML knowledge files — recurse into subdirectories.
+    # Exclude agent-context-map.yaml — it's a configuration file that maps agent
+    # roles to knowledge file paths. In Neuroloom, agents use memory_search with
+    # tags instead, so this file is not knowledge content and should not be ingested.
     if knowledge_dir.exists():
         yaml_paths = sorted(
             p
             for p in knowledge_dir.rglob("*")
-            if p.suffix.lower() in {".yaml", ".yml"} and p.is_file()
+            if p.suffix.lower() in {".yaml", ".yml"}
+            and p.is_file()
+            and p.name != "agent-context-map.yaml"
         )
         for yaml_path in yaml_paths:
             yaml_file_count += 1

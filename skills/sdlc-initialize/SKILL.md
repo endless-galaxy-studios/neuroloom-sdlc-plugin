@@ -263,12 +263,21 @@ Download all files under these paths. Handle each category's content format:
 
 | Category | Path | Format | Target Layer |
 |----------|------|--------|-------------|
-| Knowledge stores | `ops/sdlc/knowledge/` | YAML | Knowledge (Neuroloom API) |
-| Discipline parking lots | `ops/sdlc/disciplines/` | Markdown | Knowledge (Neuroloom API) |
-| Skills | `.claude/skills/` | Markdown | Operational (filesystem) |
-| Agent templates | `.claude/agents/` | Markdown | Operational (filesystem) |
-| Process docs | `ops/sdlc/process/` | Markdown | Operational (filesystem) |
-| Templates | `ops/sdlc/templates/` | Markdown | Operational (filesystem) |
+| Knowledge stores | `knowledge/**/*.yaml` | YAML | Knowledge (Neuroloom API) |
+| Discipline parking lots | `disciplines/` | Markdown | Knowledge (Neuroloom API) |
+| Skills | `skills/` | Markdown | Operational (filesystem) |
+| Agent templates | `agents/` | Markdown | Operational (filesystem) |
+| Process docs | `process/` | Markdown | Operational (filesystem) |
+| Templates | `templates/` | Markdown | Operational (filesystem) |
+
+**Knowledge layer exclusions:**
+- `knowledge/agent-context-map.yaml` — This is a configuration file that maps agent roles to knowledge file paths. In Neuroloom, agents use `memory_search` with tags instead of file paths. This file is not knowledge content and must NOT be ingested.
+- `knowledge/provenance_log.md` — This is a project-specific append-only record of knowledge ingestions and research handoffs. Create an empty template on the filesystem at `[sdlc-root]/knowledge/provenance_log.md` but do NOT ingest into the knowledge layer.
+- `knowledge/README.md` and subdirectory READMEs — Documentation only, not knowledge entries.
+
+**Operational layer exclusions:**
+- `templates/optional/` — Conditional CLAUDE.md appendices. Read from cc-sdlc source during initialization when needed, not installed.
+- `CLAUDE-SDLC.md` — Content is merged into the project's `CLAUDE.md` during Stage 5c. No separate file is maintained.
 
 Fetch each file via:
 ```
@@ -423,7 +432,10 @@ Write all non-knowledge framework files. These go to the filesystem — not into
 | Skills | `.claude/skills/` |
 | Agent templates | `.claude/agents/` (customized names from Stage 3) |
 | Process docs | `.claude/sdlc/process/` |
+| Neuroloom process docs | `.claude/sdlc/process/` |
 | Templates | `.claude/sdlc/templates/` |
+
+Neuroloom-specific process docs ship with the plugin under `neuroloom-sdlc-plugin/docs/`. Copy `knowledge-routing.md` to `.claude/sdlc/process/knowledge-routing.md` during Stage 5b. This file is the installed location — the plugin's `docs/` is the source.
 
 **Plugin skill exclusion:** Do NOT write `sdlc-initialize` or `sdlc-migrate` to `.claude/skills/`. These skills are owned by the Neuroloom SDLC plugin (`neuroloom-sdlc-plugin/skills/`) and must not have cc-sdlc originals competing for skill resolution. If cc-sdlc originals already exist in `.claude/skills/`, delete them:
 
@@ -444,7 +456,7 @@ rm -rf .claude/skills/sdlc-initialize/ .claude/skills/sdlc-migrate/
 3. **Technology stack** — per-package if monorepo (from spec)
 4. **Coding standards** — per-language conventions
    - If multi-language: document the boundary conventions (e.g., snake_case API, camelCase frontend)
-5. **SDLC process section** — read `ops/sdlc/CLAUDE-SDLC.md` (from the fetched cc-sdlc source) and adapt the full content for this project. Use heading `## SDLC Process`. Do not create a separate `CLAUDE-SDLC.md`.
+5. **SDLC process section** — read `CLAUDE-SDLC.md` (from the fetched cc-sdlc source) and adapt the full content for this project. Use heading `## SDLC Process`. Do not create a separate `CLAUDE-SDLC.md` file — this content lives exclusively in the project's CLAUDE.md. The upstream `CLAUDE-SDLC.md` is a drop-in source, not an installed file.
 6. **Verification policy** — zero-assumption rule, Context7 for external libs, read code before asserting
 7. **Agent dispatch conventions** — agent-first, never self-implement, manager rule
 
@@ -454,11 +466,19 @@ rm -rf .claude/skills/sdlc-initialize/ .claude/skills/sdlc-migrate/
 ```json
 {
   "sdlc_version": "{SDLC_VERSION}",
+  "sdlc_root": "{detected sdlc_root — typically ops/sdlc for new projects}",
+  "neuroloom_backend": true,
+  "neuroloom_integration": true,
+  "install_mode": "neuroloom",
+  "source_repo": "https://github.com/Inpacchi/cc-sdlc",
+  "source_version": "{SDLC_VERSION}",
   "initialized_at": "{ISO_DATE}",
   "workspace_id": "{workspace_id}",
   "agent_count": {M}
 }
 ```
+
+Note: `sdlc_root` should be set to the actual SDLC root path detected during initialization (typically `ops/sdlc/` for new projects). `neuroloom_backend` must be present for `sdlc-port` mode detection consistency.
 
 **`.gitignore` entry:** Ensure `.claude/agent-memory/` is in the project's `.gitignore`. Agent memories are private scratchpads — never git-tracked.
 
@@ -529,8 +549,17 @@ Use `AskUserQuestion` with options:
 3. Cross-cutting roles (architect, sdet)
 
 **Framework agents (pre-installed — do NOT create as domain agents):**
-- `sdlc-reviewer` — reviews skill/agent files against cc-sdlc conventions (dispatched by `sdlc-create-skill`, `sdlc-create-agent`, `sdlc-review`)
+- `sdlc-reviewer` — reviews skill/agent files against cc-sdlc conventions (dispatched by `sdlc-develop-skill`, `sdlc-create-agent`, `sdlc-review`)
 - `sdlc-compliance-auditor` — performs 9-dimension compliance scan (dispatched by `sdlc-audit`)
+
+**Neuroloom agent template transformation:** The upstream `AGENT_TEMPLATE.md` uses file path references for Knowledge Context and Communication Protocol sections. Before creating agents, transform these to Neuroloom patterns:
+- `consult [sdlc-root]/knowledge/agent-context-map.yaml` → `memory_search(query="[agent-name] domain-specific patterns...", tags=["sdlc:knowledge"])`
+- `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml` → `memory_search(query="agent communication protocol...", tags=["sdlc:knowledge", "sdlc:domain:architecture"])`
+- `Append to [sdlc-root]/disciplines/*.md` → `memory_store(tags=["sdlc:discipline:{name}", "sdlc:parking-lot"])`
+
+Also install `AGENT_SUGGESTIONS.md` to `.claude/agents/` — this is a new upstream file with agent role suggestions for projects.
+
+**Ensure `knowledge_feedback` is not present in Knowledge Context sections** — this field was removed from the upstream AGENT_TEMPLATE. If the fetched template still contains it, strip it before creating agents.
 
 **Pass stack context to the agent creation skill.** Each agent's system prompt must reference the project's actual technologies, not generic placeholders. Include in the creation prompt:
 - Which packages/directories the agent owns
@@ -589,12 +618,15 @@ Present the seeded knowledge domains to CD:
 Which knowledge stores should inform spec and plan writing for this project?
 Select all that apply.
 
-  [1] architecture   — system design patterns, integration approaches
-  [2] coding         — language-specific conventions, error patterns
-  [3] data-modeling  — schema design, pgvector, migration patterns
-  [4] design         — UI/UX patterns, component conventions
-  [5] testing        — test strategy, coverage patterns, anti-patterns
-  [6] product-research — user research, market analysis patterns
+  [1] architecture      — system design patterns, integration approaches
+  [2] coding            — language-specific conventions, error patterns
+  [3] data-modeling     — schema design, migration patterns, query patterns
+  [4] design            — UI/UX patterns, component conventions
+  [5] testing           — test strategy, coverage patterns, anti-patterns
+  [6] deployment        — target platform, service topology, local dev stack
+  [7] observability     — logging patterns, error tracking, monitoring, telemetry
+  [8] business-analysis — revenue model, multi-tenancy, auth strategy
+  [9] product-research  — user research, market analysis patterns
 ```
 
 Use `AskUserQuestion` with a multi-select option list.
@@ -614,7 +646,7 @@ Stage 7 complete. Spec-relevant tagging applied to {N} entries across {D} domain
 
 For each domain in the project profile, seed an initial discipline parking lot entry. Discipline entries are observations, patterns, or learnings — not prescriptive rules. Start with the fetched discipline files from Stage 2, customized for the project stack.
 
-Dispatch the `software-architect` agent (or nearest equivalent) to produce the seed content for all 9 disciplines in one pass, given the spec as input. The agent returns the seed content; the orchestrator ingests it per discipline.
+Dispatch the `software-architect` agent (or nearest equivalent) to produce the seed content for all 10 disciplines in one pass, given the spec as input. The agent returns the seed content; the orchestrator ingests it per discipline.
 
 | Discipline | Seed Focus |
 |-----------|-----------|
@@ -624,6 +656,7 @@ Dispatch the `software-architect` agent (or nearest equivalent) to produce the s
 | design | Theme direction, component library, brand constraints |
 | data-modeling | ORM/query patterns, migration safety, special column types |
 | deployment | Target platform, service topology, local dev stack |
+| observability | Logging patterns, error tracking, telemetry, monitoring dashboards |
 | business-analysis | Revenue model, multi-tenancy, auth strategy |
 | product-research | Market context, competitive landscape, ecosystem position |
 | process-improvement | Note: "First project from cc-sdlc — capture friction for upstream" |
@@ -802,6 +835,7 @@ If a stage gate requires user input, output the gate prompt and wait. Do not out
 | "I'll seed knowledge from training data" | Verify all library/framework claims via Context7 before writing knowledge files. Training data goes stale. |
 | "Manager Rule applies from the start" | In greenfield Stages 1–5, no agents exist. CC works directly. Manager Rule activates at Stage 6. |
 | "I'll batch all the ideation questions" | One question at a time via AskUserQuestion. Batched questions get shallow answers. |
+| "I should ingest agent-context-map.yaml into Neuroloom" | `agent-context-map.yaml` is a configuration file, not knowledge content. It maps agent roles to file paths — a pattern replaced by tags in Neuroloom. Ingesting it adds garbage to the knowledge layer and causes YAML parse errors. Exclude it. |
 
 ---
 

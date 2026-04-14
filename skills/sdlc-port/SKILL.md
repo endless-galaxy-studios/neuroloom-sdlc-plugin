@@ -7,6 +7,7 @@ description: >
   Triggers on "port sdlc to neuroloom", "migrate local sdlc", "move sdlc to backend",
   "port my knowledge to neuroloom", "migrate my existing sdlc to neuroloom".
   Do NOT use for fresh installation without an existing local cc-sdlc — use sdlc-initialize instead.
+  Do NOT use for updating an already-ported Neuroloom workspace to a newer cc-sdlc version — use sdlc-migrate.
 ---
 
 # SDLC Port
@@ -306,6 +307,9 @@ Files with no matching references are not transformation targets — skip them.
 - **Compliance/audit methodology** (e.g., compliance-methodology.md): maturity level criteria and
   wiring tier descriptions that reference `agent-context-map` as a concept → update to reference
   Neuroloom retrieval
+- **`process/knowledge-routing.md`**: file-path references to `ops/sdlc/knowledge/` lookup
+  patterns → replace with `memory_search()` calls. The target state is the Neuroloom variant at
+  `neuroloom-sdlc-plugin/docs/knowledge-routing.md`
 
 **What NOT to transform:**
 - Template structural scaffolding in `ops/sdlc/templates/` (section headers, placeholder text) —
@@ -314,6 +318,14 @@ Files with no matching references are not transformation targets — skip them.
 - Agent or skill files with no matching references
 - Historical changelog entries in `ops/sdlc/process/sdlc_changelog.md` — these are an accurate
   record of what happened at the time and must not be rewritten
+- `ops/sdlc/knowledge/provenance_log.md` — project-specific append-only record; relocate with
+  other files in Stage 4f, do not transform or ingest
+
+**Project-specific files to preserve during relocation:**
+- `process/agent-selection.yaml` — project's agent roster and dispatch rules; relocate but never
+  overwrite during future migrations
+- `knowledge/provenance_log.md` — project's ingestion/research lineage log; relocate but never
+  ingest into knowledge layer
 
 ### Stage 4b — Present Proposed Changes
 
@@ -581,10 +593,17 @@ Write `.sdlc-manifest.json` in the project root:
 ```json
 {
   "neuroloom_backend": true,
-  "current_version": "{version from sdlc_get_version, or 'local' if unavailable}",
+  "neuroloom_integration": true,
+  "sdlc_version": "{version from sdlc_get_version, or 'local' if unavailable}",
+  "sdlc_root": ".claude/sdlc",
+  "install_mode": "neuroloom",
+  "source_repo": "https://github.com/Inpacchi/cc-sdlc",
+  "source_version": "{version from sdlc_get_version, or 'local' if unavailable}",
   "ported_at": "{ISO 8601 timestamp}"
 }
 ```
+
+Note: `sdlc_version` is the canonical key read by `sdlc-migrate` to detect the operational layer version. It must always be present.
 
 Call `sdlc_get_version` to get the current cc-sdlc release tag. If the call fails or returns no
 version, use `"local"`.

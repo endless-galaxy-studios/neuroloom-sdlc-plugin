@@ -3,7 +3,9 @@ name: sdlc-migrate
 description: >
   Updates SDLC knowledge in a Neuroloom workspace to the latest cc-sdlc version. Compares the
   workspace's current seeded version against the latest upstream release, re-seeds changed entries,
-  deprecates removed entries (without deleting them), and updates the workspace sentinel.
+  deprecates removed entries (without deleting them), updates the workspace sentinel, and applies
+  content-aware operational file merges with PROJECT-SECTION marker preservation and Neuroloom-aware
+  content transformation.
   Triggers on "migrate sdlc", "update sdlc knowledge", "upgrade sdlc version",
   "sdlc update available", "update the sdlc backend".
   Do NOT use for first-time workspace setup — use sdlc-initialize.
@@ -28,6 +30,92 @@ Every SDLC workspace has two independent layers. Both must be in sync with the s
 | **Operational layer** (filesystem) | Skills, agents, process docs, templates, `CLAUDE.md`, `.sdlc-manifest.json`, `hooks/` files | Direct file writes via Write/Edit tools |
 
 **Both layers must be updated together.** Knowledge current but skills stale causes tool failures. Skills current but knowledge stale produces outdated guidance. If one layer is already at the target version, update only the other — but always verify both are current before reporting success.
+
+---
+
+## PROJECT-SECTION Marker Convention
+
+Framework files (skills, process docs) may contain `PROJECT-SECTION` markers that protect project-specific content across migrations. This skill is responsible for **consuming** markers: extracting, preserving, and re-injecting marked blocks during framework updates.
+
+**Marker format:**
+```html
+<!-- PROJECT-SECTION-START: descriptive-label -->
+... project content ...
+<!-- PROJECT-SECTION-END: descriptive-label -->
+```
+
+**During any operational file overwrite:**
+1. Scan the project's current version for `PROJECT-SECTION-START` / `PROJECT-SECTION-END` marker pairs
+2. Extract each marked block along with its label and the heading it appears under (nearest `#`/`##`/`###` above)
+3. After copying the upstream file, re-inject each block at its original heading position
+4. If the heading no longer exists in the upstream file, append the block at the end with a warning comment: `<!-- MIGRATION WARNING: heading "[heading]" no longer exists in upstream — block preserved at end of file -->`
+5. Log all re-injected blocks in the migration report
+
+**When to skip marker review:**
+- If the project has no markers (first migration, or project never customized framework files)
+- If a block is < 7 days old (parse date from label) — too recent to be stale
+
+**Markers are only for process docs and skill files.** Knowledge YAMLs, discipline files, and agent-context-map are project-specific by nature and don't need markers.
+
+---
+
+## Project-Specific Files (Never Overwrite)
+
+These files become project-specific after initialization. They must NOT be direct-copied during migration:
+
+| File | Reason |
+|------|--------|
+| `process/agent-selection.yaml` | Project's agent roster and dispatch rules — contains project-specific agent names |
+| `knowledge/agent-context-map.yaml` | Configuration file, not knowledge — already excluded from knowledge layer |
+| `knowledge/provenance_log.md` | Project's append-only ingestion/research records |
+
+---
+
+## Neuroloom-Aware Content Transformation
+
+When merging operational files, **preserve MCP tool calls** in framework content. The cc-sdlc source uses file path references (generic), but Neuroloom projects use MCP tools for knowledge access.
+
+### Pattern Mapping
+
+| cc-sdlc Generic Pattern | Neuroloom Pattern (preserve if present) |
+|-------------------------|----------------------------------------|
+| `consult [sdlc-root]/knowledge/agent-context-map.yaml` | `memory_search(query="[agent-name] domain-specific patterns...", tags=["sdlc:knowledge"])` |
+| `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml` | `memory_search(query="agent communication protocol...", tags=["sdlc:knowledge", "sdlc:domain:architecture"])` |
+| `Append to [sdlc-root]/disciplines/*.md` | `memory_store(tags=["sdlc:discipline:{name}", "sdlc:parking-lot"])` |
+| `knowledge stores ([sdlc-root]/knowledge/)` | `Neuroloom knowledge store (via memory_store)` |
+| `look up agent's mapped files from agent-context-map.yaml` | `memory_search(query="{agent-name} domain patterns", tags=["sdlc:knowledge"])` |
+
+### Files Containing These Patterns
+
+| File | Section | Pattern Type |
+|------|---------|--------------|
+| `agents/AGENT_TEMPLATE.md` | `## Knowledge Context` | Agent knowledge retrieval |
+| `agents/AGENT_TEMPLATE.md` | `## Communication Protocol` | Protocol retrieval |
+| `agents/AGENT_TEMPLATE.md` | "Surfacing Learnings" | Knowledge store reference |
+| `agents/sdlc-compliance-auditor.md` | Methodology reference | Knowledge retrieval |
+| `agents/sdlc-reviewer.md` | Agent wiring checklist | Knowledge wiring validation |
+| `process/discipline_capture.md` | Agent knowledge lookup | Knowledge retrieval |
+| `process/overview.md` | Knowledge capture | Knowledge store |
+| `process/knowledge-routing.md` | Entire file (Neuroloom variant) | `memory_search` query patterns — if the installed version contains `memory_search(` calls, preserve the entire file verbatim; upstream has a file-based variant |
+
+### Content-Merge Rules for Neuroloom
+
+1. **Detection heuristic:** Before merging any file listed above, scan the project's current version for `memory_search(` or `memory_store(`. If present, the project uses Neuroloom integration.
+
+2. **Section-level preservation:** When merging a file with Neuroloom patterns:
+   - Identify sections containing MCP tool calls (usually delimited by `##` headings)
+   - Extract the project's MCP-based version of those sections
+   - Apply upstream framework updates to sections WITHOUT MCP calls
+   - Re-inject the project's MCP-based sections verbatim
+   - Log: `Neuroloom pattern preserved: [file] § [section]`
+
+3. **Per-file detection:** Even though this is a Neuroloom workspace, apply detection at file level before merging. Some files may have been added after the port and still use file path patterns. Only preserve MCP patterns where they actually exist.
+
+4. **Reviewer checklist transformation:** The `sdlc-reviewer.md` contains checklists that validate knowledge wiring. Preserve: `Knowledge Context section includes a memory_search call`. Don't overwrite with: `Knowledge Context section references agent-context-map.yaml`.
+
+5. **Agent template sections:** The `AGENT_TEMPLATE.md` drives new agent creation. Preserve: `call memory_search(query="[agent-name] domain-specific patterns...`. Don't overwrite with: `consult [sdlc-root]/knowledge/agent-context-map.yaml`.
+
+**Why this matters:** Overwriting MCP tool calls with file path references breaks semantic search, cross-domain discovery, and context injection — the core value proposition of the Neuroloom backend.
 
 ---
 
@@ -157,7 +245,22 @@ Download the full file listing of the `Inpacchi/cc-sdlc` repo at `LATEST_VERSION
 gh api repos/Inpacchi/cc-sdlc/git/trees/{LATEST_VERSION}?recursive=1
 ```
 
-Download the content of all knowledge YAMLs, discipline markdown files, skill files, agent templates, process docs, templates, and CLAUDE.md from the new release.
+Download content from the following categories:
+
+| Category | Path | Target Layer |
+|----------|------|--------------|
+| Knowledge stores | `knowledge/**/*.yaml` | Knowledge (Neuroloom API) |
+| Discipline parking lots | `disciplines/` | Knowledge (Neuroloom API) |
+| Skills | `skills/` | Operational (filesystem) |
+| Agent templates | `agents/` | Operational (filesystem) |
+| Process docs | `process/` | Operational (filesystem) |
+| Templates | `templates/` | Operational (filesystem) |
+| CLAUDE.md | `CLAUDE-SDLC.md` | Operational (filesystem) |
+
+**Knowledge layer exclusions:**
+- `knowledge/agent-context-map.yaml` — This is a configuration file that maps agent roles to knowledge file paths. In Neuroloom, agents use `memory_search` with tags instead of file paths. This file is not knowledge content and must NOT be ingested.
+- `knowledge/provenance_log.md` — This is a project-specific append-only record of knowledge ingestions and research handoffs. It contains the project's audit lineage, not seed content. Must NOT be ingested or overwritten.
+- `knowledge/README.md` and subdirectory READMEs — Documentation only, not knowledge entries.
 
 Use the GitHub contents API for individual files:
 
@@ -372,17 +475,25 @@ The plugin versions are the authoritative replacements, updated from the plugin 
 
 #### Agents
 
-Re-run the project-stack tailoring logic from `sdlc-initialize`: update the framework-derived sections of each agent file (tool lists, knowledge query patterns, handoff format) while preserving the agent name, domain description, and any project-added agents that do not exist in the upstream template set.
+**Framework agent files** (`AGENT_TEMPLATE.md`, `AGENT_SUGGESTIONS.md`, `sdlc-reviewer.md`, `sdlc-compliance-auditor.md`): Apply Neuroloom-Aware Content Transformation rules (see section above). Scan each file for `memory_search(` or `memory_store(` patterns before merging. Preserve MCP-based sections; update non-MCP framework sections verbatim from upstream. If `AGENT_SUGGESTIONS.md` doesn't exist in the project, install it.
+
+**Project domain agents** (all other files in `.claude/agents/`): Re-run the project-stack tailoring logic from `sdlc-initialize`: update the framework-derived sections of each agent file (Knowledge Context, Communication Protocol, "Surfacing Learnings" sections) while preserving the agent name, domain description, scope ownership, anti-rationalization tables, and any project-added agents that do not exist in the upstream template set. Note: `knowledge_feedback` was removed from the Knowledge Context section template upstream — remove it from project agents during tailoring.
 
 If an upstream agent template was renamed: flag it. Do not silently overwrite a renamed agent.
 
 #### Process docs
 
-Overwrite cc-sdlc originals (files that originated from the upstream framework). Preserve files that were added by the project and have no upstream equivalent — identify these by checking `.sdlc-manifest.json` for the file origin.
+Overwrite cc-sdlc originals (files that originated from the upstream framework) with PROJECT-SECTION marker extraction/re-injection. Preserve files that were added by the project and have no upstream equivalent — identify these by checking `.sdlc-manifest.json` for the file origin.
+
+**Never overwrite `process/agent-selection.yaml`** — this file contains the project's agent roster and dispatch rules with project-specific agent names. It becomes project-specific after initialization. If upstream added new entries (e.g., new infrastructure domains, new tier definitions), flag them for CD review rather than overwriting.
 
 #### `.sdlc-manifest.json`
 
-Update the `sdlc_version` field to `LATEST_VERSION`. Preserve all project-specific fields.
+Update the `sdlc_version` field to `LATEST_VERSION`. Preserve all project-specific fields. Add missing fields introduced in newer cc-sdlc versions if absent:
+
+- `sdlc_root` — set to the detected SDLC root path (`ops/sdlc/` or `.claude/sdlc/`)
+- `neuroloom_integration` — set to `true` (this is a Neuroloom workspace)
+- `install_mode` — set to `"neuroloom"` if absent
 
 #### `hooks/` files
 
@@ -437,7 +548,24 @@ Check the CLAUDE.md SDLC section for references that may have gone stale based o
 - Tool parameter names that changed
 - Tag names that were renamed
 
-For each stale reference found, either update it automatically (if the change is a clear 1:1 rename) or flag it for CD review via `AskUserQuestion`.
+**Guarded rename rule for skills:** Before renaming any skill reference in CLAUDE.md:
+1. Build the project's actual skill inventory: `ls .claude/skills/`
+2. Only rename if the target skill directory exists in the project
+3. If the target doesn't exist, log a warning instead of renaming:
+   ```
+   GUARDED RENAME SKIPPED: [old-name] → [new-name] — target directory does not exist in project
+   ```
+
+**Guarded rename rule for agents:** Skills that dispatch subagents contain agent names in examples and dispatch logic. Before renaming any agent reference:
+1. Build the project's actual agent inventory: `ls .claude/agents/`
+2. Only rename if the target agent file exists in the project
+3. If the target doesn't exist, keep the project's original agent name
+
+**CLAUDE-SDLC.md standalone cleanup:** If `[sdlc-root]/CLAUDE-SDLC.md` exists as a separate file (legacy from older installations), verify its content is already merged into `CLAUDE.md`, then remove it. CLAUDE-SDLC.md is no longer installed as a standalone file — its content lives directly in the project's CLAUDE.md.
+
+**New CLAUDE-SDLC.md sections:** Compare the project's CLAUDE.md SDLC sections against the current upstream `CLAUDE-SDLC.md` source. If new sections were added upstream (e.g., new workflow rules, new verification policies), merge them into the project's CLAUDE.md.
+
+For each stale reference found, either update it automatically (if the change is a clear 1:1 rename with a verified target) or flag it for CD review via `AskUserQuestion`.
 
 If no changelog items flagged CLAUDE.md-relevant changes, this check is a no-op — report "No CLAUDE.md updates needed."
 
@@ -497,11 +625,31 @@ Knowledge layer:
   Errors:      {N} (see below if > 0)
 
 Operational layer:
-  Overwritten: {N} files
-  Skipped:     {N} files (kept project version)
-  Modified:    {N} files (required manual review — see decisions below)
+  Overwritten:    {N} files
+  Skipped:        {N} files (kept project version)
+  Modified:       {N} files (required manual review — see decisions below)
+  Consolidated:   {N} skills removed (absorbed into other skills)
+  Never-touched:  agent-selection.yaml, provenance_log.md (project-specific)
 
-CLAUDE.md: {updated N references / no updates needed}
+PROJECT-SECTION markers:
+  Blocks found:      {N}
+  Re-injected as-is: {N}
+  Reviewed:          {N}
+  Orphaned:          {N} (heading no longer exists — appended at end of file)
+
+Neuroloom content transformation:
+  Files with MCP patterns preserved: {N} [list files]
+  Sections preserved: [list file § section]
+
+CLAUDE.md:
+  Stale references updated: {N}
+  Guarded renames skipped:  {N} (targets don't exist)
+  New sections merged:      {N}
+  Standalone CLAUDE-SDLC.md removed: {yes/no/not present}
+
+Manifest:
+  sdlc_version: {LATEST_VERSION}
+  New fields added: {list or "none"}
 
 Compliance audit: {pass / N findings — see below}
 
@@ -520,16 +668,24 @@ This table governs Stage 4 decisions. Consult it when a file's category is ambig
 
 | File Category | Strategy | Rationale |
 |---------------|----------|-----------|
-| cc-sdlc core skills | Always overwrite | No project customizations expected |
+| cc-sdlc core skills | Overwrite + marker preservation | Extract PROJECT-SECTION blocks, overwrite, re-inject |
 | Plugin skills (initialize, migrate, port) | Always overwrite | Maintained in this plugin repo |
+| Consolidated skills (sdlc-create-skill) | Delete | Absorbed into sdlc-develop-skill upstream |
 | Enhanced skills (archive, audit) | Merge | Contain Neuroloom-specific API sections |
-| Agent files (upstream templates) | Re-run tailoring | Framework sections update; domain desc preserved |
+| Agent files (framework: template, suggestions, reviewer, auditor) | Neuroloom-aware merge | Preserve MCP patterns, update non-MCP sections |
+| Agent files (project domain agents) | Re-run tailoring | Framework sections update; domain desc preserved |
 | Agent files (project-added) | Skip | No upstream equivalent — never touch |
-| Process docs (upstream originals) | Overwrite | No project customizations expected |
+| Process docs (upstream originals) | Overwrite + marker preservation | Extract PROJECT-SECTION blocks, overwrite, re-inject |
+| `process/agent-selection.yaml` | **Never overwrite** | Project-specific agent roster and dispatch rules |
 | Process docs (project-added) | Skip | No upstream equivalent |
-| `.sdlc-manifest.json` | Partial update | Only update version fields |
+| Knowledge YAMLs | Server-side upsert | `knowledge_id` matching handles new/updated/unchanged/deprecated |
+| `knowledge/provenance_log.md` | **Never overwrite/ingest** | Project-specific append-only records |
+| Discipline files | Preserve parking lots | Update framework sections, preserve project entries |
+| `.sdlc-manifest.json` | Partial update | Update version + add missing fields (`sdlc_root`, `neuroloom_integration`, `install_mode`) |
 | `hooks/` files | Always overwrite | Plugin-managed; no project customizations |
-| `CLAUDE.md` SDLC section | Targeted update | Only stale references; preserve project additions |
+| `CLAUDE.md` SDLC section | Targeted update + guarded renames | Only stale references; preserve project additions |
+| Standalone `CLAUDE-SDLC.md` | Delete | Legacy file; content merged into CLAUDE.md |
+| Templates | Overwrite | Framework-level; skip `templates/optional/` |
 
 **Modified file rule:** If git diff shows the project has changed a file that would normally be overwritten, treat it as Modified and surface a review gate (Stage 4.2). Never silently overwrite a file with project customizations.
 
@@ -564,6 +720,14 @@ The skill has two independent early-exit conditions. Both must be satisfied befo
 | "I'll call `memory_search` without a query parameter." | `memory_search` requires a mandatory `query` string. Tags alone are not sufficient. Every call must include an explicit query. |
 | "CD said 'apply' so I'll skip the preview options." | The preview gate (Stage 3.3.2) must be presented every time. CD may want to inspect content even on familiar migrations. Never jump straight to Apply without offering the preview options. |
 | "There are only 2 updated entries — I don't need to show content." | The count doesn't determine whether preview is valuable. A single entry could contain a breaking change. Always offer the preview options regardless of count. |
+| "I should re-seed agent-context-map.yaml into Neuroloom" | `agent-context-map.yaml` is a configuration file, not knowledge content. It maps agent roles to file paths — a pattern replaced by tags in Neuroloom. Ingesting it adds garbage to the knowledge layer. Exclude it from all knowledge layer operations. |
+| "I'll just overwrite all skills without checking for markers." | PROJECT-SECTION markers protect project-specific content. Extract marked blocks before overwriting, then re-inject. Skipping this destroys intentional project customizations. |
+| "I'll copy agent-selection.yaml with the other process files." | `agent-selection.yaml` is project-specific — it contains the project's agent roster, not the framework's. Never overwrite it. |
+| "I'll rename all skill references to match upstream." | Guarded renames only — check that the target skill directory exists in `.claude/skills/` before renaming. Renaming to a nonexistent skill causes silent process failures. |
+| "I'll rename agent names in skills to match upstream." | Projects use different agent names (`frontend-engineer` vs `frontend-developer`). Only rename if the target agent exists in `.claude/agents/`. |
+| "The AGENT_TEMPLATE.md can be copied directly from upstream." | Neuroloom projects use `memory_search` in Knowledge Context, not file path references. Scan for MCP patterns before merging — preserve them. |
+| "I'll ingest provenance_log.md into the knowledge layer." | The provenance log is a project-specific append-only record. It's not seed content — never ingest or overwrite it. |
+| "CLAUDE-SDLC.md should be a separate file." | Since upstream refactored this, CLAUDE-SDLC.md content lives directly in the project's CLAUDE.md. Remove any standalone copy after verifying its content is in CLAUDE.md. |
 
 ---
 
