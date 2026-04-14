@@ -178,9 +178,13 @@ For the **knowledge layer**, compare each `knowledge_id` in the new release agai
 
 For the **operational layer**, compare each file in the new release against the current filesystem version. Use `.sdlc-manifest.json` to identify the base version for diff. Categorize as: unchanged, updated (framework-only changes), or modified (project has customizations).
 
-### 3.3 Present change manifest and request confirmation
+### 3.3 Present change manifest with expandable preview
 
-Use `AskUserQuestion`:
+**This is the primary preview gate.** CD must be able to inspect actual content before any mutations occur.
+
+#### 3.3.1 Initial summary
+
+Output the change manifest summary (not via `AskUserQuestion` — this is informational):
 
 ```
 Change manifest: {KNOWLEDGE_VERSION} → {LATEST_VERSION}
@@ -195,13 +199,111 @@ Operational layer:
   Unchanged:  {N} files
   Updated:    {N} files (framework-only changes — will overwrite)
   Modified:   {N} files (project customizations detected — will require review)
-
-Apply migration?
 ```
 
-Options: `Yes, apply` / `No, cancel` / `Show detailed file list`
+#### 3.3.2 Preview options
 
-If there are modified operational files, note that Stage 4 will present a per-file confirmation for each one.
+Use `AskUserQuestion` with category-based drill-down options:
+
+```
+What would you like to review before applying?
+```
+
+Options (show only categories with count > 0):
+- `Preview new knowledge entries ({N})` — shows titles + full content of entries to be created
+- `Preview updated knowledge entries ({N})` — shows titles + content diff (old vs new)
+- `Preview deprecated knowledge entries ({N})` — shows titles of entries that will be tagged deprecated
+- `Preview updated operational files ({N})` — shows file paths + unified diff
+- `Preview modified operational files ({N})` — shows file paths + diff highlighting project customizations
+- `Apply migration` — proceed to Stage 4
+- `Cancel` — abort without changes
+
+#### 3.3.3 Category preview behavior
+
+When CD selects a preview category, output the full content for that category:
+
+**New knowledge entries:**
+```
+New entries to be created ({N}):
+
+1. {title}
+   knowledge_id: {id}
+   tags: [{tags}]
+   ---
+   {full content}
+
+2. {title}
+   ...
+```
+
+**Updated knowledge entries:**
+```
+Updated entries ({N}):
+
+1. {title}
+   knowledge_id: {id}
+   
+   --- Current (in workspace)
+   {current content}
+   
+   +++ New (from cc-sdlc {LATEST_VERSION})
+   {new content}
+
+2. {title}
+   ...
+```
+
+For large diffs, show a unified diff format highlighting only changed lines.
+
+**Deprecated knowledge entries:**
+```
+Entries to be deprecated ({N}):
+
+These entries exist in your workspace but are no longer in cc-sdlc {LATEST_VERSION}.
+They will be tagged sdlc:deprecated but NOT deleted.
+
+1. {title} (knowledge_id: {id})
+2. {title} (knowledge_id: {id})
+...
+```
+
+**Updated operational files:**
+```
+Operational files to be overwritten ({N}):
+
+1. {file_path}
+   @@ unified diff @@
+   ...
+
+2. {file_path}
+   ...
+```
+
+**Modified operational files:**
+```
+Modified files requiring review ({N}):
+
+These files have project customizations that differ from the upstream version.
+Each will get a per-file confirmation in Stage 4.
+
+1. {file_path}
+   Project customization detected:
+   {summary of what's different}
+   
+   @@ unified diff (project vs upstream) @@
+   ...
+
+2. {file_path}
+   ...
+```
+
+#### 3.3.4 Return to options
+
+After displaying any category preview, return to the options prompt (3.3.2). CD can preview multiple categories before deciding to apply or cancel.
+
+**Loop until CD selects `Apply migration` or `Cancel`.**
+
+If there are modified operational files, note that Stage 4 will present a per-file confirmation for each one (the preview here shows what to expect; the gate in Stage 4 is where the decision is made).
 
 ---
 
@@ -460,6 +562,8 @@ The skill has two independent early-exit conditions. Both must be satisfied befo
 | "The compliance audit can wait until next session." | Post-migration audit catches integrity issues that compound quickly. Dispatch the auditor now, in Stage 5. |
 | "I can update the sentinel after the operational layer too." | The sentinel is read-only to skills. The server updates it automatically. Never write to it manually. |
 | "I'll call `memory_search` without a query parameter." | `memory_search` requires a mandatory `query` string. Tags alone are not sufficient. Every call must include an explicit query. |
+| "CD said 'apply' so I'll skip the preview options." | The preview gate (Stage 3.3.2) must be presented every time. CD may want to inspect content even on familiar migrations. Never jump straight to Apply without offering the preview options. |
+| "There are only 2 updated entries — I don't need to show content." | The count doesn't determine whether preview is valuable. A single entry could contain a breaking change. Always offer the preview options regardless of count. |
 
 ---
 
