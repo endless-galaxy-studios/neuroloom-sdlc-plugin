@@ -4,42 +4,37 @@
 
 # Neuroloom SDLC Plugin
 
-cc-sdlc knowledge lives in files that die when the context window clears. This plugin backs cc-sdlc with Neuroloom persistent memory — knowledge stores become searchable, deliverable docs sync across sessions, and version updates arrive at session start. It is a companion to the base Neuroloom Claude Code plugin, not a standalone tool.
+Whatever you're doing right now is your SDLC. It might be structured or it might be vibes - either way, that process knowledge lives somewhere: some paper, Obsidian, in a project management tool or even in your own head. But Claude Code starts every session from scratch.
+
+This plugin syncs your development process to [Neuroloom, the memory engine for agentic coding](https://neuroloom.dev). Specs inform future plans. Decisions surface when relevant. The process-layer memory enriches your development workflow by making the knowledge that would normally live in scattered files or an external system available outside the confines of a context window.
+
+*Built on cc-sdlc, an open-source process framework for Claude Code. Use the full structure or just the parts that fit. There's no one right way to run a dev process — this just makes sure yours survives a context clear.*
 
 ---
 
 ## Prerequisites
 
-- **Neuroloom API key** — get one at [app.neuroloom.dev/settings/api-keys](https://app.neuroloom.dev/settings/api-keys)
-- **neuroloom-claude-plugin** — you'll need the Neuroloom Claude Code plugin installed first — this plugin extends it with SDLC-specific memory
-- **jq** — required for JSON parsing in hook scripts (`brew install jq` or `apt install jq`)
-- **curl** — required for API calls (present on most systems)
+- [**Neuroloom API key**](https://app.neuroloom.dev/settings/api-keys)
+- [**neuroloom-claude-plugin**](https://github.com/endless-galaxy-studios/neuroloom-claude-plugin)
 
 ---
 
 ## Install
 
-### 1. Install the base plugin
+### 1. Install Neuroloom
 
-If you have not already installed `neuroloom-claude-plugin`, do that first. This plugin declares it as a dependency.
+Follow the instructions [here](https://github.com/endless-galaxy-studios/neuroloom-claude-plugin?tab=readme-ov-file#installation) to install `neuroloom-claude-plugin`, if you haven't already.
 
-### 2. Install this plugin from the marketplace
+### 2. Install the Neuroloom SDLC
 
 ```
 /plugin install neuroloom-sdlc@endless-galaxy-studios
 ```
 
-### 3. Reload plugins
+### 3. Restart Claude Code, then initialize or port your workspace
 
-```
-/reload-plugins
-```
+**New project (no existing development process framework):**
 
-### 4. Initialize or port your workspace
-
-**New project (no existing cc-sdlc):**
-
-In Claude Code, run:
 ```
 /sdlc-initialize
 ```
@@ -50,87 +45,79 @@ In Claude Code, run:
 /sdlc-port
 ```
 
----
-
-## Skill Inventory
-
-| Skill | When to use |
-|-------|-------------|
-| `/sdlc-initialize` | New project — seeds cc-sdlc knowledge from upstream and writes operational files |
-| `/sdlc-migrate` | Workspace already initialized — pulls latest cc-sdlc release and re-seeds changed entries |
-| `/sdlc-port` | Project has local cc-sdlc installed — migrates local knowledge and deliverables to Neuroloom |
-
----
-
-## How it works
-
-### SessionStart hook
-
-At the start of each Claude Code session, `session-start.sh` runs automatically. It calls the Neuroloom version proxy to check whether a cc-sdlc update is available and compares it to the version seeded in your workspace.
-
-- If the workspace is not initialized: prompts you to run `/sdlc-initialize`
-- If an update is available: prints a one-line notice and the command to update
-- On any network error: silent exit — never blocks session startup
-
-### PostToolUse hook
-
-After Claude Code writes or edits a file matching `docs/current_work/**/*.md`, `post-tool-use.sh` fires. It reads the file, derives deliverable ID and doc type from the filename, and syncs the content to Neuroloom in a background subshell.
-
-The hook uses a fire-and-forget pattern — it never blocks Claude Code's response cycle. If the API call fails, the payload is buffered to `.neuroloom-sdlc-sync-buffer.json` for retry.
-
----
-
-## Verification
-
-After installation and initialization, verify the setup:
-
-1. Start a new Claude Code session — you should see no output from the hooks (or a version notice if an update is available)
-2. Edit a file under `docs/current_work/` — the PostToolUse hook fires in the background
-3. In Claude Code, ask: "Search Neuroloom for recent SDLC deliverables" — the synced docs should appear
-
-To enable debug logging for hook scripts:
-
-```bash
-export NEUROLOOM_DEBUG=true
+### To upgrade:
+```
+/sdlc-migrate
 ```
 
 ---
 
-## Troubleshooting
+## What cc-sdlc is
 
-**"workspace not initialized" on every session start**
-Run `/sdlc-initialize` or `/sdlc-port` to create the sentinel memory.
+cc-sdlc is an open-source process framework for Claude Code. It lives at `.claude/sdlc/` in your project and provides:
 
-**Hook scripts not firing**
-Verify the scripts are executable: `chmod +x hooks/session-start.sh hooks/post-tool-use.sh`. Check that hooks are registered in your Claude Code settings.
+- **Skills** — orchestration commands (`/sdlc-plan`, `/sdlc-execute`, `/sdlc-lite-plan`, `/sdlc-idea`, `/sdlc-review`, etc.) that drive the spec → plan → implement → review lifecycle
+- **Domain agents** — specialized subagents (backend-engineer, frontend-engineer, software-architect, search-engineer, etc.) that do the implementation and review work
+- **Knowledge stores** — discipline-specific knowledge data (architecture patterns, testing gotchas, search engineering concepts) injected into agent dispatch prompts so agents don't rediscover the same lessons every session
+- **Process rules** — the manager rule (the orchestrator never writes code), the review-fix loop (mandatory multi-agent review after every implementation), finding classification, collaboration model and deliverable lifecycle
+- **Deliverable tracking** — every non-trivial unit of work gets an ID (D1, D2, ... Dnn), a plan, a result doc, and a catalog entry. Specs, plans, and results live in `docs/current_work/` while in progress; completed work moves to `docs/chronicle/`
 
-**Sync buffer growing**
-The file `.neuroloom-sdlc-sync-buffer.json` accumulates payloads when the API is unreachable. Once the API is reachable again, run `/sdlc-port` or manually retry the buffered payloads.
+The framework is sourced from [Inpacchi/cc-sdlc](https://github.com/Inpacchi/cc-sdlc). The plugin fetches from upstream at init and migrate time.
 
-**jq not found**
-Install jq: `brew install jq` (macOS) or `apt install jq` (Linux). The hooks exit silently without jq rather than failing.
+---
+
+## What the plugin does
+
+- **Knowledge tracking** — `/sdlc-initialize` fetches the cc-sdlc framework from upstream, parses its knowledge files (YAML entries, rules, gotchas, methodology), and ingests them into Neuroloom as tagged memories. Skills and agents reference this knowledge via semantic search instead of reading flat files — knowledge persists across sessions without loading everything into the context window.
+- **Deliverable sync** — when Claude Code writes or edits a spec, plan, or result doc under `docs/current_work/`, the PostToolUse hook ships the content to Neuroloom in the background. Specs from a previous session are searchable in the next — decisions made during planning surface automatically when related code is touched later.
+- **Framework version tracking** — the SessionStart hook checks whether a cc-sdlc framework update is available and prints a one-line notice when one is. Updates never apply automatically; you control when to run `/sdlc-migrate`.
+
+---
+
+## How It Works
+
+All hooks are Python modules in `sdlc_pyhooks/`, launched via `run_hook.py` through the base plugin's `.venv`. The SDLC plugin has no dependencies of its own — it imports `pyhooks.config` and `pyhooks.http` directly from the base plugin. No local state database; hooks are stateless and call the Neuroloom API directly.
+
+**SessionStart** — calls the Neuroloom version proxy to fetch the latest cc-sdlc release version, then searches for the workspace's sentinel memory to determine initialization state.
+
+- If no sentinel exists: prompts you to run `/sdlc-initialize`
+- If the sentinel's `sdlc:seed-version:` tag differs from the latest release: prints a one-line update notice with the `/sdlc-migrate` command
+- On any network error: silent exit — never blocks session startup
+
+**PostToolUse (deliverable sync)** — fires after Write and Edit on files matching `docs/current_work/**/*.md`. Reads the file, extracts the deliverable ID (`d42_foo_spec.md` → `42`) and doc type (`_spec.md` → `spec`, `_plan.md` → `plan`, `_result.md` → `result`, `_COMPLETE.md` → `chronicle`) from the filename, tags the payload with `sdlc:deliverable:{id}` and `sdlc:doc:{type}`, and ships it to the Neuroloom documents ingest endpoint in a background thread. Exits in under 100ms — the sync thread continues after the hook returns (`daemon=False` with a 90ms join). If the API is unreachable or returns a non-2xx status, the payload is buffered in the local SQLite `event_buffer` table for automatic replay on the next session start.
 
 ---
 
 ## Reference
 
+
+### Skill Inventory
+
+| Skill | When to use |
+|-------|-------------|
+| `/sdlc-initialize` | New project — seeds development process knowledge from upstream and writes operational files |
+| `/sdlc-port` | Project has a local framework installation — migrates local knowledge and deliverables to Neuroloom |
+| `/sdlc-migrate` | Workspace already initialized — pulls latest framework release and re-seeds changed entries, with content-aware merging and project customization preservation |
+
+
 ### Tag Schema
 
-All SDLC data in Neuroloom is organized via tags with the `sdlc:` prefix. These are the tags the plugin creates and queries:
+All process-layer data in Neuroloom is organized via tags with the `sdlc:` prefix. These are the tags the plugin creates and queries:
 
 | Tag | Purpose | Set by |
 |-----|---------|--------|
 | `sdlc:sentinel` | Marks the workspace sentinel memory (exactly one per workspace) | `/sdlc-initialize`, `/sdlc-port`, `/sdlc-migrate` |
 | `sdlc:seed` | Marks memories created by the seed algorithm | `seed()` |
-| `sdlc:seed-version:{version}` | Tracks which cc-sdlc version a memory was seeded from | `seed()`, sentinel |
+| `sdlc:seed-version:{version}` | Tracks which framework version a memory was seeded from | `seed()`, sentinel |
 | `sdlc:knowledge-id:{id}` | Stable identifier for upsert deduplication | All ingestion paths |
 | `sdlc:project-specific` | Protects memories from being overwritten or deprecated during re-seed | User (manual tag) |
-| `sdlc:deprecated` | Marks entries removed from upstream cc-sdlc (not deleted, just tagged) | `seed()` |
+| `sdlc:deprecated` | Marks entries removed from upstream framework (not deleted, just tagged) | `seed()` |
 | `sdlc:deliverable:{id}` | Links a memory to a deliverable (e.g., `sdlc:deliverable:d17`) | PostToolUse hook |
 | `sdlc:doc:{type}` | Document type: `spec`, `plan`, `result`, `chronicle` | PostToolUse hook |
 | `sdlc:pattern:{name}` | YAML pattern type: `entries`, `gotchas`, `rules`, `methodology` | YAML parsers |
 | `sdlc:triage:{marker}` | Discipline parking lot triage state | Discipline parser |
 | `sdlc:project-context` | Workspace project profile (tech stack, conventions) | `/sdlc-initialize` |
+
 
 ### API Endpoints
 
@@ -146,6 +133,7 @@ The plugin communicates with these Neuroloom API endpoints:
 
 All endpoints require `Authorization: Token <api_key>`. Workspace is resolved server-side from the API key.
 
+
 ### MCP Tools
 
 The slash commands use these MCP tools (available when the base Neuroloom plugin is installed):
@@ -157,6 +145,18 @@ The slash commands use these MCP tools (available when the base Neuroloom plugin
 | `sdlc_get_version` | `/sdlc-initialize`, `/sdlc-migrate` |
 | `memory_search` | `/sdlc-migrate` (sentinel lookup), `/sdlc-port` (transformation matching) |
 
-### Source Repository
+---
 
-Knowledge is seeded from [Inpacchi/cc-sdlc](https://github.com/Inpacchi/cc-sdlc). The plugin fetches from upstream at init/migrate time — it never vendors or forks the framework.
+## Troubleshooting
+
+**"workspace not initialized" on every session start**
+Run `/sdlc-initialize` or `/sdlc-port` to create the sentinel memory.
+
+**Hook scripts not firing**
+Verify the base plugin's `.venv` exists at `../neuroloom-claude-plugin/.venv`; if not, run `cd neuroloom-claude-plugin && uv sync`. Check that hooks are registered in your Claude Code settings.
+
+**Sync buffer growing**
+The `event_buffer` table in `.neuroloom.db` accumulates payloads when the API is unreachable. Buffered payloads are replayed automatically on the next session start. To check the buffer size: `sqlite3 .neuroloom.db "SELECT COUNT(*) FROM event_buffer"`.
+
+**Migrating from shell hooks**
+If you previously configured Neuroloom via `~/.neuroloom/config.json`, you must reconfigure using Claude Code's plugin configuration. Run `/plugins configure neuroloom` to set the `CLAUDE_PLUGIN_OPTION_API_KEY` and `NEUROLOOM_API_BASE` environment variables. The Python hooks read configuration from environment variables via `pyhooks.config.load()`; the old `config.json` file is no longer read.

@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh"
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/run_hook.py sdlc_pyhooks.session_start"
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/post-tool-use.sh"
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/run_hook.py sdlc_pyhooks.post_tool_use"
           }
         ]
       }
