@@ -48,6 +48,102 @@ Never mix layers. Knowledge that belongs in Neuroloom is not written to disk. Op
 
 ---
 
+## Stage 0 — Pre-Flight Health Check
+
+**Before any mode detection, user prompts, or mutations**, run the shared pre-flight protocol at `${CLAUDE_PLUGIN_ROOT}/references/preflight.md`.
+
+The protocol validates:
+- Neuroloom API reachability and auth
+- GitHub API reachability and rate limit
+- Required MCP tools (`document_ingest_batch`, `memory_search`, `memory_store`, `sdlc_get_version`)
+- Required CLI tools (`gh`, `git`, `jq`, `python3`)
+- Sufficient disk space
+
+**Failure policy:** Collect all failures and report together. Do not proceed on any hard failure. Preflight is read-only — failures leave no partial state.
+
+Record the preflight result as the first entry in the transaction log (see "Transaction Log" section below).
+
+---
+
+## Transaction Log
+
+Every stage start/end, gate decision, and failure writes an append-only JSONL entry to `.sdlc-transaction-log` in the project root. This enables recovery diagnostics — if a session crashes mid-migration, the next session can read the log to understand what completed and what didn't.
+
+### Log location and lifecycle
+
+- **Path:** `.sdlc-transaction-log` (project root, gitignored by default)
+- **Format:** JSONL — one JSON object per line, newline-terminated, append-only
+- **Rotation:** On each new init/migrate run, append a `"run_start"` marker. Logs are not truncated — they accumulate history across all runs.
+- **Gitignore:** Ensure `.sdlc-transaction-log` is added to `.gitignore` during Stage 5b (alongside `.claude/agent-memory/`).
+
+### Entry schema
+
+```json
+{"ts": "2026-04-21T18:30:00Z", "run_id": "init-abc123", "skill": "sdlc-initialize", "event": "stage_start", "stage": "0", "details": {"stage_name": "Pre-Flight Health Check"}}
+{"ts": "2026-04-21T18:30:02Z", "run_id": "init-abc123", "skill": "sdlc-initialize", "event": "check", "check": "neuroloom_api", "result": "pass", "details": {"workspace_id": "..."}}
+{"ts": "2026-04-21T18:30:05Z", "run_id": "init-abc123", "skill": "sdlc-initialize", "event": "stage_end", "stage": "0", "details": {"duration_ms": 5230, "result": "pass"}}
+{"ts": "2026-04-21T18:31:00Z", "run_id": "init-abc123", "skill": "sdlc-initialize", "event": "gate", "stage": "4", "gate": "confirmation", "result": "approved"}
+{"ts": "2026-04-21T18:32:15Z", "run_id": "init-abc123", "skill": "sdlc-initialize", "event": "mutation", "stage": "5a", "details": {"type": "batch_ingest", "entries": 127, "batch": 1}}
+{"ts": "2026-04-21T18:35:42Z", "run_id": "init-abc123", "skill": "sdlc-initialize", "event": "failure", "stage": "6b", "details": {"agent": "backend-engineer", "error": "sdlc-create-agent returned non-zero"}}
+{"ts": "2026-04-21T18:40:00Z", "run_id": "init-abc123", "skill": "sdlc-initialize", "event": "run_end", "details": {"result": "success", "duration_ms": 600000}}
+```
+
+### Required event types
+
+| `event` | When to log | Required `details` |
+|---------|-------------|---------------------|
+| `run_start` | First action after preflight passes | `skill`, `run_id`, `invocation_args` |
+| `stage_start` | Entering a stage | `stage`, `stage_name` |
+| `stage_end` | Exiting a stage | `stage`, `duration_ms`, `result` (`pass`/`fail`) |
+| `check` | Individual pre-flight or verification check | `check`, `result`, optional details |
+| `gate` | User confirmation or hard-fail gate | `stage`, `gate` (name), `result` (`approved`/`rejected`/`cancelled`) |
+| `mutation` | Any action that changes state (batch ingest, file write, manifest update) | `stage`, `type`, scope details |
+| `warning` | Non-fatal issue (e.g., TRANSFORMATION_WARNING) | `stage`, `category`, `message`, `location` |
+| `failure` | Any error condition | `stage`, `error`, remediation hints |
+| `run_end` | Final exit | `result` (`success`/`failure`/`cancelled`), `duration_ms` |
+
+### Run ID generation
+
+`run_id = "{skill-shortname}-{6-char-random-hex}"` — e.g., `init-abc123`, `migrate-def456`. Consistent run_id lets future diagnostics filter all events from a single invocation.
+
+### Reading the log for recovery
+
+If a session ended abnormally:
+
+```
+tail -n 50 .sdlc-transaction-log | jq -c '.'
+# Look for: last stage_start without matching stage_end = where it crashed
+# Last mutation event = what was last committed
+# Last gate event = whether the run was past point-of-no-return
+```
+
+---
+
+## Transformation Warning Log
+
+Install-time content transformation (Stage 5b) may encounter patterns that look standard-phrase-adjacent but don't match any rule in the Pattern Mapping table. These surface as `TRANSFORMATION_WARNING` entries.
+
+### Log location
+
+- **Path:** `.sdlc-transformation-warnings.log` (project root, gitignored)
+- **Format:** JSONL, append-only (same shape as transaction log but purpose-scoped)
+- **Also emitted:** As `warning` events in `.sdlc-transaction-log` with `category: "transformation"` — duplication is intentional so users can find these in both places.
+
+### Entry schema
+
+```json
+{"ts": "2026-04-21T18:33:12Z", "run_id": "init-abc123", "file": ".claude/skills/sdlc-plan/SKILL.md", "line": 178, "phrase": "consult [sdlc-root]/playbooks/", "reason": "pattern resembles agent-context-map lookup but path doesn't match any transformation rule", "action": "applied upstream content verbatim — no transformation"}
+```
+
+### Review workflow
+
+After each init/migrate run, if `.sdlc-transformation-warnings.log` has new entries:
+1. Report count in final summary (`Transformation warnings: {N} — review at .sdlc-transformation-warnings.log`)
+2. User reviews and decides: the phrase is a false positive (ignore), or a genuine new phrase that needs a Pattern Mapping rule
+3. If rule is needed: update the plugin's Pattern Mapping table in `skills/sdlc-migrate/SKILL.md` and file an issue for upstream to tag the `[contract-change]` for future consumers
+
+---
+
 ## Mode Detection
 
 Before starting any work, scan the project and determine which mode applies. Output the assessment:
@@ -377,6 +473,19 @@ Do not proceed to Stage 5 unless CD explicitly confirms.
 
 ## Stage 5 — Seed Knowledge + Write Operational Files
 
+> ## ⚠ POINT OF NO RETURN
+>
+> **Stages 0–4 were read-only or preparatory.** Cancellation at any of those stages left no trace.
+>
+> **Stage 5 is the first stage that commits mutations.** The first `document_ingest_batch` call in Stage 5a writes to Neuroloom. The first file write in Stage 5b writes to disk. Once either has run, **cancellation leaves partial state** that requires `/sdlc-initialize` in repair mode or manual cleanup to resolve.
+>
+> Before proceeding, verify:
+> - Stage 4 confirmation gate returned `approved`
+> - Transaction log has a `gate` event for Stage 4 with `result: approved`
+> - Preflight passed without hard failures (Stage 0 `stage_end` with `result: pass`)
+>
+> Log a `checkpoint: point_of_no_return` event to the transaction log immediately before the first batch call.
+
 *This is the main execution stage. Complete knowledge seeding before writing operational files.*
 
 ### 5a. Batch-Ingest Knowledge into Neuroloom
@@ -462,7 +571,8 @@ rm -rf .claude/skills/sdlc-initialize/ .claude/skills/sdlc-migrate/
 
 **Gate:** Present the drafted CLAUDE.md to CD. Use `AskUserQuestion`: "CLAUDE.md is ready for review. Any changes before I save it?"
 
-**`.sdlc-manifest.json`:** Write to project root:
+**`.sdlc-manifest.json`:** Write to project root. Includes an `installed_files` map of hash-at-install for every operational-layer file written in Stage 5b. This enables `/sdlc-migrate` to detect post-install manual edits (drift) before overwriting.
+
 ```json
 {
   "sdlc_version": "{SDLC_VERSION}",
@@ -474,13 +584,36 @@ rm -rf .claude/skills/sdlc-initialize/ .claude/skills/sdlc-migrate/
   "source_version": "{SDLC_VERSION}",
   "initialized_at": "{ISO_DATE}",
   "workspace_id": "{workspace_id}",
-  "agent_count": {M}
+  "agent_count": {M},
+  "installed_files": {
+    ".claude/skills/sdlc-plan/SKILL.md":       { "sha256": "{hash}", "size": {bytes}, "installed_at": "{ISO_DATE}" },
+    ".claude/skills/sdlc-execute/SKILL.md":    { "sha256": "{hash}", "size": {bytes}, "installed_at": "{ISO_DATE}" },
+    ".claude/agents/AGENT_TEMPLATE.md":        { "sha256": "{hash}", "size": {bytes}, "installed_at": "{ISO_DATE}" },
+    ".claude/sdlc/process/overview.md":        { "sha256": "{hash}", "size": {bytes}, "installed_at": "{ISO_DATE}" },
+    "...every file written in Stage 5b...":    { ... }
+  }
 }
 ```
 
+**Hash generation:** Use SHA-256 of the **post-transformation** content (after Neuroloom pattern mapping has been applied, since that's what actually lands on disk). Record via:
+
+```bash
+sha256sum "{path}" | awk '{print $1}'
+# or in Python: hashlib.sha256(content.encode()).hexdigest()
+```
+
+**Scope of `installed_files`:**
+- **Include:** All framework-origin files written during Stage 5b (skills, agents, process docs, templates, `.claude/CLAUDE.md` additions if applicable)
+- **Exclude:** Project-generated files (`docs/_index.md`, `docs/current_work/specs/*`), user-owned files (`CLAUDE.md` project root — hashed content would drift on every user edit), hook files owned by the plugin itself (already controlled), `.sdlc-manifest.json` itself
+
+**Project-owned files** (`process/agent-selection.yaml` after customization, any file CD edited during Stage 5b review gate) — do NOT hash these. They are expected to drift. The purpose of `installed_files` is to flag **unexpected** drift in files CD never intended to modify.
+
 Note: `sdlc_root` should be set to the actual SDLC root path detected during initialization (typically `ops/sdlc/` for new projects). `neuroloom_backend` must be present for `sdlc-port` mode detection consistency.
 
-**`.gitignore` entry:** Ensure `.claude/agent-memory/` is in the project's `.gitignore`. Agent memories are private scratchpads — never git-tracked.
+**`.gitignore` entries:** Ensure the following are in the project's `.gitignore` — all are private session/diagnostic state, never git-tracked:
+- `.claude/agent-memory/` — agent private scratchpads
+- `.sdlc-transaction-log` — per-run JSONL transaction log
+- `.sdlc-transformation-warnings.log` — per-run content-transformation warnings
 
 **`hooks/` files:** Write the SessionStart hook entry to `.claude/hooks/` per the Neuroloom hooks convention. The hook checks the sentinel on session start and routes to the appropriate skill.
 
@@ -496,7 +629,7 @@ Stage 5 complete.
   Templates:            {T}
   CLAUDE.md:            updated (## SDLC Process section appended)
   .sdlc-manifest.json:  written
-  .gitignore:           .claude/agent-memory/ confirmed
+  .gitignore:           .claude/agent-memory/, .sdlc-transaction-log, .sdlc-transformation-warnings.log confirmed
 ```
 
 ---
@@ -507,15 +640,19 @@ Stage 5 complete.
 
 ### 6a. Propose Agent Roster
 
-Based on the project profile from Stage 3, propose an initial agent roster. Consider the detected domains and project type. Every project needs at minimum:
+Based on the project profile from Stage 3, propose an initial agent roster. Consider the detected domains and project type.
 
-- **backend-engineer** (or equivalent domain engineer for the primary language/framework)
-- **code-reviewer** (language-aware review agent)
-- **sdet** (test strategy and test writing)
+**Mandatory agents (create these regardless of project size):**
+1. **`software-architect`** — dispatched by both review and planning skills, mediates debate in `team-review-fix`, seeds disciplines and knowledge in later initialization stages, and reviews every other agent's plan output. Create first so it's available for dispatch throughout initialization.
+2. **`code-reviewer`** — always dispatched in every review skill (Tier 1, unconditional). Without it, no review skill produces findings. This is the one agent that reviews every diff regardless of what changed.
 
-Monorepos and full-stack projects typically also benefit from:
-- **frontend-engineer**
-- **architect** (for cross-cutting concerns)
+**If CD's proposed roster omits either of these, add them and explain why. These are not optional.**
+
+Additional agents by project type:
+- **backend-engineer** (or equivalent for the primary language/framework)
+- **sdet** (test strategy and test writing) — strongly recommended
+- **frontend-engineer** (monorepos, full-stack projects)
+- **db-engineer**, **security-engineer**, **performance-engineer** (as domain needs indicate)
 
 Present the proposed roster with a one-line description of each agent's role:
 
@@ -544,9 +681,21 @@ Use `AskUserQuestion` with options:
 - Template compliance (AGENT_TEMPLATE.md structure)
 
 **Creation order:**
-1. Roles dispatched most often first (usually backend + frontend + code-reviewer)
-2. Specialized roles (db-engineer, security, performance)
-3. Cross-cutting roles (architect, sdet)
+1. **Mandatory agents first** — `software-architect` then `code-reviewer`. These must exist before any other agent is created so they can be dispatched by review/planning skills during remaining initialization stages.
+2. Core implementation roles (backend-engineer, frontend-engineer)
+3. Specialized roles (db-engineer, security-engineer, performance-engineer)
+4. Testing and infrastructure (sdet, build-engineer)
+
+**Roster verification gate:** After roster approval but before `/sdlc-create-agent` dispatches, verify both mandatory agents are present. If either is missing, emit:
+
+```
+MANDATORY ROSTER CHECK
+software-architect: [✓ present | ✗ missing]
+code-reviewer:      [✓ present | ✗ missing]
+
+If either shows ✗ — STOP. Mandatory agents cannot be skipped.
+Add them to the roster and re-present before proceeding to creation.
+```
 
 **Framework agents (pre-installed — do NOT create as domain agents):**
 - `sdlc-reviewer` — reviews skill/agent files against cc-sdlc conventions (dispatched by `sdlc-develop-skill`, `sdlc-create-agent`, `sdlc-review`)
@@ -755,6 +904,7 @@ Run through all verification checks before declaring initialization complete:
 - [ ] `hooks/` SessionStart hook entry written
 
 **Agents:**
+- [ ] Mandatory agents created: `software-architect`, `code-reviewer` (hard gate — init is incomplete without both)
 - [ ] All agents created via `/sdlc-create-agent` — confirmed
     Created: [list all agents]
 - [ ] Spec-vs-roster reconciliation complete — all spec-listed roles created or deviation logged
@@ -823,7 +973,8 @@ If a stage gate requires user input, output the gate prompt and wait. Do not out
 | "I'll write agent files directly — the /sdlc-create-agent skill is slow" | `/sdlc-create-agent` validates frontmatter, enforces description conventions, and checks template compliance. Hand-written agents skip these gates and cause downstream errors. |
 | "I should dispatch an agent for the spec" | No agents exist in greenfield until Stage 6. CC writes the spec directly. This is the one exception to the Manager Rule. |
 | "Disciplines can be seeded later" | A few bullets now costs 2 minutes. Discovering the gap mid-execution costs a full review round and a re-init of that domain. |
-| "The project only needs 2 agents" | Even small projects benefit from code-reviewer + sdet separation. The minimum viable set is 3. Fewer agents means broader, less-focused prompts. |
+| "The project only needs 2 agents" | `software-architect` and `code-reviewer` are mandatory — that's already 2. Add at least one implementer. The minimum viable set is 3+. |
+| "We don't need a software-architect or code-reviewer for a small project" | Both are mandatory. The architect mediates debate, reviews plans, and seeds knowledge. The code-reviewer is unconditionally dispatched by every review skill. Without them, review and planning skills are broken. |
 | "I'll skip the compliance audit — it's a fresh project" | The audit catches initialization gaps (unmapped knowledge, missing agent wiring, incomplete hooks) that compound as the project grows. Run it every time. |
 | "I can batch all 50 documents in one call regardless of content" | Batch size limit is 50 documents per call, but very large documents (full YAML files) may still hit payload limits. Split oversized payloads. |
 | "knowledge_id is optional — I'll add it later" | Omitting `knowledge_id` on any `document_ingest_batch` call breaks idempotent upsert. Every subsequent re-initialization creates duplicate entries. Always include it. |
@@ -862,15 +1013,96 @@ If a stage gate requires user input, output the gate prompt and wait. Do not out
 
 ## Error Handling
 
-| Failure Mode | Detection | Response |
-|-------------|-----------|---------|
-| Neuroloom API unreachable | `sdlc_get_version` fails with network error | Output actionable config error. Do not proceed. |
-| Neuroloom auth invalid | `sdlc_get_version` fails with 401 | Output API key setup instructions. Do not proceed. |
-| GitHub rate limit hit | 403 + `X-RateLimit-Remaining: 0` | Stop, report reset time, suggest `gh auth login`. |
-| Individual file fetch fails | Non-200 from file content endpoint | Log failure, continue. Report count at Stage 2 completion. |
-| >20% files failed to download | Count check at Stage 2 completion | Stop, ask CD whether to proceed with partial content. |
-| `document_ingest_batch` partial error | `summary.errors > 0` | Log each errored entry. Continue if <10% failed. |
-| >10% batch entries errored | Count check after all batches | Stop, ask CD whether to continue with operational file writes. |
-| Sentinel not present after seeding | `memory_search` returns empty | Report to CD. Sentinel is server-managed — do not create it manually. Ask CD to check Neuroloom workspace config. |
-| Agent creation fails in Stage 6 | `/sdlc-create-agent` returns error | Report failure, offer to retry or skip that agent. Do not hand-write the agent file. |
-| Compliance audit finds CRITICAL | Stage 10b auditor returns CRITICAL findings | Fix before declaring complete. Do not output final success report until all CRITICALs resolved. |
+### Recovery principles
+
+1. **Knowledge-layer failures don't block operational-layer progress** unless more than 10% of entries errored. The operational layer is independent; filesystem writes can proceed even with partial knowledge seed.
+2. **Operational-layer failures are recoverable in-place.** If a filesystem write fails, retry the specific write — do not restart the whole stage.
+3. **Never half-commit the sentinel.** The sentinel is the single point of truth for initialization state. If ingestion completes but the sentinel isn't readable server-side, init is not complete — and re-running `/sdlc-initialize` (not `/sdlc-migrate`) is the right recovery path.
+4. **Preserve partial progress on cancellation.** If CD cancels mid-stage, do not roll back already-completed writes. Report the partial state and tell CD which stage to resume from.
+
+### Failure modes
+
+| Failure Mode | Detection | Response | Recovery |
+|-------------|-----------|---------|----------|
+| Neuroloom API unreachable | `sdlc_get_version` fails with network error | Output actionable config error. Do not proceed. | Fix network/config, re-run from Stage 0. |
+| Neuroloom auth invalid | `sdlc_get_version` fails with 401 | Output API key setup instructions. Do not proceed. | Re-configure key via `/plugins configure neuroloom`, re-run. |
+| Auth token expires mid-session | Any subsequent MCP call returns 401 | Stop at current stage, report which stage and how many entries completed. | Re-configure key, resume from the failed stage (Stage 5 Knowledge seed resumes idempotently via `knowledge_id`). |
+| GitHub rate limit hit | 403 + `X-RateLimit-Remaining: 0` | Stop, report reset time, suggest `gh auth login`. | Wait until reset or authenticate `gh`, re-run from Stage 2 fetch. |
+| Individual file fetch fails | Non-200 from file content endpoint | Log failure, continue. Report count at Stage 2 completion. | No action if <20%. If stopped, re-run from Stage 2. |
+| >20% files failed to download | Count check at Stage 2 completion | Stop, ask CD whether to proceed with partial content. | CD decides: partial proceed (knowledge gaps documented) or full retry. |
+| `document_ingest_batch` partial error | `summary.errors > 0` | Log each errored entry with title + error message. Continue if <10% failed. | Re-run failed entries only via a follow-up `document_ingest_batch` with just those `knowledge_id`s. `knowledge_id` upsert makes this idempotent. |
+| `document_ingest_batch` network interruption mid-batch | Call times out or returns partial response | Assume batch state is indeterminate. Re-issue the batch — `knowledge_id` upsert makes it safe. | Automatic retry (once). If retry fails, log + continue with next batch. |
+| >10% batch entries errored | Count check after all batches | Stop, ask CD whether to continue with operational file writes. | CD decides: proceed with degraded knowledge layer or abort + re-run. |
+| Sentinel not present after seeding | `memory_search` returns empty post-ingest | Retry after 2s (server may still be processing). If still missing, report to CD — sentinel is server-managed. | Check Neuroloom workspace config; may indicate an API-side issue. Do not create sentinel manually. |
+| Sentinel present but version tag stale | `sdlc:seed-version:` tag doesn't match `LATEST_VERSION` | Wait 5s and re-read. Server may still be processing the tag update. | If still stale after 3 retries, report as `INIT_INCOMPLETE` — re-run `/sdlc-initialize`. |
+| Agent creation fails in Stage 6 | `/sdlc-create-agent` returns error | Report failure, offer to retry or skip that agent. Do not hand-write the agent file. | Retry the specific agent creation. If repeat failures, check `/sdlc-create-agent` skill logs. |
+| Mandatory agent missing after Stage 6 | Stage 10a check: `software-architect` or `code-reviewer` not in `.claude/agents/` | Stop. Re-dispatch `/sdlc-create-agent` for the missing agent. Do not proceed to Stage 10b. | Fix roster, re-run Stage 6b, re-run Stage 10a verification. |
+| Filesystem write fails | `Write` tool returns error (permission, disk full) | Report path + error. Offer retry. | Fix underlying issue (permissions, space), retry the specific write. |
+| Transformation phrase not matched | During install-time transformation, a file contains a standard-phrase-adjacent pattern that doesn't match any rule | Log as `TRANSFORMATION_WARNING` with file + line. Continue — the file may have already been transformed or use a variant phrasing. | Post-init: review the `TRANSFORMATION_WARNING` log, update plugin's Pattern Mapping table if a new phrase needs coverage. |
+| Compliance audit finds CRITICAL | Stage 10b auditor returns CRITICAL findings | Fix before declaring complete. Do not output final success report until all CRITICALs resolved. | Address findings (typically roster/wiring gaps), re-run audit. |
+
+---
+
+## Recovery / Emergency Restore
+
+If `/sdlc-initialize` crashes, is interrupted, or leaves the workspace in a visibly bad state, this section is how to diagnose and recover.
+
+### Step 1: Diagnose — what state are we in?
+
+Check these four sources of truth, in order:
+
+**1. Transaction log** (most specific):
+```bash
+tail -n 100 .sdlc-transaction-log | jq -c '.'
+# Find the last `run_start` for sdlc-initialize
+# Walk forward: what stages completed (stage_end + result)?
+# Where did it stop (last event)? Before or after the point_of_no_return checkpoint?
+```
+
+**2. Sentinel** (knowledge-layer truth):
+```
+memory_search(query="SDLC workspace sentinel", tags=["sdlc:sentinel"])
+```
+- Returns nothing → knowledge layer was never seeded. Safe to fully re-run init.
+- Returns with `sdlc:seed-version` tag → knowledge layer partially or fully seeded.
+
+**3. Manifest** (operational-layer truth):
+```bash
+cat .sdlc-manifest.json 2>/dev/null | jq .
+```
+- Missing → operational layer was never written. Safe to fully re-run init.
+- Present with `sdlc_version` → operational layer partially or fully written.
+
+**4. Agent directory:**
+```bash
+ls .claude/agents/ 2>/dev/null
+```
+- Missing `software-architect.md` or `code-reviewer.md` → Stage 6 did not complete.
+
+### Step 2: Match state to recovery action
+
+| State | Recovery Action |
+|-------|-----------------|
+| No sentinel, no manifest, no agents | **Full re-run.** `/sdlc-initialize` — workspace is clean. |
+| Sentinel exists, manifest missing | **Repair mode.** Re-run `/sdlc-initialize`; it detects sentinel + no manifest via mode detection and runs as Repair (Stage 1 re-entry, sentinel re-read). Knowledge layer is preserved; operational layer rebuilt. |
+| Manifest exists, sentinel missing | **Unusual — investigate.** This usually indicates the Neuroloom API was unreachable during seeding but operational writes completed. Check API health, then re-run init — it will re-seed knowledge without duplicating operational files (idempotent writes). |
+| Both present, agents missing | **Resume from Stage 6.** Re-run `/sdlc-initialize`; mode detection identifies "post-skeleton" state and resumes from agent roster. |
+| Both present, all agents present, but compliance audit failed | **Targeted fix.** The CRITICAL finding identifies what to fix. Apply the fix, then dispatch `sdlc-compliance-auditor` manually to re-verify. Full init re-run is not required. |
+| Sentinel version tag doesn't match manifest version | **Version drift.** Run `/sdlc-migrate` — it handles layer-independent version skew natively. |
+| `installed_files` missing from manifest | **Pre-drift-detection install.** Next `/sdlc-migrate` will back-fill automatically (see Stage 3.2a of migrate). |
+
+### Step 3: Never do these things
+
+- **Do not manually edit the sentinel.** It is server-managed by `seed()`. Manual writes corrupt version tracking.
+- **Do not delete `.claude/` to force a clean retry.** That loses agents, memory, and any project customizations. Use mode detection + repair instead.
+- **Do not delete `.sdlc-manifest.json`.** Same reason — loses `installed_files` hashes needed for drift detection.
+- **Do not hand-write agent files to skip `/sdlc-create-agent`.** Skipping validation is the fastest way to ship broken agents into production.
+
+### Step 4: If nothing works — reset
+
+Absolute last resort. Requires CD confirmation.
+
+1. Note everything worth preserving: project customizations in `.claude/skills/*`, agent memories in `.claude/agent-memory/`, any PROJECT-SECTION blocks.
+2. Back up: `git stash` or `cp -r .claude .claude.backup`.
+3. Re-initialize explicitly via `/sdlc-initialize` with the re-initialize destructive-action gate — preserving knowledge-layer importance scores if possible.
+4. Manually port project customizations back from the backup.
