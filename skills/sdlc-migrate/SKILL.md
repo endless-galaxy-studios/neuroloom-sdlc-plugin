@@ -89,7 +89,12 @@ The pattern mapping below derives from cc-sdlc's phrasing contract, documented a
 
 > **How coverage actually works:** This table lists 5 explicit phrase-to-call mappings, but they cover only a fraction of real-world transformation sites. The vast majority of cc-sdlc files with knowledge references (skills, agents, process docs) are handled via the **section-level preservation rule** documented in "Content-Merge Rules for Neuroloom" below — scan each file for `memory_search(` / `memory_store(` presence and preserve those sections verbatim during merge. The explicit patterns below are what the transformer SEEKS during fresh installation (`/sdlc-initialize`) and during migration when a file has no prior MCP patterns. Once a file contains MCP calls, section-level preservation takes over.
 
-Match is case-insensitive on the first word only (sentence-start capitalization). Patterns must match as a full phrase within a sentence; substring matches in backticked paths or code blocks are NOT transformation candidates.
+**Match rules:**
+1. Case-insensitive on the first word only (sentence-start capitalization).
+2. Patterns must match as a full phrase within a sentence.
+3. **Inline backticks around paths are markdown formatting — match THROUGH them.** A rule `Append to [sdlc-root]/disciplines/*.md` matches `Append to \`[sdlc-root]/disciplines/*.md\`` (with inline backticks) and vice versa. Strip inline backticks before matching.
+4. Only skip matching inside **fenced code blocks** (triple backticks ```` ``` ````) — those are literal code examples, not instructions.
+5. When the rule pattern contains `<domain>` or `{name}` or `[agent-name]`, treat as a wildcard that captures the substring at that position.
 
 | cc-sdlc Generic Pattern | Neuroloom Pattern (preserve if present) |
 |-------------------------|----------------------------------------|
@@ -109,6 +114,12 @@ Match is case-insensitive on the first word only (sentence-start capitalization)
 | `knowledge stores ([sdlc-root]/knowledge/)` | `Neuroloom knowledge store (via memory_store)` |
 | `[sdlc-root]/knowledge/testing/` (as capture target) | `memory_store with tags ["sdlc:knowledge", "sdlc:domain:testing"]` |
 | `[sdlc-root]/knowledge/<domain>/` (as capture target) | `memory_store with tags ["sdlc:knowledge", "sdlc:domain:<domain>"]` |
+| `Append to [sdlc-root]/knowledge/<domain>/` | `memory_store with tags ["sdlc:knowledge", "sdlc:domain:<domain>"]` |
+| `Cross-project knowledge updates append to [sdlc-root]/knowledge/<domain>/` | `Cross-project knowledge updates go to memory_store with tags ["sdlc:knowledge", "sdlc:domain:<domain>"]` |
+| `[sdlc-root]/knowledge/provenance_log.md` | `Neuroloom provenance memory (memory_store / memory_search with sdlc:provenance tags)` |
+| `Read [sdlc-root]/knowledge/provenance_log.md` | `memory_search(query="provenance log entries", tags=["sdlc:provenance"])` |
+| `[sdlc-root]/knowledge/compliance-methodology.md` | `Neuroloom compliance methodology (memory_search with sdlc:knowledge, sdlc:methodology:compliance tags)` |
+| `Read [sdlc-root]/knowledge/compliance-methodology.md for the full methodology` | `memory_search(query="SDLC compliance audit methodology", tags=["sdlc:knowledge"]) for the full methodology` |
 
 #### Metadata transformation (parenthetical and table-cell path refs)
 
