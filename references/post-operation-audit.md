@@ -35,20 +35,41 @@ For Neuroloom projects (`neuroloom_backend: true` in manifest), the installed fi
 
 ### Check 2 — No residual cc-sdlc standard phrases
 
-For Neuroloom projects, these phrases should have been transformed by the installer. Their continued presence in installed files indicates the transformation was skipped.
+For Neuroloom projects, canonical phrases from cc-sdlc's phrasing contract should have been transformed by the installer. Their continued presence in installed files indicates the transformation was skipped.
 
-**Search patterns (all should return zero hits in `.claude/sdlc/` and `.claude/agents/`):**
+**Canonical phrases (all should return zero hits in `.claude/sdlc/` and `.claude/agents/`):**
 - `consult [sdlc-root]/knowledge/agent-context-map.yaml`
+- `Consult [sdlc-root]/knowledge/agent-context-map.yaml for`
+- `update [sdlc-root]/knowledge/agent-context-map.yaml`
+- `Update [sdlc-root]/knowledge/agent-context-map.yaml`
 - `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml`
 - `look up the agent's mapped files from [sdlc-root]/knowledge/agent-context-map.yaml`
-- `Append to [sdlc-root]/disciplines/*.md` (parking lot instruction)
+- `Before starting substantive work, consult [sdlc-root]/knowledge/agent-context-map.yaml`
+- `Append to [sdlc-root]/disciplines/*.md`
+- `Append each insight or GAP entry to the relevant [sdlc-root]/disciplines/*.md`
+- `knowledge stores ([sdlc-root]/knowledge/)`
 
-**Exceptions (hits here are OK):**
-- `.claude/sdlc/process/knowledge-routing.md` — this file IS the phrasing contract; it lists standard phrases as documentation, not instruction
+**Action on hit:** **REGRESSION** (outside the exception list) — the transformation didn't apply to this file/section. The Pattern Mapping table has a rule for each of these; a hit means the rule didn't fire (likely due to file-level merge without §4.2.0 gate running, or a prior install bug).
+
+### Check 2a — No forbidden pre-contract phrasings
+
+The phrasing contract explicitly forbids non-canonical variants that cc-sdlc source may have used before standardization (pre-2026-04-22). Upstream cc-sdlc should have rewritten these, but scan the installed copy as a safety net — if a forbidden form shows up, it means cc-sdlc regressed OR the plugin was pulling from a pre-standardization version.
+
+**Forbidden patterns (all should return zero hits):**
+- `Read [sdlc-root]/knowledge/agent-context-map.yaml` (as instruction — distinguishable from canonical `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml`)
+- `Look up ... in [sdlc-root]/knowledge/agent-context-map.yaml` (the `in` form — canonical uses `from` or `Consult ... for`)
+- `via [sdlc-root]/knowledge/agent-context-map.yaml` (as instruction — e.g., `Connect ... via ...`)
+- `directing them to [sdlc-root]/knowledge/agent-context-map.yaml`
+- `Connect [any text] via [sdlc-root]/knowledge/agent-context-map.yaml`
+
+**Action on hit:** **REGRESSION** — report which file + line + forbidden pattern. Two possibilities: (1) cc-sdlc source regressed (file a bug upstream, tag `[contract-change]`), or (2) plugin pulled from a release predating the 2026-04-22 standardization. Recovery: halt, update plugin to latest cc-sdlc, re-run.
+
+**Exceptions for Checks 2 and 2a:**
+- `.claude/sdlc/process/knowledge-routing.md` — this file IS the phrasing contract; it lists canonical AND forbidden phrases as documentation, not instruction
 - `.claude/sdlc/process/sdlc_changelog.md` — changelog entries may quote the phrases as metadata
-
-**Action on hit:**
-- **REGRESSION** for any hit outside the exception list
+- `.claude/agents/sdlc-reviewer.md` — reviewer checklist quotes the canonical phrases as validation criteria
+- `.claude/agents/sdlc-compliance-auditor.md` — auditor validation section quotes phrases as criteria
+- Inline code blocks (``` fenced ``` or `` `backticked` ``) within these exempt files — the phrasing contract explicitly distinguishes documentation from instruction
 
 ### Check 3 — No inline adapter conditionals
 
