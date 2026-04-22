@@ -90,7 +90,7 @@ The pattern mapping below derives from cc-sdlc's phrasing contract, documented a
 > **How coverage actually works:** This table lists 5 explicit phrase-to-call mappings, but they cover only a fraction of real-world transformation sites. The vast majority of cc-sdlc files with knowledge references (skills, agents, process docs) are handled via the **section-level preservation rule** documented in "Content-Merge Rules for Neuroloom" below — scan each file for `memory_search(` / `memory_store(` presence and preserve those sections verbatim during merge. The explicit patterns below are what the transformer SEEKS during fresh installation (`/sdlc-initialize`) and during migration when a file has no prior MCP patterns. Once a file contains MCP calls, section-level preservation takes over.
 
 **Match rules:**
-1. Case-insensitive on the first word only (sentence-start capitalization).
+1. **Case-insensitive on the leading verb, regardless of sentence position.** A rule `Read [sdlc-root]/disciplines/*.md and find [X]` matches both sentence-start `Read [sdlc-root]/disciplines/*.md and find...` and mid-sentence `..., read [sdlc-root]/disciplines/*.md and find...`. The verb (`Read`/`Consult`/`Append`/`Update`/`Look up`/etc.) is the anchor, not the sentence start. When substituting, preserve the original case of the verb only if the substitution keeps a verb at that position; otherwise the replacement's casing wins.
 2. Patterns must match as a full phrase within a sentence.
 3. **Inline backticks around paths are markdown formatting — match THROUGH them.** A rule `Append to [sdlc-root]/disciplines/*.md` matches `Append to \`[sdlc-root]/disciplines/*.md\`` (with inline backticks) and vice versa. Strip inline backticks before matching.
 4. Only skip matching inside **fenced code blocks** (triple backticks ```` ``` ````) — those are literal code examples, not instructions.
@@ -116,8 +116,8 @@ The pattern mapping below derives from cc-sdlc's phrasing contract, documented a
 | `[sdlc-root]/knowledge/<domain>/` (as capture target) | `memory_store with tags ["sdlc:knowledge", "sdlc:domain:<domain>"]` |
 | `Append to [sdlc-root]/knowledge/<domain>/` | `memory_store with tags ["sdlc:knowledge", "sdlc:domain:<domain>"]` |
 | `Cross-project knowledge updates append to [sdlc-root]/knowledge/<domain>/` | `Cross-project knowledge updates go to memory_store with tags ["sdlc:knowledge", "sdlc:domain:<domain>"]` |
-| `[sdlc-root]/knowledge/provenance_log.md` | `Neuroloom provenance memory (memory_store / memory_search with sdlc:provenance tags)` |
-| `Read [sdlc-root]/knowledge/provenance_log.md` | `memory_search(query="provenance log entries", tags=["sdlc:provenance"])` |
+| `[sdlc-root]/knowledge/provenance_log.md` | **No transformation** — file lives on disk in Neuroloom projects too (project-specific, append-only; treated like `process/sdlc_changelog.md`). Preserve references verbatim. |
+| `Read [sdlc-root]/knowledge/provenance_log.md` | **No transformation** — preserve verbatim (on-disk file read, not a knowledge-layer lookup). |
 | `[sdlc-root]/knowledge/compliance-methodology.md` | `Neuroloom compliance methodology (memory_search with sdlc:knowledge, sdlc:methodology:compliance tags)` |
 | `Read [sdlc-root]/knowledge/compliance-methodology.md for the full methodology` | `memory_search(query="SDLC compliance audit methodology", tags=["sdlc:knowledge"]) for the full methodology` |
 
@@ -130,6 +130,9 @@ The pattern mapping below derives from cc-sdlc's phrasing contract, documented a
 | `Read [sdlc-root]/disciplines/<name>.md` | `memory_search(query="<name> discipline entries", tags=["sdlc:discipline:<name>"])` |
 | `Read [sdlc-root]/disciplines/*.md` (glob across all disciplines) | `memory_search(query="discipline entries", tags=["sdlc:discipline:*"])` |
 | `Read [sdlc-root]/disciplines/*.md and find [X]` | `memory_search(query="[X]", tags=["sdlc:discipline:*"])` |
+| `read [sdlc-root]/disciplines/*.md and find parking lot entries tagged with <tag-expr>` (mid-sentence verb) | `memory_search(query="parking lot entries tagged <tag-expr>", tags=["sdlc:discipline:*", "sdlc:parking-lot"])` |
+| `Read [sdlc-root]/disciplines/<name>.md and find [X]` | `memory_search(query="[X]", tags=["sdlc:discipline:<name>"])` |
+| `scan [sdlc-root]/disciplines/ for [X]` / `scan [sdlc-root]/disciplines/*.md for [X]` | `memory_search(query="[X]", tags=["sdlc:discipline:*"])` |
 | `Read relevant files under [sdlc-root]/knowledge/ and [sdlc-root]/disciplines/ for [X]` | `memory_search(query="[X]", tags=["sdlc:knowledge", "sdlc:discipline:*"])` |
 | `Read relevant methodology files in [sdlc-root]/knowledge/` | `memory_search(query="methodology [context]", tags=["sdlc:knowledge"])` |
 | `Read [sdlc-root]/knowledge/architecture/` or `[sdlc-root]/knowledge/testing/` YAML files and follow their general pattern | `memory_search(query="knowledge YAML pattern", tags=["sdlc:knowledge", "sdlc:domain:architecture", "sdlc:domain:testing"]) and follow the pattern` |
@@ -163,7 +166,14 @@ The pattern mapping below derives from cc-sdlc's phrasing contract, documented a
 
 Parenthetical paths and table-cell paths in cc-sdlc source describe WHERE something lives in filesystem mode. In Neuroloom, those paths don't exist — the content is in the memory graph. Transform these metadata refs to their Neuroloom-native equivalent so Neuroloom users aren't pointed at non-existent files.
 
-Apply these rules to: parenthetical paths `(...)`, table cells containing paths, bullet-point labels with paths. Do NOT apply inside fenced code blocks or when the path is in a canonical instruction already handled above.
+Apply these rules to: parenthetical paths `(...)`, table cells containing paths (any column, not just first/last), bullet-point labels with paths (both `Label: path` and `Label (path)` forms). Do NOT apply inside fenced code blocks or when the path is in a canonical instruction already handled above.
+
+**Match rules for metadata transformation:**
+1. **Strip inline backticks before matching.** A rule `([sdlc-root]/knowledge/*.md)` matches `` (`[sdlc-root]/knowledge/*.md`) `` (with inline backticks around the path). This is the same rule as instruction-pattern match rule #3 and applies here equivalently.
+2. **`(e.g., ...)` prefix is absorbed.** The `e.g.,` ( / `e.g.` / `i.e.,`) prefix inside parens is treated as boilerplate and preserved in the replacement.
+3. **Table-cell match is column-agnostic.** Match any cell whose content contains the target path — first column, last column, or middle. Do not restrict to specific column positions.
+4. **Bullet label separator can be `:` or `(`.** Both `- Label: path` and `- Label (path)` are metadata forms — the transformation preserves the label and the separator form.
+5. `<domain>`, `<name>`, `<file>` are wildcards that capture the substring at that position.
 
 | cc-sdlc Metadata Pattern | Neuroloom Metadata Replacement |
 |--------------------------|--------------------------------|
@@ -171,17 +181,27 @@ Apply these rules to: parenthetical paths `(...)`, table cells containing paths,
 | `([sdlc-root]/knowledge/**/*.yaml)` | `(memory graph, entries tagged sdlc:knowledge)` |
 | `([sdlc-root]/knowledge/*.md)` | `(memory graph, entries tagged sdlc:knowledge)` |
 | `([sdlc-root]/knowledge/<domain>/*.yaml)` | `(memory graph, entries tagged sdlc:knowledge and sdlc:domain:<domain>)` |
+| `([sdlc-root]/knowledge/<domain>/)` | `(memory graph, entries tagged sdlc:knowledge and sdlc:domain:<domain>)` |
 | `([sdlc-root]/disciplines/*.md)` | `(memory graph, entries tagged sdlc:discipline:*)` |
 | `([sdlc-root]/disciplines/<name>.md)` | `(memory graph, entries tagged sdlc:discipline:<name>)` |
-| Table cell `\| ... \| [sdlc-root]/knowledge/agent-context-map.yaml \| ... \|` | `\| ... \| memory graph (sdlc:agent:* tags) \| ... \|` |
-| Table cell `\| ... \| [sdlc-root]/knowledge/**/*.yaml \| ... \|` | `\| ... \| memory graph (sdlc:knowledge tags) \| ... \|` |
-| Table cell `\| ... \| [sdlc-root]/disciplines/*.md \| ... \|` | `\| ... \| memory graph (sdlc:discipline:* tags) \| ... \|` |
+| `(e.g., [sdlc-root]/knowledge/<domain>/)` | `(e.g., memory entries tagged sdlc:knowledge + sdlc:domain:<domain>)` |
+| `(e.g., [sdlc-root]/knowledge/<domain>/*.yaml)` | `(e.g., memory entries tagged sdlc:knowledge + sdlc:domain:<domain>)` |
+| `(e.g., [sdlc-root]/disciplines/<name>.md)` | `(e.g., memory entries tagged sdlc:discipline:<name>)` |
+| Bullet label + colon + path: `<Label>: [sdlc-root]/knowledge/agent-context-map.yaml` (e.g., `- Agent knowledge context: [sdlc-root]/knowledge/agent-context-map.yaml`) | `<Label>: memory graph (agents indexed by sdlc:agent:* tags)` |
+| Bullet label + colon + path: `<Label>: [sdlc-root]/knowledge/<domain>/<file>.yaml` | `<Label>: memory entries tagged sdlc:knowledge + sdlc:domain:<domain>` |
+| Bullet label + colon + path: `<Label>: [sdlc-root]/disciplines/<name>.md` | `<Label>: memory entries tagged sdlc:discipline:<name>` |
+| Table cell containing `[sdlc-root]/knowledge/agent-context-map.yaml` (any column) | Cell becomes `memory graph (sdlc:agent:* tags)` |
+| Table cell containing `[sdlc-root]/knowledge/<domain>/<file>.yaml` (any column) | Cell becomes `memory entries tagged sdlc:knowledge + sdlc:domain:<domain>` |
+| Table cell containing `[sdlc-root]/knowledge/<domain>/` (any column, directory ref) | Cell becomes `memory entries tagged sdlc:knowledge + sdlc:domain:<domain>` |
+| Table cell containing `[sdlc-root]/knowledge/**/*.yaml` or `[sdlc-root]/knowledge/*.md` (any column) | Cell becomes `memory entries tagged sdlc:knowledge` |
+| Table cell containing `[sdlc-root]/disciplines/*.md` or `[sdlc-root]/disciplines/<name>.md` (any column) | Cell becomes `memory entries tagged sdlc:discipline:*` (or `:<name>`) |
 
 **Exempt from metadata transformation:**
 - `[sdlc-root]/process/` references (process files exist on disk in Neuroloom projects too)
 - `[sdlc-root]/templates/` references (templates exist on disk)
 - `[sdlc-root]/playbooks/` references (playbooks exist on disk)
 - `[sdlc-root]/agents/` references (agents exist at `.claude/agents/` — handled by path transformation, not knowledge transformation)
+- `[sdlc-root]/knowledge/provenance_log.md` references (on-disk append-only file, project-specific; treated like `process/sdlc_changelog.md`)
 - Integration-section `**Depends on:**` / `**Uses:**` lists where the ref is an individual bullet rather than a parenthetical — these are kept verbatim as metadata; the agent understands they describe logical dependencies, not runtime file reads
 
 ### Files Containing These Patterns
@@ -718,6 +738,17 @@ Neuroloom projects contain `memory_search(` / `memory_store(` calls injected by 
    d. Write the merged content. Target: `MCP_COUNT_AFTER >= MCP_COUNT_BEFORE` (see §4.2-gate).
    e. Log `mcp_preserved` with before/after counts and per-section decisions.
 
+   **Heading match for section preservation (fuzzy):** Upstream may rephrase a heading's parenthetical or body while keeping the section number/stem. A strict text match orphans these sections. Match in this priority order, and stop at the first hit:
+
+   1. **Exact text match** — headings identical after trimming whitespace.
+   2. **Numeric-stem match** — extract the leading identifier (e.g., `### 6b.`, `## 2.1`, `#### 11f.`) and match on the identifier alone, ignoring the rest of the heading. `### 6b. Knowledge Stores (Neuroloom Knowledge Layer)` matches `### 6b. Knowledge Stores ([sdlc-root]/knowledge/)`.
+   3. **Stem-before-parenthetical match** — strip the trailing `(...)` from both headings and match the remainder. `### Knowledge Stores (Neuroloom Knowledge Layer)` matches `### Knowledge Stores ([sdlc-root]/knowledge/)`.
+   4. **Slug match (last resort)** — slugify both (lowercase, strip punctuation, collapse whitespace, drop parenthetical content). Used only when (1)–(3) all miss and the heading level matches.
+
+   If only (2)–(4) hits, log a `heading_fuzzy_match` transaction-log event with the project heading, upstream heading, and tier used — this surfaces orphan risk to the audit. If no tier hits, the section is genuinely orphaned — append it at the end of the file with the existing `MIGRATION WARNING` comment (see PROJECT-SECTION-START preservation rules above).
+
+   **Scope of fuzzy match:** applies to the §4.2.0 section-preservation overlay AND to the §4.2-gate MCP Retention Audit's "heading exists upstream?" check. Both must use the same matcher so the audit doesn't flag a preserved section as a regression simply because the heading text drifted.
+
 4. **Non-Neuroloom projects** (`neuroloom_backend: false` or absent): Skip Pattern Mapping. Write upstream verbatim. This is the cc-sdlc base behavior.
 
 **Transaction log entries:**
@@ -839,9 +870,9 @@ For every file written in Stage 4.2:
    - Re-read the project's pre-migration version (via `git show HEAD:{path}` if uncommitted, or from the transaction log snapshot)
    - For each `memory_search(` / `memory_store(` call present in the project version but absent in the written content:
      - Identify the nearest preceding heading (nearest `#`/`##`/`###` above the call)
-     - Check whether that heading exists in the upstream version of the file
-     - If the heading EXISTS upstream and the upstream section does NOT contain an equivalent MCP call (after Pattern Mapping): **REGRESSION** — the preservation gate failed to preserve this section
-     - If the heading is MISSING upstream (section removed/renamed) OR the upstream section has an equivalent MCP call that replaces this one: **LEGITIMATE REMOVAL** — upstream deleted or refactored the section; acceptable
+     - Check whether that heading exists in the upstream version of the file **using the same fuzzy heading matcher as §4.2.0 (numeric-stem → stem-before-parenthetical → slug)**. Using exact text here would mis-classify a preservation failure as "legitimate removal" whenever upstream simply rephrased the heading's parenthetical.
+     - If the heading EXISTS upstream (by any matcher tier) and the upstream section does NOT contain an equivalent MCP call (after Pattern Mapping): **REGRESSION** — the preservation gate failed to preserve this section
+     - If the heading is MISSING upstream (section removed/renamed, no tier hits) OR the upstream section has an equivalent MCP call that replaces this one: **LEGITIMATE REMOVAL** — upstream deleted or refactored the section; acceptable
 
 5. **Aggregate classification:**
    - If any call is classified `REGRESSION` → this is a **critical failure**, halt migration
