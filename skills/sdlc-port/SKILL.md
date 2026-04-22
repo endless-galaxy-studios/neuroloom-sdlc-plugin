@@ -659,6 +659,19 @@ If the seeded count appears materially short of the Stage 1 count, identify the 
 
 Do not mark the port complete if a material discrepancy cannot be explained.
 
+### Post-Operation Audit
+
+**Run the shared post-operation audit** at `${CLAUDE_PLUGIN_ROOT}/references/post-operation-audit.md`. Execute the shared checks AND the `/sdlc-port`-specific subset.
+
+The audit verifies the bulk transformation landed correctly — every file-based reference that should have become a `memory_search`/`memory_store` call actually did, across all targeted files. The port touches a much larger surface than a typical migration (it converts an entire file-based install), so aggregate checks are essential:
+- Every file in the Pattern Mapping "Files Containing These Patterns" table contains at least one MCP call
+- No residual cc-sdlc standard phrases (they should all be transformed)
+- No inline adapter conditionals (contract violations)
+- Knowledge YAMLs fully ingested with correct domain tags
+- Original file-based knowledge files removed or marked (no drift risk)
+
+**If the audit fails:** Halt. Do NOT proceed to Post-Port Cleanup. Follow the audit's recovery instructions. For port failures: `git checkout -- .claude/` to restore filesystem; knowledge ingestion is idempotent so re-running port after a plugin fix is safe.
+
 ### Post-Port Cleanup
 
 Use `AskUserQuestion` to ask the user whether to remove the following content,

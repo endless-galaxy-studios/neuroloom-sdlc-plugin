@@ -102,6 +102,18 @@ However, those non-override skills contain references to file-based knowledge (e
 
 The full list of skill/agent/process files covered by these transformations lives in `skills/sdlc-migrate/SKILL.md` § "Files Containing These Patterns". If cc-sdlc introduces a new file with standard phrases, that table must be updated in lockstep.
 
+### Integrity Gates
+
+Each of the three operations runs a post-operation audit (defined in `references/post-operation-audit.md`) as its final stage. The audit:
+
+- Counts `memory_search(` / `memory_store(` calls across all installed files and verifies the Pattern Mapping targets landed
+- Scans for residual cc-sdlc standard phrases that should have been transformed
+- Scans for inline adapter conditionals that violate the contract
+- Verifies manifest-to-filesystem hash consistency
+- Confirms the Neuroloom sentinel is present and version-tagged
+
+Any regression halts the operation before success is declared. `/sdlc-migrate` has two additional gates (pre-write and post-write) that catch MCP-preservation failures at the per-file level before the post-operation audit runs. This is defense-in-depth — the three gate layers protect against a 2026-04-22 regression where a migration silently reverted 65 MCP calls across 44 files by blindly overwriting project content with upstream.
+
 ---
 
 ## How It Works

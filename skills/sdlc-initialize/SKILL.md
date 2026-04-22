@@ -916,7 +916,20 @@ Run through all verification checks before declaring initialization complete:
 - [ ] context7: [installed / NOT INSTALLED]
 - [ ] LSP: [installed / not applicable / NOT INSTALLED]
 
-### 10b. Compliance Audit
+### 10b. Post-Operation Audit
+
+**Run the shared post-operation audit** at `${CLAUDE_PLUGIN_ROOT}/references/post-operation-audit.md`. Execute the shared checks AND the `/sdlc-initialize`-specific subset.
+
+The audit verifies the Neuroloom transformation landed correctly across all installed files — not just the 10a checklist items. Critical checks include:
+- Every file in the Pattern Mapping "Files Containing These Patterns" table contains at least one MCP call
+- No residual cc-sdlc standard phrases (they should have been transformed to `memory_search`/`memory_store`)
+- No inline adapter conditionals (contract violations)
+- Project agents created (initialization didn't skip the agent roster stage)
+- Founding spec ingested and sentinel exists
+
+**If the audit fails:** Halt. Do NOT proceed to §10c. Follow the audit's recovery instructions. For init failures: `rm -rf .claude/sdlc/ .claude/agents/`, coordinate sentinel removal with support, then re-run after the plugin's Pattern Mapping rules are updated.
+
+### 10c. Compliance Audit
 
 Dispatch the `sdlc-compliance-auditor` subagent to verify initialization integrity. Pass:
 - The checklist above
@@ -926,7 +939,9 @@ Dispatch the `sdlc-compliance-auditor` subagent to verify initialization integri
 
 The auditor checks for unmapped knowledge, missing agent wiring, and initialization gaps that compound as the project grows. Collect findings and triage. Fix any CRITICAL findings before declaring initialization complete.
 
-### 10c. Final Report
+This is distinct from the §10b post-operation audit: post-operation checks **Neuroloom integration correctness** (did the transformation apply?), while the compliance audit checks **framework conventions** (is the installed SDLC structurally sound?). Both must pass.
+
+### 10d. Final Report
 
 ```
 SDLC INITIALIZATION COMPLETE

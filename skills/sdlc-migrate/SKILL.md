@@ -605,7 +605,50 @@ Should return the upstream framework content with the new version tag. A separat
 
 ### 4.2 Update operational layer files
 
-Apply the content-merge strategy for each file category:
+#### 4.2.0 Mandatory Pre-Write MCP Preservation + Transformation Gate
+
+**This gate runs BEFORE any file write in Stage 4.2. It applies to every file, regardless of category.**
+
+Neuroloom projects contain `memory_search(` / `memory_store(` calls injected by `/sdlc-port` or `/sdlc-initialize` into many cc-sdlc files. Blindly overwriting with upstream content (file-based references) reverts the Neuroloom integration and silently breaks knowledge retrieval. Equally important: NEW files and existing files that somehow missed earlier transformation must get their standard phrases transformed to MCP calls as upstream lands. **Writing any file without this gate is a critical bug.**
+
+**For each file the migration would write:**
+
+1. **Read the project's current version** (if it exists). Count `memory_search(` + `memory_store(` → `MCP_COUNT_BEFORE`. If the file does not exist in the project, `MCP_COUNT_BEFORE = 0` and the file is flagged as a new install.
+
+2. **Read the upstream version** and apply the **Pattern Mapping table** (see "Neuroloom-Aware Content Transformation" above) — substitute each matched cc-sdlc standard phrase with its Neuroloom equivalent. This produces `UPSTREAM_TRANSFORMED`. This step runs for **every file in a Neuroloom project** (i.e., when `.sdlc-manifest.json` has `neuroloom_backend: true`), whether or not the project already had MCP calls. New files and previously-untransformed files get transformed here; existing files get upstream's new content transformed before any merge.
+
+3. **Branch by project state:**
+
+   **Case A — new file (project had no prior version):** Write `UPSTREAM_TRANSFORMED`. Log `mcp_new_file` with the post-write MCP count.
+
+   **Case B — existing file, `MCP_COUNT_BEFORE == 0`:** The project has a prior version but it never had MCP calls (earlier install missed it, or file was added later without transformation). Write `UPSTREAM_TRANSFORMED`. Log `mcp_backfilled` with before/after counts.
+
+   **Case C — existing file, `MCP_COUNT_BEFORE > 0`:** The file has been Neuroloom-transformed. Apply the **section-level preservation overlay** on top of `UPSTREAM_TRANSFORMED`:
+
+   a. Scan the project version for `memory_search(` / `memory_store(` calls that do NOT match any Pattern Mapping row (e.g., domain-specific queries like `memory_search(query="debugging methodology...", tags=[...])`).
+   b. Extract the sections containing those calls (delimited by `##` or `###` headings).
+   c. If the upstream version of the same section does not have equivalent MCP calls after Pattern Mapping, preserve the project's section verbatim by replacing the corresponding section in `UPSTREAM_TRANSFORMED` with it.
+   d. Write the merged content. Target: `MCP_COUNT_AFTER >= MCP_COUNT_BEFORE` (see §4.2-gate).
+   e. Log `mcp_preserved` with before/after counts and per-section decisions.
+
+4. **Non-Neuroloom projects** (`neuroloom_backend: false` or absent): Skip Pattern Mapping. Write upstream verbatim. This is the cc-sdlc base behavior.
+
+**Transaction log entries:**
+```
+mcp_new_file      — file didn't exist in project; wrote transformed upstream
+mcp_backfilled    — file existed but had no MCP; wrote transformed upstream
+mcp_preserved     — file had MCP; merged transformed upstream + project sections
+```
+
+**Why this gate exists:** A 2026-04-22 migration regression overwrote 65 MCP calls across 44 files because the content-merge rules were inconsistent across file categories. This gate enforces uniform MCP preservation AND uniform forward transformation — every upstream file lands as Neuroloom-native in a Neuroloom project, whether it's new, newly-transformed, or merged with an existing MCP-bearing version.
+
+**When this gate does NOT apply:**
+- Project-specific files listed in "Project-Specific Files (Never Overwrite)" — those are skipped entirely
+- Non-Neuroloom projects — this plugin is not installed in them; cc-sdlc's own sdlc-migrate handles those
+
+---
+
+Once the gate has been applied for a file, the following category-specific rules define additional handling (PROJECT-SECTION markers, review gates, etc.). None of them override the MCP preservation gate — if Step 3 kept the project's MCP sections, category rules only govern the non-MCP portions of the merged content.
 
 #### Skills
 
@@ -617,9 +660,9 @@ rm -rf .claude/skills/sdlc-initialize/ .claude/skills/sdlc-migrate/
 
 The plugin versions are the authoritative replacements, updated from the plugin repo, not cc-sdlc upstream.
 
-**cc-sdlc core skills** (all other skills in `.claude/skills/`): Always overwrite with the new upstream content. These have no project customizations.
+**cc-sdlc core skills** (all other skills in `.claude/skills/`): Apply the §4.2.0 preservation gate. These skills frequently contain MCP calls injected during `/sdlc-port` (e.g., `design-consult`, `research-external`, `review-fix`, `sdlc-tests-create`, `sdlc-tests-run` all carry cross-domain knowledge injection that was transformed to `memory_search`). Do NOT assume core skills have no customizations — the gate will detect and preserve MCP content. Non-MCP framework sections update verbatim from upstream.
 
-**Enhanced skills** (`sdlc-archive`, `sdlc-audit`): Merge — keep Neuroloom-specific sections (API call patterns, MCP tool references, tag schema), update cc-sdlc sections (stage logic, verification checklists, red flags tables). Present a diff via `AskUserQuestion` if the Neuroloom sections appear to have been modified by the project.
+**Enhanced skills** (`sdlc-archive`, `sdlc-audit`): Apply the §4.2.0 preservation gate, then merge — keep Neuroloom-specific sections (API call patterns, MCP tool references, tag schema), update cc-sdlc sections (stage logic, verification checklists, red flags tables). Present a diff via `AskUserQuestion` if the Neuroloom sections appear to have been modified by the project.
 
 **Audit skill special handling:** The `sdlc-audit` skill has framework audit methodology in `SKILL.md` and `references/` that must stay current:
 
@@ -635,17 +678,23 @@ The plugin versions are the authoritative replacements, updated from the plugin 
 
 #### Agents
 
-**Framework agent files** (`AGENT_TEMPLATE.md`, `AGENT_SUGGESTIONS.md`, `sdlc-reviewer.md`, `sdlc-compliance-auditor.md`): Apply Neuroloom-Aware Content Transformation rules (see section above). Scan each file for `memory_search(` or `memory_store(` patterns before merging. Preserve MCP-based sections; update non-MCP framework sections verbatim from upstream. If `AGENT_SUGGESTIONS.md` doesn't exist in the project, install it.
+**Framework agent files** (`AGENT_TEMPLATE.md`, `AGENT_SUGGESTIONS.md`, `sdlc-reviewer.md`, `sdlc-compliance-auditor.md`): Apply the §4.2.0 preservation gate. Non-MCP framework sections update verbatim from upstream. If `AGENT_SUGGESTIONS.md` doesn't exist in the project, install it.
 
-**Project domain agents** (all other files in `.claude/agents/`): Re-run the project-stack tailoring logic from `sdlc-initialize`: update the framework-derived sections of each agent file (Knowledge Context, Communication Protocol, "Surfacing Learnings" sections) while preserving the agent name, domain description, scope ownership, anti-rationalization tables, and any project-added agents that do not exist in the upstream template set. Note: `knowledge_feedback` was removed from the Knowledge Context section template upstream — remove it from project agents during tailoring.
+**Project domain agents** (all other files in `.claude/agents/`): Apply the §4.2.0 preservation gate. The Knowledge Context and Communication Protocol sections of project agents contain MCP calls (injected during port/initialize) and MUST be preserved — do NOT blanket-rewrite them from the upstream template. The gate's section-level preservation handles this automatically. Preserve the agent name, domain description, scope ownership, anti-rationalization tables, and any project-added agents that do not exist in the upstream template set.
+
+**Template upgrade (non-MCP changes):** The upstream template may introduce changes to non-MCP sections of `## Knowledge Context` or `## Communication Protocol` (e.g., `knowledge_feedback` was removed from the Knowledge Context section upstream). Apply those non-MCP changes only — do NOT re-inject file-path references into sections that already contain MCP calls.
 
 If an upstream agent template was renamed: flag it. Do not silently overwrite a renamed agent.
 
 #### Process docs
 
-Overwrite cc-sdlc originals (files that originated from the upstream framework) with PROJECT-SECTION marker extraction/re-injection. Preserve files that were added by the project and have no upstream equivalent — identify these by checking `.sdlc-manifest.json` for the file origin.
+Apply the §4.2.0 preservation gate for every process doc. After the gate has produced the merged content, apply PROJECT-SECTION marker extraction/re-injection on top. Preserve files that were added by the project and have no upstream equivalent — identify these by checking `.sdlc-manifest.json` for the file origin.
 
 **Never overwrite `process/agent-selection.yaml`** — this file contains the project's agent roster and dispatch rules with project-specific agent names. It becomes project-specific after initialization. If upstream added new entries (e.g., new infrastructure domains, new tier definitions), flag them for CD review rather than overwriting.
+
+#### Templates
+
+Apply the §4.2.0 preservation gate. Templates like `test_spec_template.md` contain `memory_search` references that guide test authors to retrieve knowledge — these MCP calls are the Neuroloom-transformed equivalents of cc-sdlc's file-based guidance and must be preserved.
 
 #### `.sdlc-manifest.json`
 
@@ -686,14 +735,88 @@ Record the outcome for the Stage 5 report.
 
 **Before proceeding to CLAUDE.md checks**, verify the content-merge results didn't corrupt project data. This catches merge errors before they propagate.
 
-**Quick checks (< 2 minutes):**
+#### Mandatory: MCP Retention Audit
+
+**This check is MANDATORY — it catches the failure mode that silently broke the 2026-04-22 migration.**
+
+A drop in MCP count is not automatically a bug. Upstream may legitimately remove a section that had MCP calls (e.g., cc-sdlc retired the `knowledge_feedback` reference in AGENT_TEMPLATE.md). The audit must distinguish **regression** (merge bug lost MCP content whose enclosing section still exists upstream) from **legitimate removal** (upstream deleted the enclosing section entirely, or refactored it into a non-MCP form).
+
+For every file written in Stage 4.2:
+
+1. Count `memory_search(` + `memory_store(` in the **final on-disk content** → `MCP_COUNT_AFTER`
+2. Recall `MCP_COUNT_BEFORE` from the §4.2.0 preservation gate transaction log
+3. **If `MCP_COUNT_AFTER >= MCP_COUNT_BEFORE`:** pass, move to next file
+4. **If `MCP_COUNT_AFTER < MCP_COUNT_BEFORE`:** a drop occurred. Classify it:
+
+   **Classification procedure:**
+   - Re-read the project's pre-migration version (via `git show HEAD:{path}` if uncommitted, or from the transaction log snapshot)
+   - For each `memory_search(` / `memory_store(` call present in the project version but absent in the written content:
+     - Identify the nearest preceding heading (nearest `#`/`##`/`###` above the call)
+     - Check whether that heading exists in the upstream version of the file
+     - If the heading EXISTS upstream and the upstream section does NOT contain an equivalent MCP call (after Pattern Mapping): **REGRESSION** — the preservation gate failed to preserve this section
+     - If the heading is MISSING upstream (section removed/renamed) OR the upstream section has an equivalent MCP call that replaces this one: **LEGITIMATE REMOVAL** — upstream deleted or refactored the section; acceptable
+
+5. **Aggregate classification:**
+   - If any call is classified `REGRESSION` → this is a **critical failure**, halt migration
+   - If all dropped calls are `LEGITIMATE REMOVAL` → pass, log each removal for the Stage 5 report
+
+**Halt and report (regression case):**
+
+```
+CRITICAL: MCP preservation regression detected
+File: {path}
+Before: {N} MCP calls
+After: {M} MCP calls
+Lost: {N - M} call(s)
+
+Regressions (heading still exists upstream, MCP should have been preserved):
+- § {heading}: memory_search(query="{query}", tags=[...])
+- § {heading}: memory_store(tags=[...])
+
+Legitimate removals (heading removed upstream, acceptable):
+- § {removed heading}: memory_search(...)
+
+This migration would break Neuroloom knowledge retrieval. Aborting.
+Recovery: git checkout -- {path} to restore; then re-run /sdlc-migrate after
+updating Pattern Mapping rules in the plugin (or report a bug if the preservation
+gate missed content it should have kept).
+```
+
+**Log and continue (legitimate removal case):**
+
+Record each legitimate removal in the transaction log with entry type `mcp_removed_upstream`:
+```
+{file: "...", heading: "...", mcp_call: "memory_search(...)", reason: "upstream removed section"}
+```
+
+These appear in the Stage 5 report under "Upstream-driven MCP reductions" so CD is aware the call is gone but not surprised — the migration message explicitly explains each one.
+
+**Aggregate report (both cases):**
+
+```
+MCP Retention Audit — Stage 4.2
+Files scanned: {N}
+Files with MCP preserved or increased: {M}
+Files with legitimate upstream removals: {K} (details in transaction log)
+Regressions detected: 0  ← MUST BE 0 TO PROCEED
+Total MCP calls (before → after): {X} → {Y}
+```
+
+**Gate rule:** If regressions > 0, migration is halted. Do not proceed to Stage 4.3. Instruct CD to:
+1. Review the regressed files listed in the transaction log
+2. Restore them via `git checkout -- {paths}` (migration is uncommitted)
+3. File a bug report against the plugin's Pattern Mapping table — the transformer missed a phrase that should have matched, OR the section-level preservation logic failed to identify the MCP section
+
+If all drops are legitimate, the audit passes and the Stage 5 report surfaces them for CD awareness.
+
+#### Quick sanity checks
 
 1. **Skill customization preservation** — spot-check 1 enhanced skill (e.g., `sdlc-audit`):
    - Neuroloom-specific sections (API call patterns, MCP tool references) are intact
    - Framework sections were updated (compare against cc-sdlc source)
 
 2. **Agent integrity** — spot-check 1 agent:
-   - Framework-derived sections (Knowledge Context, Communication Protocol) were updated
+   - Framework-derived sections (Knowledge Context, Communication Protocol) retain their MCP calls if the project-side version had them
    - Domain-specific content (scope, principles, workflow) was preserved
 
 3. **Audit skill completeness** — verify all `references/` files were updated and any project-specific audit dimensions preserved
@@ -758,6 +881,19 @@ Confirm the following:
 - [ ] `hooks/` files match upstream plugin versions
 - [ ] No agent files were silently overwritten without project review (modified files were presented to CD)
 - [ ] CLAUDE.md compatibility check completed and stale references resolved
+
+### 5.2a Post-Operation Audit
+
+**Run the shared post-operation audit** at `${CLAUDE_PLUGIN_ROOT}/references/post-operation-audit.md`. Execute the shared checks AND the `/sdlc-migrate`-specific subset.
+
+The audit cross-verifies what §4.2-gate already caught at the per-file level by applying aggregate and cross-file checks:
+- MCP integration health across the full installation
+- Residual cc-sdlc standard phrases that should have been transformed
+- Inline adapter conditionals that violate the contract
+- Manifest-to-filesystem hash consistency
+- Knowledge layer sentinel state
+
+**If the audit fails:** Halt. Do NOT proceed to §5.3. Follow the audit's recovery instructions. Typical recovery for migrate is `git checkout -- .claude/` (migration is uncommitted at this point).
 
 ### 5.3 Compliance audit
 
@@ -829,23 +965,25 @@ This table governs Stage 4 decisions. Consult it when a file's category is ambig
 
 | File Category | Strategy | Rationale |
 |---------------|----------|-----------|
-| cc-sdlc core skills | Overwrite + marker preservation | Extract PROJECT-SECTION blocks, overwrite, re-inject |
+| cc-sdlc core skills | §4.2.0 MCP gate + marker preservation | Port injects MCP calls into many core skills; must preserve |
 | Plugin skills (initialize, migrate, port) | Always overwrite | Maintained in this plugin repo |
-| Enhanced skills (archive, audit) | Merge | Contain Neuroloom-specific API sections |
-| Agent files (framework: template, suggestions, reviewer, auditor) | Neuroloom-aware merge | Preserve MCP patterns, update non-MCP sections |
-| Agent files (project domain agents) | Re-run tailoring | Framework sections update; domain desc preserved |
+| Enhanced skills (archive, audit) | §4.2.0 MCP gate + merge | Contain Neuroloom-specific API sections |
+| Agent files (framework: template, suggestions, reviewer, auditor) | §4.2.0 MCP gate | Preserve MCP patterns, update non-MCP sections |
+| Agent files (project domain agents) | §4.2.0 MCP gate + non-MCP tailoring update | Framework sections update outside MCP; domain desc preserved |
 | Agent files (project-added) | Skip | No upstream equivalent — never touch |
-| Process docs (upstream originals) | Overwrite + marker preservation | Extract PROJECT-SECTION blocks, overwrite, re-inject |
+| Process docs (upstream originals) | §4.2.0 MCP gate + marker preservation | Many process docs have MCP calls; preserve before overwriting |
 | `process/agent-selection.yaml` | **Never overwrite** | Project-specific agent roster and dispatch rules |
 | Process docs (project-added) | Skip | No upstream equivalent |
 | Knowledge YAMLs | Server-side upsert | `knowledge_id` matching handles new/updated/unchanged/deprecated |
 | `knowledge/provenance_log.md` | **Never overwrite/ingest** | Project-specific append-only records |
-| Discipline files | Preserve parking lots | Update framework sections, preserve project entries |
+| Discipline files | §4.2.0 MCP gate + preserve parking lots | Update framework sections, preserve project entries and MCP calls |
 | `.sdlc-manifest.json` | Partial update | Update version + add missing fields (`sdlc_root`, `neuroloom_backend`) |
 | `hooks/` files | Always overwrite | Plugin-managed; no project customizations |
 | `CLAUDE.md` SDLC section | Targeted update + guarded renames | Only stale references; preserve project additions |
 | Standalone `CLAUDE-SDLC.md` | Delete | Legacy file; content merged into CLAUDE.md |
-| Templates | Overwrite | Framework-level; skip `templates/optional/` |
+| Templates | §4.2.0 MCP gate | `test_spec_template.md` and others contain `memory_search` references |
+
+**§4.2.0 MCP gate:** Before every file write, count `memory_search(` + `memory_store(` occurrences in the project's current version. If > 0, apply Neuroloom-preserving merge (Pattern Mapping + section-level preservation). See Stage 4.2.0 for full procedure. See §4.2-gate for the mandatory post-write MCP Retention Audit.
 
 **Modified file rule:** If git diff shows the project has changed a file that would normally be overwritten, treat it as Modified and surface a review gate (Stage 4.2). Never silently overwrite a file with project customizations.
 
@@ -981,6 +1119,10 @@ This path loses accumulated feedback and importance scores — use only when no 
 | "I'll rename all skill references to match upstream." | Guarded renames only — check that the target skill directory exists in `.claude/skills/` before renaming. Renaming to a nonexistent skill causes silent process failures. |
 | "I'll rename agent names in skills to match upstream." | Projects use different agent names (`frontend-engineer` vs `frontend-developer`). Only rename if the target agent exists in `.claude/agents/`. |
 | "The AGENT_TEMPLATE.md can be copied directly from upstream." | Neuroloom projects use `memory_search` in Knowledge Context, not file path references. Scan for MCP patterns before merging — preserve them. |
+| "Core cc-sdlc skills have no project customizations, I can overwrite them." | FALSE for Neuroloom projects. `/sdlc-port` injects MCP calls into `design-consult`, `review-fix`, `sdlc-tests-create`, `sdlc-tests-run`, `research-external`, and others. Every file write in §4.2 must pass the §4.2.0 MCP preservation gate — no exceptions by category. |
+| "Process docs are framework-only, direct-copy is fine." | Process docs like `discipline_capture.md`, `overview.md`, `incident_response.md` contain MCP call patterns after port/initialize. The §4.2.0 gate applies to them too. |
+| "Templates are boilerplate, no MCP there." | FALSE. `test_spec_template.md` guides authors to retrieve knowledge via `memory_search` in Neuroloom projects. Apply §4.2.0. |
+| "I'll just run the content-merge and trust the rules worked." | Always run the MCP Retention Audit (§4.2-gate). A silent regression that drops `memory_search` calls breaks knowledge retrieval in every subsequent session with no visible symptom until an agent fails to find what it needs. |
 | "I'll ingest provenance_log.md into the knowledge layer." | The provenance log is a project-specific append-only record. It's not seed content — never ingest or overwrite it. |
 | "CLAUDE-SDLC.md should be a separate file." | Since upstream refactored this, CLAUDE-SDLC.md content lives directly in the project's CLAUDE.md. Remove any standalone copy after verifying its content is in CLAUDE.md. |
 
