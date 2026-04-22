@@ -118,7 +118,30 @@ Any regression halts the operation before success is declared. `/sdlc-migrate` h
 
 ## How It Works
 
-All hooks are Python modules in `sdlc_pyhooks/`, launched via `run_hook.py` through the base plugin's `.venv`. The SDLC plugin has no dependencies of its own — it imports `pyhooks.config` and `pyhooks.http` directly from the base plugin. No local state database; hooks are stateless and call the Neuroloom API directly.
+All hooks are Python modules in `sdlc_pyhooks/`, launched via `run_hook.py`. The SDLC plugin has no dependencies of its own — it imports `pyhooks.config` and `pyhooks.http` directly from the base plugin. No local state database; hooks are stateless and call the Neuroloom API directly.
+
+### Base plugin resolution
+
+The SDLC launcher locates the base plugin using a four-step priority chain:
+
+1. **`NEUROLOOM_CLAUDE_PLUGIN_ROOT` env var** — if set to a non-empty value, that path is used directly. Set this only when using a fork, an alternate org, or a non-standard install layout. Leave it unset for standard marketplace installs.
+2. **Marketplace cache** — scans `~/.claude/plugins/cache/endless-galaxy-studios/neuroloom/*/` and selects the highest semver version. The org `endless-galaxy-studios` is hardcoded; the launcher does not auto-discover forks.
+3. **Dev sibling** — `../neuroloom-claude-plugin` relative to the SDLC plugin root. Covers side-by-side development checkouts.
+4. **Not found** — a diagnostic message is written to stderr and the hook exits cleanly.
+
+Version selection from the glob uses integer tuple sorting (`0.10.0` correctly ranks above `0.7.0`), not lexicographic string sort.
+
+### Degradation signal
+
+If the base plugin cannot be located, `run_hook.py` writes a single line to stderr and exits. This happens before any Python hook runs, so there is no stdout banner (unlike the base plugin's codeweaver degradation banner, which fires from inside the session_start hook). The stderr line is visible in Claude Code's debug output but not in the transcript — this asymmetry is intentional. The SDLC plugin's failure mode (base plugin not found) is a configuration issue, not a transient install problem, so the signal is diagnostic rather than user-actionable in the transcript.
+
+### Python interpreter
+
+When the base plugin's `.venv` exists, hooks run inside it. When it does not exist, the system Python that invoked the launcher is used as a fallback. On the fallback path, a single line is written to stderr (gated to the session_start module only — not on every hook dispatch).
+
+### `--user` install footprint
+
+If `neuroloom-codeweaver` is installed via the base plugin's `--user` fallback path, it lands in `~/.local/lib/...` on POSIX or `%APPDATA%\Python\` on Windows — in the system Python's user site-packages, not isolated to the plugin venv. This package is visible to any code running under the same interpreter.
 
 **SessionStart** — calls the Neuroloom version proxy to fetch the latest cc-sdlc release version, then searches for the workspace's sentinel memory to determine initialization state.
 
@@ -195,7 +218,7 @@ The slash commands use these MCP tools (available when the base Neuroloom plugin
 Run `/sdlc-initialize` or `/sdlc-port` to create the sentinel memory.
 
 **Hook scripts not firing**
-Verify the base plugin's `.venv` exists at `../neuroloom-claude-plugin/.venv`; if not, run `cd neuroloom-claude-plugin && uv sync`. Check that hooks are registered in your Claude Code settings.
+Check that hooks are registered in your Claude Code settings. The base plugin's `.venv` is created automatically on first SessionStart — if it is absent, start a new Claude Code session and let it bootstrap. If startup fails, check that `python3` >= 3.11 is available on your PATH.
 
 **Sync buffer growing**
 The `event_buffer` table in `.neuroloom.db` accumulates payloads when the API is unreachable. Buffered payloads are replayed automatically on the next session start. To check the buffer size: `sqlite3 .neuroloom.db "SELECT COUNT(*) FROM event_buffer"`.
