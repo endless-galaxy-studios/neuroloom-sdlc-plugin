@@ -136,7 +136,24 @@ The pattern mapping below derives from cc-sdlc's phrasing contract, documented a
 | `Read [sdlc-root]/knowledge/README.md § "<section>"` | `memory_search(query="knowledge layer <section>", tags=["sdlc:knowledge"])` |
 | Evidence/citation parenthetical `[sdlc-root]/knowledge/<domain>/<file>.yaml, <section>` | `memory graph reference: sdlc:knowledge + sdlc:domain:<domain>, <section>` |
 
-**Wildcard match notes:**
+**Audit-description metadata (prose references in audit dimensions, compliance criteria, analysis descriptions):**
+
+| cc-sdlc Audit-Description Pattern | Neuroloom Replacement |
+|-----------------------------------|-----------------------|
+| `Any YAML file in [sdlc-root]/knowledge/` | `Any memory entry tagged sdlc:knowledge` |
+| `files in [sdlc-root]/knowledge/` | `memory entries tagged sdlc:knowledge` |
+| `listed in [sdlc-root]/knowledge/agent-context-map.yaml` | `indexed by sdlc:agent:* tags in the memory graph` |
+| `[sdlc-root]/knowledge/<discipline>/ directory` | `sdlc:knowledge + sdlc:domain:<discipline> memory entries` |
+| `entries in [sdlc-root]/disciplines/` | `entries tagged sdlc:discipline:*` |
+| `patterns that should be in [sdlc-root]/knowledge/ or [sdlc-root]/disciplines/` | `patterns that should be in the memory graph (sdlc:knowledge / sdlc:discipline:* tags)` |
+| `no corresponding [sdlc-root]/knowledge/<discipline>/ directory` | `no corresponding sdlc:knowledge + sdlc:domain:<discipline> memory entries` |
+| `YAML files under [sdlc-root]/knowledge/` | `memory entries tagged sdlc:knowledge` |
+| `in [sdlc-root]/knowledge/` or `in [sdlc-root]/disciplines/` (prose, non-instruction) | `in the Neuroloom memory graph (sdlc:knowledge / sdlc:discipline:* tags)` |
+
+**Audit-description match notes:**
+- These rules apply in PROSE contexts where `[sdlc-root]/knowledge/` or `/disciplines/` appear as concept references, not runtime read instructions. Most common in `compliance-methodology.md` audit dimension descriptions.
+- Do NOT apply inside Integration sections (`**Uses:**`, `**Depends on:**`), table cells, or code blocks — use the metadata-transformation table above for those.
+- Distinguishing signal: if removing the path would leave the sentence still making sense (just less specific), it's audit-description metadata. If removing it breaks an instruction, it's a runtime ref — use the instruction rules above.
 - `<domain>`, `<name>`, `<file>`, `<section>`, `[X]` capture the substring at that position
 - For `<file-name-as-topic>`, convert the filename to a natural-language topic (e.g., `testing-paradigm.yaml` → `"testing paradigm"`, `debugging-methodology.yaml` → `"debugging methodology"`)
 - If a specific rule above matches first, use it; wildcards only fire when no specific rule applies
