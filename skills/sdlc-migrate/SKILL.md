@@ -247,6 +247,24 @@ Added post-`migrate-fa70ef` audit: the previous audit-description rules fired on
 | `knowledge files` (bare plural, used as a concept) | `knowledge memory entries` |
 | `YAML rule file` / `rule YAML file` / `rule file` (knowledge-layer context) | `knowledge memory entry` |
 | `Knowledge Stores` (heading label) | `Knowledge Memory` (heading label) — paired with body-text update per heading rule |
+| `Knowledge YAMLs` (bare plural short form — NOT "Knowledge YAML files") | `knowledge memory entries` |
+| `Discipline Parking Lots` (heading label) | `Discipline Memory Entries` (heading label) — paired with body-text update per heading rule |
+| `Parking Lot Entries` (heading label) | `Discipline Memory Entries` (heading label) |
+| Numbered-list bold-label prefix `N. **Discipline parking lot entries** (...)` / `- **Discipline parking lot entries** (...)` | `**Discipline memory entries** (...)` — label rewritten; parenthetical continues via metadata rule |
+| Numbered-list bold-label prefix `N. **Knowledge store updates** (...)` / `- **Knowledge store updates** (...)` | `**Knowledge memory updates** (...)` — label rewritten; parenthetical continues via metadata rule |
+| Numbered-list bold-label prefix `N. **Knowledge YAML addition** (...)` | `**Knowledge memory addition** (...)` |
+
+**Label-prefix-before-parenthetical combined rule (added after migrate-fa70ef audit):**
+
+When a metadata-transformation parenthetical rule fires (e.g., `([sdlc-root]/disciplines/*.md)` → `(memory graph, entries tagged sdlc:discipline:*)`), the matcher MUST also scan the immediately-preceding text for a concept-terminology label. If the label is in the concept-terminology table (above), rewrite the label in the same pass. Examples:
+
+- Input: `- **Discipline parking lot entries** (\`[sdlc-root]/disciplines/*.md\`)`
+- After parenthetical rule alone (incorrect): `- **Discipline parking lot entries** (memory graph, entries tagged sdlc:discipline:*)`
+- After combined rule (correct): `- **Discipline memory entries** (memory graph, entries tagged sdlc:discipline:*)`
+
+**Why this matters:** Without the combined rule, half-transformed output surfaces in numbered lists and bullet lists where the file-speak label precedes a correctly-Neuroloom-ified parenthetical. The sleeved audit surfaced ~6 such sites in `sdlc-execute.md`, `sdlc-lite-execute.md`, and `compliance-methodology.md`. Single-pass parenthetical rules must look left to find these labels and rewrite them together.
+
+**Scope:** the look-left scan only considers text on the same line, up to the line-start or the previous sentence boundary (`. ` / `! ` / `? `). It does not cross line boundaries or sentence boundaries — labels and their parentheticals are always written as a single logical unit on one line.
 
 **Concept-terminology match notes:**
 
