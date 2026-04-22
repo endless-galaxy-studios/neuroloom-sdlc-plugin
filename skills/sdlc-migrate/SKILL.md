@@ -71,6 +71,30 @@ These files become project-specific after initialization. They must NOT be direc
 
 ---
 
+## Transformation-Exempt Files (HARD GATE — must be copied verbatim from upstream, no Pattern Mapping)
+
+These files contain canonical phrases as **data** (validation criteria, historical quotes, contract documentation). Applying Pattern Mapping to them destroys their function. Unlike the "Project-Specific Files" table above (which are never overwritten), these files ARE overwritten from upstream — but the upstream content is copied **verbatim** with zero transformation applied.
+
+| File | Reason |
+|------|--------|
+| `process/knowledge-routing.md` | The phrasing contract itself — lists canonical AND forbidden phrases as documentation |
+| `process/sdlc_changelog.md` | Historical record — entries quote canonical phrases as context; transformation corrupts the history |
+| `agents/sdlc-reviewer.md` | Reviewer's checklist quotes the canonical phrases as validation criteria — transforming them removes the phrases the reviewer exists to detect |
+| `agents/sdlc-compliance-auditor.md` | Auditor's "Phrasing Contract Validation" section lists the canonical phrases as scan targets |
+| `CLAUDE-SDLC.md` | Framework documentation inserted into CLAUDE.md; contains canonical phrases as examples |
+
+**Enforcement (Stage 4.2):** Before invoking the Pattern Mapping transformer on any file, the executor MUST check the file's install path against this list. If matched:
+
+1. Copy upstream content **verbatim** (no Pattern Mapping invocation, no metadata rule evaluation, no section-level preservation rewrite).
+2. Log `file_merged` with `subtype: "exempt_verbatim"`, `rules_fired: []`, and `mcp_before == mcp_after` (no MCP count change expected).
+3. Skip the §4.2-gate MCP Retention Audit's per-file classification for this file — exempt files are not subject to the audit because their canonical-phrase content is intentional.
+
+**Why hard-gated:** The 2026-04-22 `migrate-f01a70` run transformed `agents/sdlc-reviewer.md` and `process/sdlc_changelog.md` despite both being in prior informational exempt lists. Listing a file as exempt without enforcement is equivalent to not listing it. The `sdlc-reviewer.md` transformation in particular destroyed the forbidden-phrases checklist (`:82-86`) that the reviewer uses to catch contract violations — turning the validation agent into one that can't validate.
+
+**Post-migration verification:** The Stage 5.0 Telemetry Assertion (added earlier) must additionally verify that every file on this table emitted a `file_merged` event with `subtype: "exempt_verbatim"`. A `subtype: "mcp_preserved"` or `"mcp_backfilled"` event on an exempt file is a regression — halt with a specific error.
+
+---
+
 ## Neuroloom-Aware Content Transformation
 
 When merging operational files, **preserve MCP tool calls** in framework content. The cc-sdlc source uses file path references (generic), but Neuroloom projects use MCP tools for knowledge access.
@@ -95,6 +119,9 @@ The pattern mapping below derives from cc-sdlc's phrasing contract, documented a
 3. **Inline backticks around paths are markdown formatting — match THROUGH them.** A rule `Append to [sdlc-root]/disciplines/*.md` matches `Append to \`[sdlc-root]/disciplines/*.md\`` (with inline backticks) and vice versa. Strip inline backticks before matching.
 4. Only skip matching inside **fenced code blocks** (triple backticks ```` ``` ````) — those are literal code examples, not instructions.
 5. When the rule pattern contains `<domain>` or `{name}` or `[agent-name]`, treat as a wildcard that captures the substring at that position.
+6. **Wildcard captures (`[X]`, `<name>`, `<purpose>`, `<tag-expr>`, etc.) are non-greedy and MUST terminate at any of:** `(`, `)`, `[` (not the opening `[` of the wildcard itself), `]`, `,`, `.`, `;`, `:` followed by whitespace, or end-of-line. A capture MUST NOT swallow a following parenthetical, list comma, or sentence boundary. Specifically: if the text after the wildcard is `(e.g., ...)` or `, [...]` or `. Sentence continues`, the capture stops **before** that punctuation.
+
+   **The bug this prevents:** In `migrate-f01a70`, `sdlc-archive.md:175` matched `read [sdlc-root]/disciplines/*.md and find parking lot entries tagged with that deliverable's ID (e.g., [D05 — phase 2], [D05 — planning]).` The `[X]` capture in rule `Read [sdlc-root]/disciplines/*.md and find [X]` greedily consumed up through `ID (e` then stopped at an arbitrary character, producing a query string of `"parking lot entries tagged with that deliverable's ID (e"` and leaking the remaining `g., [D05 — phase 2]...)` outside the `memory_search(...)` call as orphan text. A non-greedy capture with explicit terminators stops at `(` and produces a clean `memory_search(query="parking lot entries tagged with that deliverable's ID", tags=[...])` followed by the original `(e.g., [D05 — phase 2], [D05 — planning]).` preserved verbatim.
 
 | cc-sdlc Generic Pattern | Neuroloom Pattern (preserve if present) |
 |-------------------------|----------------------------------------|
@@ -108,6 +135,9 @@ The pattern mapping below derives from cc-sdlc's phrasing contract, documented a
 | `Update [sdlc-root]/knowledge/agent-context-map.yaml to add a new entry mapping the agent to relevant knowledge files` | Store knowledge tagged with `sdlc:agent:[agent-name]` and domain tags via memory_store |
 | `Update [sdlc-root]/knowledge/agent-context-map.yaml to wire newly created knowledge files to relevant agents` | Tag new knowledge via memory_store with `sdlc:agent:[agent-name]` and domain tags |
 | `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml` | `memory_search(query="agent communication protocol structured progress handoff format", tags=["sdlc:knowledge", "sdlc:domain:architecture"])` |
+| `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml and follow the canonical agent communication protocol it defines` | `memory_search(query="agent communication protocol structured progress handoff format", tags=["sdlc:knowledge", "sdlc:domain:architecture"]) and follow the canonical agent communication protocol it defines` |
+| `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml for the handoff schema` | `Call memory_search(query="agent communication protocol handoff schema", tags=["sdlc:knowledge", "sdlc:domain:architecture"]) for the handoff schema` |
+| `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml for <purpose>` (generic `for <purpose>` suffix) | `Call memory_search(query="agent communication protocol <purpose>", tags=["sdlc:knowledge", "sdlc:domain:architecture"]) for <purpose>` |
 | `Append to [sdlc-root]/disciplines/*.md` | `memory_store(tags=["sdlc:discipline:{name}", "sdlc:parking-lot"])` |
 | `Append each insight or GAP entry to the relevant [sdlc-root]/disciplines/*.md parking lot` | `memory_store(tags=["sdlc:discipline:{name}", "sdlc:parking-lot"]) each insight or GAP entry` |
 | `look up the agent's mapped files from [sdlc-root]/knowledge/agent-context-map.yaml` | `memory_search(query="{agent-name} domain patterns", tags=["sdlc:knowledge"])` |
@@ -157,6 +187,10 @@ The pattern mapping below derives from cc-sdlc's phrasing contract, documented a
 - These rules apply in PROSE contexts where `[sdlc-root]/knowledge/` or `/disciplines/` appear as concept references, not runtime read instructions. Most common in `compliance-methodology.md` audit dimension descriptions.
 - Do NOT apply inside Integration sections (`**Uses:**`, `**Depends on:**`), table cells, or code blocks — use the metadata-transformation table above for those.
 - Distinguishing signal: if removing the path would leave the sentence still making sense (just less specific), it's audit-description metadata. If removing it breaks an instruction, it's a runtime ref — use the instruction rules above.
+- **Fragments match independently within compound sentences.** A sentence with multiple path references (e.g., `Any memory entry tagged sdlc:knowledge not listed in any agent's mapping in [sdlc-root]/knowledge/agent-context-map.yaml. Severity: Warning...`) must have every `[sdlc-root]/...` fragment matched separately. The matcher walks the sentence and applies each audit-description rule to each fragment independently. Mixed results (one half transformed, one half untransformed) are a known failure mode and indicate the matcher only ran once per sentence.
+
+   **The bug this prevents:** In `migrate-f01a70`, `compliance-methodology.md:208` became a compound mess: `Any memory entry tagged sdlc:knowledge not listed in any agent's mapping in the agent knowledge graph (via memory_store with sdlc:agent:{name} tags). Severity: Warning (the knowledge exists but no agent consumes it).` — the `listed in [sdlc-root]/knowledge/agent-context-map.yaml` fragment got the canonical `indexed by sdlc:agent:* tags` replacement on ONE half but the other half was independently misrewritten. The matcher must treat each `[sdlc-root]/...` occurrence as a separate match target.
+- **Bare target-path rewrites (`.claude/sdlc/...`, `ops/sdlc/...`) are NOT audit-description transforms.** If a fragment already shows a resolved `.claude/sdlc/knowledge/` or `ops/sdlc/knowledge/` path (not `[sdlc-root]/`), that's a prior bug where path-variable rewriting fired instead of knowledge-layer transformation. Flag as `TRANSFORMATION_WARNING` — don't silently leave the target-path in installed content (`research-external.md:72` exemplar).
 - `<domain>`, `<name>`, `<file>`, `<section>`, `[X]` capture the substring at that position
 - For `<file-name-as-topic>`, convert the filename to a natural-language topic (e.g., `testing-paradigm.yaml` → `"testing paradigm"`, `debugging-methodology.yaml` → `"debugging methodology"`)
 - If a specific rule above matches first, use it; wildcards only fire when no specific rule applies
@@ -169,11 +203,92 @@ Parenthetical paths and table-cell paths in cc-sdlc source describe WHERE someth
 Apply these rules to: parenthetical paths `(...)`, table cells containing paths (any column, not just first/last), bullet-point labels with paths (both `Label: path` and `Label (path)` forms). Do NOT apply inside fenced code blocks or when the path is in a canonical instruction already handled above.
 
 **Match rules for metadata transformation:**
-1. **Strip inline backticks before matching.** A rule `([sdlc-root]/knowledge/*.md)` matches `` (`[sdlc-root]/knowledge/*.md`) `` (with inline backticks around the path). This is the same rule as instruction-pattern match rule #3 and applies here equivalently.
+
+1. **Strip inline backticks before matching — MANDATORY for metadata rows.** A rule `([sdlc-root]/knowledge/*.md)` matches all of these forms; the executor MUST normalize by stripping single backticks around the path before the rule is tested:
+   - `([sdlc-root]/knowledge/*.md)` — bare
+   - `` (`[sdlc-root]/knowledge/*.md`) `` — path in backticks inside parens
+   - `` `([sdlc-root]/knowledge/*.md)` `` — entire parenthetical in backticks
+   - `(\`[sdlc-root]/knowledge/*.md\`)` — escaped-backtick in markdown source
+   This is the identical rule as instruction-pattern match rule #3. If you are reading this spec and find yourself wondering "does backtick-stripping apply to metadata rows the same way as to instruction rows?" — yes, always, no exceptions. Do not treat any metadata row as "only matches when no backticks present."
 2. **`(e.g., ...)` prefix is absorbed.** The `e.g.,` ( / `e.g.` / `i.e.,`) prefix inside parens is treated as boilerplate and preserved in the replacement.
 3. **Table-cell match is column-agnostic.** Match any cell whose content contains the target path — first column, last column, or middle. Do not restrict to specific column positions.
 4. **Bullet label separator can be `:` or `(`.** Both `- Label: path` and `- Label (path)` are metadata forms — the transformation preserves the label and the separator form.
 5. `<domain>`, `<name>`, `<file>` are wildcards that capture the substring at that position.
+
+**Worked examples (executor-facing — verify your matcher produces exactly these outputs):**
+
+| Input (before) | Output (after) |
+|----------------|----------------|
+| `` - Knowledge store updates (`[sdlc-root]/knowledge/*.md`) `` | `- Knowledge store updates (memory graph, entries tagged sdlc:knowledge)` |
+| `` - Discipline parking lot entries (`[sdlc-root]/disciplines/*.md`) `` | `- Discipline parking lot entries (memory graph, entries tagged sdlc:discipline:*)` |
+| `` - Files from the same discipline (e.g., `[sdlc-root]/knowledge/<discipline>/`) `` | `- Files from the same discipline (e.g., memory entries tagged sdlc:knowledge + sdlc:domain:<discipline>)` |
+| `` \| Validated, testable rules \| `[sdlc-root]/knowledge/<discipline>/<file>.yaml` \| Specific, testable... \| `` | `\| Validated, testable rules \| memory entries tagged sdlc:knowledge + sdlc:domain:<discipline> \| Specific, testable... \|` |
+| `` - Agent knowledge context: `[sdlc-root]/knowledge/agent-context-map.yaml` `` | `- Agent knowledge context: memory graph (agents indexed by sdlc:agent:* tags)` |
+| `### 6a. Discipline Parking Lots (`[sdlc-root]/disciplines/`)` | `### 6a. Discipline Parking Lots (memory graph, entries tagged sdlc:discipline:*)` |
+| `` Read `[sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml` for the handoff schema. `` | `Call memory_search(query="agent communication protocol handoff schema", tags=["sdlc:knowledge", "sdlc:domain:architecture"]) for the handoff schema.` (NOT `Read memory_store with tags [...]` — that's a capture-target rule leaking into a Read context, see below) |
+| `` belong in knowledge stores (`[sdlc-root]/knowledge/`), not agent memory. `` | `belong in the Neuroloom knowledge store (via memory_store), not agent memory.` (the `knowledge stores ([sdlc-root]/knowledge/)` rule must match mid-sentence with backticks around the path — match rule #1 applies) |
+
+If your matcher leaves any of these untransformed, or produces output with double-parens or orphan `*.md\`)` debris, it has a **rule-priority** or **backtick-normalization** defect — halt and file a plugin bug, do not write partial output.
+
+**Rule ordering (CRITICAL — longest parenthetical-whole wins):**
+
+When multiple rows could match the same substring, apply them in this order and stop at the first hit:
+
+1. **Full-parenthetical rules** — rows whose pattern begins with `(` and ends with `)`. Match the entire `(...)` span including its parens. These consume their own parens and produce replacement parens, so they splice cleanly into surrounding text.
+2. **Full-label+separator rules** — `<Label>: <path>` and `<Label> (<path>)` rows. Match the label + separator + path as one span.
+3. **Full-table-cell rules** — match the entire cell content between `|` bars.
+4. **Bare-path rules** — rows whose pattern is just `[sdlc-root]/...` with no surrounding delimiters. Apply ONLY when no higher-priority rule matched this position.
+
+**Why ordering matters:** If a bare-path rule fires inside an already-open `(...)` context, its replacement (which typically itself contains `(...)` boilerplate like `(memory graph, ...)`) gets spliced inside the outer parens, producing `((...) *.md`)` debris. This is the double-paren corruption observed in the 2026-04-22 `migrate-f01a70` run (`sdlc-execute/SKILL.md:279` and five other sites). The full-parenthetical rule at row 1 consumes the outer parens as part of its match, so this class of bug cannot occur when the matcher prioritizes correctly.
+
+**Verification the matcher has correct priority:** After transforming a file, scan the output for these regressions and halt on any hit:
+- `((` followed by any alphanumeric (double-open-paren)
+- `*.md\`)` anywhere (orphaned glob-suffix-with-backtick)
+- ``*.md`)`` mid-line (same, without escape)
+- `) *.md)` (orphan-glob-without-backtick)
+- `Read memory_store` anywhere (nonsensical — `memory_store` is the write API, can't be `Read`)
+- `Read memory_search` anywhere (`memory_search` is a function call; `Call memory_search(...)` is the correct verb — `Read memory_search` is a malformed transformation)
+
+If any match, the matcher picked a bare-path rule over a parenthetical rule, OR a capture-target rule over an instruction rule — the output file MUST NOT be written.
+
+**Integration sections are structurally exempt — HARD EXCLUSION:**
+
+Any line matching `^\*\*(Uses|Depends on|Updates|Feeds into|Complements|Downstream|Does NOT replace|DRY notes):\*\*` and every bullet/text line following it up to the next blank line, the next `^\*\*[A-Z]` (new Integration label), or the next `^#{1,6} ` (heading) is an **Integration section**. Integration sections are exempt from ALL transformation:
+
+- No instruction-rule matching
+- No metadata-rule matching
+- No capture-target-rule matching
+- No audit-description rule matching
+
+Integration sections describe logical dependencies between skills/agents/files, not runtime operations. Transforming `**Uses:** [sdlc-root]/knowledge/agent-context-map.yaml (for wiring)` into `**Uses:** memory graph (agents indexed by sdlc:agent:* tags) (knowledge wiring)` adds noise (the parenthetical purpose tag now wraps a non-file reference) and produces double-paren corruption. Leave Integration sections verbatim.
+
+**Enforcement:** The matcher must mask out Integration sections before any rule evaluation. A post-write regression scan for `\*\*(Uses|Depends on|Updates|Feeds into):\*\*.*memory_(search|store)` on a single line halts the write — the Integration section was transformed and must be re-copied verbatim.
+
+**Why hard-gated:** The `migrate-f01a70` run transformed Integration sections in `sdlc-archive.md:230,232`, `sdlc-create-agent.md:219`, `sdlc-ingest.md:398`, `sdlc-tests-create.md:250` — producing double-paren corruption in all four. Listing Integration sections as "informationally exempt" without a structural mask is equivalent to not listing them.
+
+**Fenced code blocks are structurally exempt — HARD EXCLUSION:**
+
+Everything between a ` ``` ` opening fence and its matching closing fence (same number of backticks) is exempt from ALL transformation, same scope as Integration sections above. This includes ` ```yaml `, ` ```json `, ` ```bash `, ` ``` ` (no language tag), and indented code blocks (lines starting with 4+ spaces inside a list context).
+
+**Enforcement:** Before matching, the transformer must parse fence boundaries and mask all content between them. Post-write, assert: **the count of `memory_search(` / `memory_store(` calls inside fenced code blocks must equal the pre-merge count in the same blocks**. Any increase means the transformer inserted MCP into a code example — halt and report.
+
+**Why hard-gated:** `migrate-f01a70` transformed a ```yaml ``` block in `sdlc-ingest.md:271-273`, producing syntactically broken YAML with nested double-quotes. YAML examples demonstrate file FORMAT; transforming them removes the example's informational value AND breaks the syntax.
+
+**Capture-target rules must NEVER fire in `Read ...` contexts:**
+
+Rows labelled `(as capture target)` or whose replacement begins with `memory_store with tags [...]` (e.g., plugin lines 115–117) describe WRITE destinations. They exist to transform "where to write new knowledge" sentences like `Append to [sdlc-root]/knowledge/<domain>/`. These rules MUST NOT match inside a `Read ...` instruction.
+
+**The bug this prevents:** In the 2026-04-22 `migrate-f01a70` run, `AGENT_TEMPLATE.md:133` read upstream as:
+```
+Read `[sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml` for the handoff schema.
+```
+The matcher fired the capture-target wildcard `[sdlc-root]/knowledge/<domain>/` → `memory_store with tags [...]` against a fragment of the read path, producing:
+```
+Read memory_store with tags ["sdlc:knowledge", "sdlc:domain:architecture"] for the handoff schema.
+```
+This is doubly wrong: `memory_store` is the write API (can't be read), and the correct transformation for `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml for <purpose>` is the specific rule added in the instruction table (`Call memory_search(query="...<purpose>", tags=[...])`).
+
+**Matcher requirement:** When the enclosing sentence begins with `Read ` (or `read ` mid-sentence per match rule #1), the matcher must exclude capture-target rules from the candidate set entirely. Only instruction rules (those whose replacement begins with `memory_search(` or preserves a `Read`/`Call` verb) are eligible. If the only matching rule in a `Read` context is a capture-target row, the matcher emits a `TRANSFORMATION_WARNING` for a missing instruction rule rather than producing malformed output.
 
 | cc-sdlc Metadata Pattern | Neuroloom Metadata Replacement |
 |--------------------------|--------------------------------|
@@ -751,12 +866,37 @@ Neuroloom projects contain `memory_search(` / `memory_store(` calls injected by 
 
 4. **Non-Neuroloom projects** (`neuroloom_backend: false` or absent): Skip Pattern Mapping. Write upstream verbatim. This is the cc-sdlc base behavior.
 
-**Transaction log entries:**
+**Transaction log entries — MANDATORY per-file emission:**
+
+Every file processed by stage 4.2 MUST produce exactly one of these events, emitted **immediately after the file is written**, before processing the next file. Batching, deferring, or skipping emission is a telemetry regression and causes the post-run gate to fail.
+
 ```
-mcp_new_file      — file didn't exist in project; wrote transformed upstream
-mcp_backfilled    — file existed but had no MCP; wrote transformed upstream
-mcp_preserved     — file had MCP; merged transformed upstream + project sections
+file_merged       — generic per-file event with before/after MCP counts (required for every file, including when no MCP change)
+mcp_new_file      — subtype: file didn't exist in project; wrote transformed upstream
+mcp_backfilled    — subtype: file existed but had no MCP; wrote transformed upstream
+mcp_preserved     — subtype: file had MCP; merged transformed upstream + project sections
+mcp_drop          — MCP count decreased (subject to §4.2-gate classification)
+heading_fuzzy_match — logged when §4.2.0 section preservation fell back to a non-exact heading tier (tiers 2–4)
 ```
+
+**Schema for `file_merged` (and subtype events):**
+```json
+{
+  "ts": "ISO-8601",
+  "run_id": "migrate-xxxxxx",
+  "event": "file_merged",
+  "stage": "4.2",
+  "file": "relative/path/to/file",
+  "subtype": "mcp_new_file | mcp_backfilled | mcp_preserved",
+  "mcp_before": <int>,
+  "mcp_after": <int>,
+  "headings_preserved": [<list of heading strings kept verbatim>],
+  "headings_fuzzy_matched": [{"tier": 2|3|4, "project": "...", "upstream": "..."}],
+  "rules_fired": [<pattern-mapping row labels applied>]
+}
+```
+
+**Why mandatory:** The 2026-04-22 `migrate-f01a70` run wrote stage-4.2 files without emitting any `file_merged` events and without emitting the `mcp_retention_audit_complete` event below. The migration reported `run_complete` successfully despite the audit being invisible — silent gate bypass. The pre-`run_complete` assertion in §5 below now fails if these events are missing for any file written during stage 4.2.
 
 **Why this gate exists:** A 2026-04-22 migration regression overwrote 65 MCP calls across 44 files because the content-merge rules were inconsistent across file categories. This gate enforces uniform MCP preservation AND uniform forward transformation — every upstream file lands as Neuroloom-native in a Neuroloom project, whether it's new, newly-transformed, or merged with an existing MCP-bearing version.
 
@@ -853,6 +993,43 @@ Record the outcome for the Stage 5 report.
 
 **Before proceeding to CLAUDE.md checks**, verify the content-merge results didn't corrupt project data. This catches merge errors before they propagate.
 
+#### Mandatory: Structural Content-Loss Audit
+
+**This check is MANDATORY — it catches the failure mode that silently broke the `migrate-f01a70` run.**
+
+MCP count can be preserved while structural content is lost. `migrate-f01a70` deleted 12 rows of Red Flags table body in `sdlc-develop-skill.md:224-234`, 5 steps of Library Verification procedure in `sdlc-plan.md:240-254`, and an entire dispatch-step body in `sdlc-review.md:49-59` — all while MCP counts stayed unchanged. The MCP Retention Audit (below) didn't catch these because they weren't MCP-bearing sections.
+
+**Procedure:** For every file written in Stage 4.2, compute four structural counts from the **project's pre-merge version** and from the **final on-disk content**:
+
+1. `heading_count` — number of lines matching `^#{1,6} ` (H1 through H6)
+2. `table_row_count` — number of lines matching `^\|.*\|.*\|\s*$` inside any table (excludes header/separator rows)
+3. `numbered_step_count` — number of lines matching `^\s*\d+\.\s+\*\*` (numbered steps with bold lead)
+4. `fenced_block_count` — number of ` ``` ` delimiters divided by 2 (count of fenced code blocks)
+
+For each count, compare:
+- **`post >= pre`** → pass (additions from upstream are fine)
+- **`post < pre`** → a structural drop occurred. Classify:
+  - Read the upstream version and compute the same counts on it
+  - If upstream's count is also lower than project's pre-merge count by the same delta → **LEGITIMATE UPSTREAM REMOVAL** (the framework dropped content by design)
+  - Else → **CONTENT-MERGE REGRESSION** — the merge dropped content the upstream kept; halt migration
+
+**Halt and report (regression case):**
+
+```
+CRITICAL: Structural content-loss regression detected
+File: {path}
+Dropped: {count_name} {pre} → {post} (lost {pre - post})
+Upstream {count_name}: {upstream_count} (expected post ≈ {upstream_count})
+Likely cause: misaligned merge window replaced upstream content with a duplicate of a different section.
+
+Recovery:
+1. git checkout -- {path} (restore pre-migration state)
+2. Re-run /sdlc-migrate
+3. If it reoccurs, the merge implementation has a section-alignment bug — file a plugin issue
+```
+
+**Log on pass:** Emit `structural_audit_complete` to the transaction log with the 4 counts for each file and the aggregate `files_scanned / regressions / legitimate_drops` totals.
+
 #### Mandatory: MCP Retention Audit
 
 **This check is MANDATORY — it catches the failure mode that silently broke the 2026-04-22 migration.**
@@ -920,6 +1097,29 @@ Regressions detected: 0  ← MUST BE 0 TO PROCEED
 Total MCP calls (before → after): {X} → {Y}
 ```
 
+**Mandatory emission — `mcp_retention_audit_complete`:**
+
+Before Stage 4.2 is considered finished, the audit MUST emit this event to the transaction log (no exceptions, no batching):
+
+```json
+{
+  "ts": "ISO-8601",
+  "run_id": "migrate-xxxxxx",
+  "event": "mcp_retention_audit_complete",
+  "stage": "4.2-gate",
+  "mcp_before": <int>,
+  "mcp_after": <int>,
+  "net_delta": <int>,
+  "files_scanned": <int>,
+  "regressions": <int>,
+  "legitimate_drops": <int>,
+  "drops_detail": "<comma-separated summaries>",
+  "audit_result": "PASS | FAIL"
+}
+```
+
+If the audit is skipped (e.g., no files modified this run), the executor MUST still emit this event with `files_scanned: 0` and `audit_result: "PASS"` — so downstream tools can verify the gate was evaluated, not silently bypassed.
+
 **Gate rule:** If regressions > 0, migration is halted. Do not proceed to Stage 4.3. Instruct CD to:
 1. Review the regressed files listed in the transaction log
 2. Restore them via `git checkout -- {paths}` (migration is uncommitted)
@@ -978,6 +1178,36 @@ The sentinel is managed SERVER-SIDE by `seed()`. Do not create, update, or tag i
 ---
 
 ## Stage 5 — Verification + Compliance Audit + Report
+
+### 5.0 Telemetry Assertion (pre-flight for Stage 5)
+
+Before any verification runs, assert the Stage 4.2 telemetry is intact. This catches the silent-bypass failure mode where the executor skipped per-file emission and the MCP Retention Audit summary event.
+
+**Procedure:**
+
+1. Read the transaction log entries for this `run_id`.
+2. Count events of each required type:
+   - `file_merged` — MUST equal the number of files written in stage 4.2 (cross-check against the change manifest). Zero is only acceptable if the change manifest says no operational files changed.
+   - `mcp_retention_audit_complete` — MUST be exactly 1. Zero means the audit gate was bypassed.
+3. If either count is wrong, **halt** the migration with:
+
+```
+TELEMETRY REGRESSION — Stage 4.2 audit trail incomplete.
+
+Expected: {N} file_merged events, 1 mcp_retention_audit_complete event
+Found:    {M} file_merged events, {K} mcp_retention_audit_complete events
+
+Stage 4.2 ran but did not emit the mandatory audit trail. The migration
+cannot declare run_complete because there is no record that the MCP
+Retention Audit ever evaluated the written files.
+
+Recovery:
+1. git checkout -- .claude/ (restore pre-migration state)
+2. File a plugin bug with this run_id: {run_id}
+3. Re-run /sdlc-migrate after the executor is fixed
+```
+
+Do NOT proceed to 5.1 unless both counts match. Do NOT emit `run_complete` without this assertion passing.
 
 ### 5.1 Knowledge layer spot-check
 
