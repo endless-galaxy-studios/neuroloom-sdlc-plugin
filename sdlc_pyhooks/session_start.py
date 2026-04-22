@@ -14,6 +14,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 import pyhooks.config  # type: ignore[import-untyped]
 import pyhooks.http  # type: ignore[import-untyped]
@@ -23,6 +24,18 @@ def _debug(msg: str) -> None:
     """Print a debug message to stderr if NEUROLOOM_DEBUG=true."""
     if os.environ.get("NEUROLOOM_DEBUG") == "true":
         print(f"[neuroloom-sdlc] {msg}", file=sys.stderr)
+
+
+def _plugin_version() -> str:
+    """Read plugin version from .claude-plugin/plugin.json. Falls back to 'unknown'."""
+    try:
+        manifest = Path(__file__).resolve().parent.parent / ".claude-plugin" / "plugin.json"
+        return json.loads(manifest.read_text(encoding="utf-8")).get("version", "unknown")
+    except Exception:
+        return "unknown"
+
+
+_USER_AGENT = f"neuroloom-sdlc-plugin/{_plugin_version()}"
 
 
 def _get_json(
@@ -36,7 +49,7 @@ def _get_json(
     """
     req = urllib.request.Request(
         url,
-        headers={**headers, "User-Agent": "neuroloom-sdlc-plugin/0.1.0"},
+        headers={**headers, "User-Agent": _USER_AGENT},
         method="GET",
     )
     try:

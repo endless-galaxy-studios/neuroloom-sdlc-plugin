@@ -593,10 +593,8 @@ Write `.sdlc-manifest.json` in the project root:
 ```json
 {
   "neuroloom_backend": true,
-  "neuroloom_integration": true,
   "sdlc_version": "{version from sdlc_get_version, or 'local' if unavailable}",
   "sdlc_root": ".claude/sdlc",
-  "install_mode": "neuroloom",
   "source_repo": "https://github.com/Inpacchi/cc-sdlc",
   "source_version": "{version from sdlc_get_version, or 'local' if unavailable}",
   "ported_at": "{ISO 8601 timestamp}"

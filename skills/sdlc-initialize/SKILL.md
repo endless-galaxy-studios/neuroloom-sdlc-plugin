@@ -578,8 +578,6 @@ rm -rf .claude/skills/sdlc-initialize/ .claude/skills/sdlc-migrate/
   "sdlc_version": "{SDLC_VERSION}",
   "sdlc_root": "{detected sdlc_root — typically ops/sdlc for new projects}",
   "neuroloom_backend": true,
-  "neuroloom_integration": true,
-  "install_mode": "neuroloom",
   "source_repo": "https://github.com/Inpacchi/cc-sdlc",
   "source_version": "{SDLC_VERSION}",
   "initialized_at": "{ISO_DATE}",

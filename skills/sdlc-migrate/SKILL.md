@@ -87,6 +87,8 @@ The pattern mapping below derives from cc-sdlc's phrasing contract, documented a
 
 ### Pattern Mapping
 
+> **How coverage actually works:** This table lists 5 explicit phrase-to-call mappings, but they cover only a fraction of real-world transformation sites. The vast majority of cc-sdlc files with knowledge references (skills, agents, process docs) are handled via the **section-level preservation rule** documented in "Content-Merge Rules for Neuroloom" below — scan each file for `memory_search(` / `memory_store(` presence and preserve those sections verbatim during merge. The explicit patterns below are what the transformer SEEKS during fresh installation (`/sdlc-initialize`) and during migration when a file has no prior MCP patterns. Once a file contains MCP calls, section-level preservation takes over.
+
 | cc-sdlc Generic Pattern | Neuroloom Pattern (preserve if present) |
 |-------------------------|----------------------------------------|
 | `consult [sdlc-root]/knowledge/agent-context-map.yaml` | `memory_search(query="[agent-name] domain-specific patterns...", tags=["sdlc:knowledge"])` |
@@ -650,8 +652,7 @@ Overwrite cc-sdlc originals (files that originated from the upstream framework) 
 Update the `sdlc_version` field to `LATEST_VERSION`. Preserve all project-specific fields. Add missing fields introduced in newer cc-sdlc versions if absent:
 
 - `sdlc_root` — set to the detected SDLC root path (`ops/sdlc/` or `.claude/sdlc/`)
-- `neuroloom_integration` — set to `true` (this is a Neuroloom workspace)
-- `install_mode` — set to `"neuroloom"` if absent
+- `neuroloom_backend` — set to `true` if absent (load-bearing: `/sdlc-port` uses this to detect prior Neuroloom initialization)
 
 **Refresh `installed_files` hashes.** For every file the migration just wrote (overwrites + merges + drift resolutions), recompute SHA-256 of the final on-disk content and update the corresponding entry in `installed_files`. For drift cases where CD chose "keep mine", record the current hash so subsequent migrations see a clean baseline. For files CD chose to overwrite with upstream, the hash reflects the new upstream content. This keeps drift detection accurate for the next migration.
 
@@ -830,7 +831,6 @@ This table governs Stage 4 decisions. Consult it when a file's category is ambig
 |---------------|----------|-----------|
 | cc-sdlc core skills | Overwrite + marker preservation | Extract PROJECT-SECTION blocks, overwrite, re-inject |
 | Plugin skills (initialize, migrate, port) | Always overwrite | Maintained in this plugin repo |
-| Consolidated skills (sdlc-create-skill) | Delete | Absorbed into sdlc-develop-skill upstream |
 | Enhanced skills (archive, audit) | Merge | Contain Neuroloom-specific API sections |
 | Agent files (framework: template, suggestions, reviewer, auditor) | Neuroloom-aware merge | Preserve MCP patterns, update non-MCP sections |
 | Agent files (project domain agents) | Re-run tailoring | Framework sections update; domain desc preserved |
@@ -841,7 +841,7 @@ This table governs Stage 4 decisions. Consult it when a file's category is ambig
 | Knowledge YAMLs | Server-side upsert | `knowledge_id` matching handles new/updated/unchanged/deprecated |
 | `knowledge/provenance_log.md` | **Never overwrite/ingest** | Project-specific append-only records |
 | Discipline files | Preserve parking lots | Update framework sections, preserve project entries |
-| `.sdlc-manifest.json` | Partial update | Update version + add missing fields (`sdlc_root`, `neuroloom_integration`, `install_mode`) |
+| `.sdlc-manifest.json` | Partial update | Update version + add missing fields (`sdlc_root`, `neuroloom_backend`) |
 | `hooks/` files | Always overwrite | Plugin-managed; no project customizations |
 | `CLAUDE.md` SDLC section | Targeted update + guarded renames | Only stale references; preserve project additions |
 | Standalone `CLAUDE-SDLC.md` | Delete | Legacy file; content merged into CLAUDE.md |

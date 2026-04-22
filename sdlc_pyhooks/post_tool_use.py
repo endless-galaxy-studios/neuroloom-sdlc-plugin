@@ -8,6 +8,16 @@ documents ingest endpoint. Failed syncs are buffered to the local SQLite
 
 This module is invoked as a script by the hook launcher. It never raises —
 any failure is silently swallowed so that Claude Code is never interrupted.
+
+Matcher contract (hooks/hooks.json):
+    The PostToolUse matcher is narrowed to ``Write|Edit|MultiEdit|NotebookEdit``
+    so the harness only cold-starts Python when a file-modifying tool runs.
+    This is a perf optimization that trades forward compatibility for speed:
+    if Claude Code adds a new file-writing tool (e.g., StreamingWrite), the
+    hook will NOT fire for it and deliverable docs created via that tool
+    will not sync until this matcher is updated. Keep this list in sync with
+    the PostToolUse matcher in hooks/hooks.json when Claude Code ships new
+    file-modifying tool types.
 """
 
 import json
