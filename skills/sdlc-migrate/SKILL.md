@@ -110,6 +110,31 @@ Match is case-insensitive on the first word only (sentence-start capitalization)
 | `[sdlc-root]/knowledge/testing/` (as capture target) | `memory_store with tags ["sdlc:knowledge", "sdlc:domain:testing"]` |
 | `[sdlc-root]/knowledge/<domain>/` (as capture target) | `memory_store with tags ["sdlc:knowledge", "sdlc:domain:<domain>"]` |
 
+#### Metadata transformation (parenthetical and table-cell path refs)
+
+Parenthetical paths and table-cell paths in cc-sdlc source describe WHERE something lives in filesystem mode. In Neuroloom, those paths don't exist — the content is in the memory graph. Transform these metadata refs to their Neuroloom-native equivalent so Neuroloom users aren't pointed at non-existent files.
+
+Apply these rules to: parenthetical paths `(...)`, table cells containing paths, bullet-point labels with paths. Do NOT apply inside fenced code blocks or when the path is in a canonical instruction already handled above.
+
+| cc-sdlc Metadata Pattern | Neuroloom Metadata Replacement |
+|--------------------------|--------------------------------|
+| `([sdlc-root]/knowledge/agent-context-map.yaml)` | `(memory graph, agents indexed by sdlc:agent:* tags)` |
+| `([sdlc-root]/knowledge/**/*.yaml)` | `(memory graph, entries tagged sdlc:knowledge)` |
+| `([sdlc-root]/knowledge/*.md)` | `(memory graph, entries tagged sdlc:knowledge)` |
+| `([sdlc-root]/knowledge/<domain>/*.yaml)` | `(memory graph, entries tagged sdlc:knowledge and sdlc:domain:<domain>)` |
+| `([sdlc-root]/disciplines/*.md)` | `(memory graph, entries tagged sdlc:discipline:*)` |
+| `([sdlc-root]/disciplines/<name>.md)` | `(memory graph, entries tagged sdlc:discipline:<name>)` |
+| Table cell `\| ... \| [sdlc-root]/knowledge/agent-context-map.yaml \| ... \|` | `\| ... \| memory graph (sdlc:agent:* tags) \| ... \|` |
+| Table cell `\| ... \| [sdlc-root]/knowledge/**/*.yaml \| ... \|` | `\| ... \| memory graph (sdlc:knowledge tags) \| ... \|` |
+| Table cell `\| ... \| [sdlc-root]/disciplines/*.md \| ... \|` | `\| ... \| memory graph (sdlc:discipline:* tags) \| ... \|` |
+
+**Exempt from metadata transformation:**
+- `[sdlc-root]/process/` references (process files exist on disk in Neuroloom projects too)
+- `[sdlc-root]/templates/` references (templates exist on disk)
+- `[sdlc-root]/playbooks/` references (playbooks exist on disk)
+- `[sdlc-root]/agents/` references (agents exist at `.claude/agents/` — handled by path transformation, not knowledge transformation)
+- Integration-section `**Depends on:**` / `**Uses:**` lists where the ref is an individual bullet rather than a parenthetical — these are kept verbatim as metadata; the agent understands they describe logical dependencies, not runtime file reads
+
 ### Files Containing These Patterns
 
 | File | Section | Pattern Type |
