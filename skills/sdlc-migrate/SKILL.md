@@ -81,7 +81,8 @@ These files contain canonical phrases as **data** (validation criteria, historic
 | `process/sdlc_changelog.md` | Historical record — entries quote canonical phrases as context; transformation corrupts the history |
 | `agents/sdlc-reviewer.md` | Reviewer's checklist quotes the canonical phrases as validation criteria — transforming them removes the phrases the reviewer exists to detect |
 | `agents/sdlc-compliance-auditor.md` | Auditor's "Phrasing Contract Validation" section lists the canonical phrases as scan targets |
-| `CLAUDE-SDLC.md` | Framework documentation inserted into CLAUDE.md; contains canonical phrases as examples |
+
+**CLAUDE-SDLC.md is NOT on the exempt list** (changed post-knowledge-routing-audit). Earlier versions of this spec exempted it on the theory that it "contains canonical phrases as examples", but an audit of upstream cc-sdlc's `CLAUDE-SDLC.md` at v1.2.2 found zero canonical instruction phrases, two path-metadata sites (in a table describing commit completeness), and three concept-terminology leaks (`knowledge stores`, `Discipline parking lot entries`, `Knowledge store updates`). Exempting the file propagates that file-speak into every fresh Neuroloom installation's top-level `CLAUDE.md` — which is the first framework doc any agent reads. That's the exact opposite of what the exempt list exists for. `CLAUDE-SDLC.md` runs through Pass 1 (handles the two path-metadata sites via the existing parenthetical/table-cell metadata rules) and Pass 2 (handles the three concept-terminology sites via the concept-terminology class). Output has been spot-checked against upstream cc-sdlc v1.2.2.
 
 **Enforcement (Stage 4.2):** Before invoking the Pattern Mapping transformer on any file, the executor MUST check the file's install path against this list. If matched:
 
