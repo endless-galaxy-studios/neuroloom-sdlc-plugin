@@ -61,6 +61,10 @@ The phrasing contract explicitly forbids non-canonical variants that cc-sdlc sou
 - `via [sdlc-root]/knowledge/agent-context-map.yaml` (as instruction — e.g., `Connect ... via ...`)
 - `directing them to [sdlc-root]/knowledge/agent-context-map.yaml`
 - `Connect [any text] via [sdlc-root]/knowledge/agent-context-map.yaml`
+- `Read and follow the full methodology at [sdlc-root]/knowledge/<file>` — canonical uses `Read [sdlc-root]/knowledge/<file> for the full methodology`
+- `Apply the [X] paradigm from [sdlc-root]/knowledge/<file>` — canonical uses `Read [sdlc-root]/knowledge/<file> and apply the [X] paradigm`
+- `go to your SDLC knowledge store ([sdlc-root]/knowledge/<domain>/)` — canonical uses `append to [sdlc-root]/knowledge/<domain>/`
+- `(see [sdlc-root]/knowledge/<file>)` parenthetical asides — canonical extracts into a separate sentence using `Read [sdlc-root]/knowledge/<file>`
 
 **Action on hit:** **REGRESSION** — report which file + line + forbidden pattern. Two possibilities: (1) cc-sdlc source regressed (file a bug upstream, tag `[contract-change]`), or (2) plugin pulled from a release predating the 2026-04-22 standardization. Recovery: halt, update plugin to latest cc-sdlc, re-run.
 

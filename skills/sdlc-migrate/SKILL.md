@@ -118,10 +118,34 @@ The pattern mapping below derives from cc-sdlc's phrasing contract, documented a
 2. Patterns must match as a full phrase within a sentence.
 3. **Inline backticks around paths are markdown formatting — match THROUGH them.** A rule `Append to [sdlc-root]/disciplines/*.md` matches `Append to \`[sdlc-root]/disciplines/*.md\`` (with inline backticks) and vice versa. Strip inline backticks before matching.
 4. Only skip matching inside **fenced code blocks** (triple backticks ```` ``` ````) — those are literal code examples, not instructions.
-5. When the rule pattern contains `<domain>` or `{name}` or `[agent-name]`, treat as a wildcard that captures the substring at that position.
+5. When the rule pattern contains `<domain>` or `{name}` or `[agent-name]`, treat as a wildcard that captures the substring at that position. **The wildcard matches ANY value at that position, including other angle-bracket-looking placeholders in the source.** If upstream cc-sdlc content uses a different placeholder name (e.g., `<discipline>`, `<file>`, `<name>`) at the same structural position, the rule's wildcard matches that placeholder string as its captured value. When substituting, the captured string (placeholder and all) is inserted into the replacement.
+
+   **The bug this prevents:** In `migrate-f01a70` AND `migrate-fa70ef`, `sdlc-ingest.md:231` had upstream `- Files from the same discipline (e.g., \`[sdlc-root]/knowledge/<discipline>/\`)`. The metadata rule `(e.g., [sdlc-root]/knowledge/<domain>/)` → `(e.g., memory entries tagged sdlc:knowledge + sdlc:domain:<domain>)` should match, capturing `<discipline>` into the `<domain>` wildcard slot. But both runs left the upstream text untransformed — the executor was requiring `<domain>` in the rule pattern to match a real domain value in the source, not another placeholder. Correct behavior: the wildcard matches `<discipline>` and the output is `(e.g., memory entries tagged sdlc:knowledge + sdlc:domain:<discipline>)` — the captured placeholder survives into the replacement because documentation describing a template should remain template-shaped after transformation.
+
+   **Explicit worked example:**
+   - Rule pattern: `(e.g., [sdlc-root]/knowledge/<domain>/)` with `<domain>` as wildcard per rule #5
+   - Input (with backticks stripped per rule #3): `(e.g., [sdlc-root]/knowledge/<discipline>/)`
+   - Match: `<domain>` wildcard captures the literal string `<discipline>`
+   - Output: `(e.g., memory entries tagged sdlc:knowledge + sdlc:domain:<discipline>)`
+
+   Do NOT require the captured value to be a "real" domain name. The rule's job is structural transformation, not semantic validation.
 6. **Wildcard captures (`[X]`, `<name>`, `<purpose>`, `<tag-expr>`, etc.) are non-greedy and MUST terminate at any of:** `(`, `)`, `[` (not the opening `[` of the wildcard itself), `]`, `,`, `.`, `;`, `:` followed by whitespace, or end-of-line. A capture MUST NOT swallow a following parenthetical, list comma, or sentence boundary. Specifically: if the text after the wildcard is `(e.g., ...)` or `, [...]` or `. Sentence continues`, the capture stops **before** that punctuation.
 
    **The bug this prevents:** In `migrate-f01a70`, `sdlc-archive.md:175` matched `read [sdlc-root]/disciplines/*.md and find parking lot entries tagged with that deliverable's ID (e.g., [D05 — phase 2], [D05 — planning]).` The `[X]` capture in rule `Read [sdlc-root]/disciplines/*.md and find [X]` greedily consumed up through `ID (e` then stopped at an arbitrary character, producing a query string of `"parking lot entries tagged with that deliverable's ID (e"` and leaking the remaining `g., [D05 — phase 2]...)` outside the `memory_search(...)` call as orphan text. A non-greedy capture with explicit terminators stops at `(` and produces a clean `memory_search(query="parking lot entries tagged with that deliverable's ID", tags=[...])` followed by the original `(e.g., [D05 — phase 2], [D05 — planning]).` preserved verbatim.
+
+7. **Verb-phrase awareness — rules that replace a verb phrase MUST produce a verb phrase** (added post-`migrate-fa70ef`). When the source phrase is a verb + object (`update X`, `read Y`, `append to Z`), the replacement must also be a verb + object — never a parenthetical aside, noun phrase, or standalone clause that can't take an object.
+
+   If a rule's replacement is a parenthetical like `(skip — X)` or a bare noun phrase, it MUST NOT fire mid-sentence where surrounding text assumes a verb phrase. For such rules, the matcher has three options:
+
+   a. **Preferred: extend the match to the full sentence clause**, replacing everything from the verb to the next sentence boundary. Example for `update [sdlc-root]/knowledge/agent-context-map.yaml to wire newly created knowledge files to relevant agents`: match the entire clause, replace with `Tag new knowledge via memory_store with sdlc:agent:[agent-name] and domain tags`. The extended-match form already exists in the specific-rule table (lines 135–136) — the matcher should prefer these extended variants over the terse `update X` rule whenever the surrounding context contains `to <verb>` or `with <object>`.
+
+   b. **Acceptable: emit a grammatically-valid verb-phrase replacement.** If no extended variant matches, rewrite the rule's replacement to a phrase that can accept following objects. Instead of `(skip — Neuroloom uses tag-based wiring)`, use `skip this step (Neuroloom uses tag-based wiring via memory_store)` which remains grammatical even if the original sentence had trailing `with the mapping` — the reader parses it as a dangling qualifier rather than a broken sentence.
+
+   c. **Last resort: emit `TRANSFORMATION_WARNING` and leave verbatim.** If the rule's replacement genuinely can't be reformulated as a verb phrase AND no extended variant covers the compound form, the matcher emits a warning and writes the original upstream text unchanged. This surfaces a Pattern Mapping gap rather than producing malformed output.
+
+   **The bug this prevents:** In `migrate-fa70ef`, `sdlc-create-agent.md:256` had upstream `2. update [sdlc-root]/knowledge/agent-context-map.yaml with the mapping` — and the `update [sdlc-root]/knowledge/agent-context-map.yaml` rule fired with its `(skip — Neuroloom uses tag-based wiring via memory_store; no map to update)` replacement, producing the ungrammatical `2. (skip — Neuroloom uses tag-based wiring via memory_store; no map to update) with the mapping`. A verb-phrase-aware matcher would either extend the match to consume `with the mapping` (option a, since "update X with Y" is a compound verb construction), or rewrite the replacement to a clause-starting verb (option b). Same-class bug at `sdlc-audit.md:121`.
+
+   **Enforcement:** the matcher MUST tag every Pattern Mapping rule as either `VERB_PHRASE` or `CLAUSE_REPLACEMENT`. Rules emitting parentheticals or noun phrases are `CLAUSE_REPLACEMENT` and MUST match whole-clause spans. Rules emitting verb phrases are `VERB_PHRASE` and may match mid-sentence. Applying a `CLAUSE_REPLACEMENT` rule to a sub-clause match produces grammatical corruption — halt with `TRANSFORMATION_WARNING` rather than write the broken output.
 
 | cc-sdlc Generic Pattern | Neuroloom Pattern (preserve if present) |
 |-------------------------|----------------------------------------|
@@ -131,7 +155,7 @@ The pattern mapping below derives from cc-sdlc's phrasing contract, documented a
 | `Consult [sdlc-root]/knowledge/agent-context-map.yaml for the agent's mapped files` | `memory_search(query="[agent-name] mapped knowledge", tags=["sdlc:knowledge"])` |
 | `Consult [sdlc-root]/knowledge/agent-context-map.yaml for knowledge wiring` | `memory_search(query="agent knowledge wiring", tags=["sdlc:knowledge"])` |
 | `Consult [sdlc-root]/knowledge/agent-context-map.yaml to identify agents whose mappings include` | `memory_search(query="agents with mappings in [discipline]", tags=["sdlc:knowledge"])` |
-| `update [sdlc-root]/knowledge/agent-context-map.yaml` | (skip — Neuroloom uses tag-based wiring via memory_store; no map to update) |
+| `update [sdlc-root]/knowledge/agent-context-map.yaml` (whole-clause match only — see match rule #7; if surrounded by `to <verb>` or `with <object>`, prefer the extended-compound rules below) | `skip this step (Neuroloom uses tag-based wiring via memory_store; no map to update)` — `VERB_PHRASE` class, can slot mid-sentence |
 | `Update [sdlc-root]/knowledge/agent-context-map.yaml to add a new entry mapping the agent to relevant knowledge files` | Store knowledge tagged with `sdlc:agent:[agent-name]` and domain tags via memory_store |
 | `Update [sdlc-root]/knowledge/agent-context-map.yaml to wire newly created knowledge files to relevant agents` | Tag new knowledge via memory_store with `sdlc:agent:[agent-name]` and domain tags |
 | `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml` | `memory_search(query="agent communication protocol structured progress handoff format", tags=["sdlc:knowledge", "sdlc:domain:architecture"])` |
@@ -182,6 +206,57 @@ The pattern mapping below derives from cc-sdlc's phrasing contract, documented a
 | `no corresponding [sdlc-root]/knowledge/<discipline>/ directory` | `no corresponding sdlc:knowledge + sdlc:domain:<discipline> memory entries` |
 | `YAML files under [sdlc-root]/knowledge/` | `memory entries tagged sdlc:knowledge` |
 | `in [sdlc-root]/knowledge/` or `in [sdlc-root]/disciplines/` (prose, non-instruction) | `in the Neuroloom memory graph (sdlc:knowledge / sdlc:discipline:* tags)` |
+
+**Knowledge-layer concept terminology (prose describing the knowledge layer's shape, not its paths):**
+
+Audit-description metadata (table above) handles path-reference prose. This new class handles the **shape-describing terminology** — prose that talks about the knowledge layer using file-based vocabulary ("parking lot entries", "Knowledge YAML files", "agent-context-map.yaml" as a live thing) where no `[sdlc-root]/` path appears. These terms describe *what* knowledge lives in cc-sdlc by reference to its storage medium (files). In a Neuroloom install the storage medium is the memory graph, so the vocabulary must be translated even though no path is visible.
+
+Added post-`migrate-fa70ef` audit: the previous audit-description rules fired on `[sdlc-root]/knowledge/<domain>/ directory` and similar path-bearing prose but left untouched pure file-speak like "parking lot entries" that doesn't contain a path. The translation is still needed because these terms leak the file-based architecture into the Neuroloom documentation.
+
+| cc-sdlc Concept Terminology | Neuroloom Replacement |
+|-----------------------------|------------------------|
+| `parking lot entries` (used as a live concept, not describing a procedure specific to file-based mode) | `discipline memory entries` |
+| `parking lot entries tagged with <X>` | `discipline memory entries tagged sdlc:discipline:* and <X>` |
+| `parking lot entry` (singular) | `discipline memory entry` |
+| `discipline parking lots` (used as a live concept) | `discipline memory entries` (or just `discipline memories` where plural-noun-phrase is needed) |
+| `Knowledge YAML files` / `knowledge YAML files` / `YAML knowledge files` | `memory entries tagged sdlc:knowledge` |
+| `knowledge YAML addition (new file or new rules in existing file)` | `knowledge memory addition (new entries or new rules in existing entries)` |
+| `knowledge YAML` (bare, as live concept — not describing a file format) | `memory entries tagged sdlc:knowledge` |
+| `agent-context-map.yaml` (referenced as a live config file) | `the memory graph (agents indexed by sdlc:agent:* tags)` |
+| `agent-context-map` (bare, used as a live thing) | `the memory graph's agent index` |
+| `Disciplines exercised without parking lots` | `Disciplines exercised without memory entries` |
+| `Discipline parking lot entry` (as a log-of-insight type) | `Discipline memory entry` |
+| `YAML files` (when referring to knowledge-layer storage) | `memory entries` |
+| `new YAML files` / `existing YAML files` / `these YAML files` (in a knowledge-layer context) | `new memory entries` / `existing memory entries` / `these memory entries` |
+| `Write new YAML files or append to existing ones` (knowledge-layer step) | `Store new memory entries or update existing entries` |
+| `Update the knowledge store's README.md to list new files` / `add them to the README's structure listing and "Knowledge Categories" table` | `Update the knowledge index (memory entries tagged sdlc:knowledge + sdlc:knowledge-index) to list new entries` — OR, more commonly, drop the instruction entirely since Neuroloom has no README-listing equivalent and tag-based indexing is automatic |
+| `project-specific files` (when enumerating knowledge-layer content) | `project-specific memory entries` |
+| `on-disk knowledge` / `file-based knowledge` / `knowledge on disk` | `memory-graph knowledge` |
+| `discipline file exists` / `no discipline file` (for layer-existence check) | `discipline memories exist` / `no discipline memories` |
+| `knowledge store` (bare singular, used as a concept — not as a path or heading) | `knowledge layer` (or `memory-graph knowledge` where "layer" reads oddly) |
+| `knowledge stores` (bare plural, used as a concept) | `knowledge memory entries` |
+| `knowledge store maturation` | `knowledge layer maturation` |
+| `knowledge store population` | `knowledge memory population` |
+| `knowledge store's README.md` (live reference to file-mode index) | drop the reference entirely; Neuroloom has no README-based index — tag-based indexing is automatic |
+| `existing knowledge stores` (as a source to query, e.g., "for deduplication") | `existing knowledge memory entries` |
+| `target knowledge store` (for placement) | `target knowledge domain (`sdlc:knowledge + sdlc:domain:<name>` tags)` |
+| `discipline files` (bare plural) | `discipline memory entries` |
+| `discipline file` (bare singular) | `discipline memory entry` |
+| `parking lot placement` / `parking lot triage` / `parking lot candidate` | `discipline memory placement` / `discipline memory triage` / `discipline memory candidate` |
+| `knowledge file` (bare singular, used as a concept) | `knowledge memory entry` |
+| `knowledge files` (bare plural, used as a concept) | `knowledge memory entries` |
+| `YAML rule file` / `rule YAML file` / `rule file` (knowledge-layer context) | `knowledge memory entry` |
+| `Knowledge Stores` (heading label) | `Knowledge Memory` (heading label) — paired with body-text update per heading rule |
+
+**Concept-terminology match notes:**
+
+- These rules apply in PROSE contexts that describe the knowledge layer's **shape** rather than its **paths**. They're distinguished from audit-description rules by the absence of `[sdlc-root]/` in the matched text.
+- **Do NOT apply inside:** Integration sections, fenced code blocks, headings that are the literal title of a framework-defined procedure (e.g., `### 9a. Scan Related Parking Lot Entries` as a defined section of the archive skill is a different case — see below), changelog entries, the phrasing contract doc itself.
+- **Headings are a special case.** An H3/H4 heading like `### 9a. Scan Related Parking Lot Entries` names a procedure that cc-sdlc defines. In Neuroloom the procedure still exists but operates on memory entries, so rename the heading to `### 9a. Scan Related Discipline Memory Entries` AND adjust the body's procedure text to match. Do NOT transform the heading without transforming the body — that produces a mismatch where the heading says "memory entries" and the body says "files".
+- **Procedure-specific steps are a special case.** Content like "Write new YAML files or append to existing ones" is a file-mode procedure. In Neuroloom, the procedure is "call `memory_store(content=..., tags=[...])`" — a completely different mechanism. When you see a numbered step that's a file-mode procedure, the replacement must be the Neuroloom procedure equivalent, not a word-for-word term swap. When no clean equivalent exists (e.g., "update the README.md structure listing"), emit `TRANSFORMATION_WARNING` and consider dropping the step since it's file-mode-only work the adapter doesn't need.
+- **Fragments match independently within sentences,** same rule as audit-description. A sentence with multiple concept-terms must have each term transformed separately.
+
+**The bug this prevents:** `migrate-fa70ef` left `improvement-methodology.md:213` with the full sentence: "No markers needed for project-specific files: Knowledge YAML files, discipline parking lot entries, and agent-context-map.yaml are project-owned..." All three concept terms describe the knowledge layer in file terms; none contain a `[sdlc-root]/` path so audit-description rules didn't fire. The new class catches this: `Knowledge YAML files` → `memory entries tagged sdlc:knowledge`; `discipline parking lot entries` → `discipline memory entries`; `agent-context-map.yaml` (live reference) → `the memory graph`. Same class of bug at `improvement-methodology.md:47/80/137–138/196–197`, `sdlc-archive.md:171/173/185`, `sdlc-ingest.md:214–218`, `research-external.md:72/204`.
 
 **Audit-description match notes:**
 - These rules apply in PROSE contexts where `[sdlc-root]/knowledge/` or `/disciplines/` appear as concept references, not runtime read instructions. Most common in `compliance-methodology.md` audit dimension descriptions.
@@ -242,6 +317,7 @@ When multiple rows could match the same substring, apply them in this order and 
 **Why ordering matters:** If a bare-path rule fires inside an already-open `(...)` context, its replacement (which typically itself contains `(...)` boilerplate like `(memory graph, ...)`) gets spliced inside the outer parens, producing `((...) *.md`)` debris. This is the double-paren corruption observed in the 2026-04-22 `migrate-f01a70` run (`sdlc-execute/SKILL.md:279` and five other sites). The full-parenthetical rule at row 1 consumes the outer parens as part of its match, so this class of bug cannot occur when the matcher prioritizes correctly.
 
 **Verification the matcher has correct priority:** After transforming a file, scan the output for these regressions and halt on any hit:
+
 - `((` followed by any alphanumeric (double-open-paren)
 - `*.md\`)` anywhere (orphaned glob-suffix-with-backtick)
 - ``*.md`)`` mid-line (same, without escape)
@@ -249,7 +325,26 @@ When multiple rows could match the same substring, apply them in this order and 
 - `Read memory_store` anywhere (nonsensical — `memory_store` is the write API, can't be `Read`)
 - `Read memory_search` anywhere (`memory_search` is a function call; `Call memory_search(...)` is the correct verb — `Read memory_search` is a malformed transformation)
 
-If any match, the matcher picked a bare-path rule over a parenthetical rule, OR a capture-target rule over an instruction rule — the output file MUST NOT be written.
+**Orphan extension-debris scan (added post-`migrate-fa70ef`):** extend the same halt-on-hit policy to these patterns. They're the same bug class as `*.md\`)` — partial-consume leaving a file-extension or glob suffix outside a completed replacement.
+
+- `]\.yaml` (close-bracket immediately followed by `.yaml` with no separator — the matcher consumed the array-close of `tags=[...]` and left the original file extension as a tail). Exemplar: `memory_store with tags ["sdlc:knowledge"].yaml`
+- `]\.yml` (same for YAML's alternate extension)
+- `]\.md` (same for markdown)
+- `]testing-paradigm\.yaml` / `]\w+\.yaml` (bracket-close concatenated to a file name — `migrate-fa70ef` exemplar at `sdlc-tests-create.md:250`)
+- `\]/\.` and `/\.[^/a-zA-Z0-9]` (trailing `/.` left when a directory suffix was consumed) — exemplar at `process/overview.md:45` `memory_store with tags [...]/.`
+- `"\]\.\w+` (quoted-bracket followed by dot-extension — stricter form catching edge cases)
+
+If any of these match the written content, the matcher picked a rule whose replacement didn't consume the trailing file-extension token, leaving it concatenated to the replacement's array-close. The output file MUST NOT be written. Re-examine the rule whose replacement ends in `]` — it's missing the trailing `.yaml` / `.md` / `/` suffix consumption.
+
+**Fence-parity assertion (added post-`migrate-fa70ef`):** count lines matching `^\s*\`\`\`` in both the pre-merge project version and the post-write content. The post-write count must be either **equal to the upstream count** (no net change in fenced blocks) OR **equal to `project_pre_merge_count`** (preserved as-is), whichever is applicable per the merge subtype:
+
+- `exempt_verbatim` / `mcp_backfilled` subtype → post count must equal upstream count
+- `mcp_preserved` subtype → post count must equal `project_pre_merge_count + (upstream_count - project_pre_upstream_count)` where `project_pre_upstream_count` was the fence count in the upstream version the project last migrated from
+- `mcp_new_file` → post count must equal upstream count
+
+A post count that differs from the expected by an odd number = an unclosed fence (someone added an opener without a closer or vice versa). Halt on this; it means the content-merge spliced a block mid-fence. Exemplar: `migrate-fa70ef` at `sdlc-ingest.md:192` — merge introduced `` ```yaml `` without a matching close-fence.
+
+If any match, the matcher picked a bare-path rule over a parenthetical rule, OR a capture-target rule over an instruction rule, OR the merge window was misaligned — the output file MUST NOT be written.
 
 **Integration sections are structurally exempt — HARD EXCLUSION:**
 
@@ -264,7 +359,32 @@ Integration sections describe logical dependencies between skills/agents/files, 
 
 **Enforcement:** The matcher must mask out Integration sections before any rule evaluation. A post-write regression scan for `\*\*(Uses|Depends on|Updates|Feeds into):\*\*.*memory_(search|store)` on a single line halts the write — the Integration section was transformed and must be re-copied verbatim.
 
-**Why hard-gated:** The `migrate-f01a70` run transformed Integration sections in `sdlc-archive.md:230,232`, `sdlc-create-agent.md:219`, `sdlc-ingest.md:398`, `sdlc-tests-create.md:250` — producing double-paren corruption in all four. Listing Integration sections as "informationally exempt" without a structural mask is equivalent to not listing them.
+**VERBATIM means byte-identical, not "semantically preserved":** Integration-section lines must be written out byte-for-byte identical to the upstream source. This includes — and this is the failure mode `migrate-fa70ef` surfaced across 20+ files — **surrounding backticks on path references**. `` **Uses:** `[sdlc-root]/process/manager-rule.md` `` must remain with its inline backticks intact. Any incidental side-effect that strips backticks (e.g., a path-normalization pass that runs alongside the Pattern Mapping) violates the hard exclusion.
+
+**Post-write backtick-preservation check:** diff the written Integration-section block against the upstream Integration-section block byte-for-byte. Any character-level difference — backticks stripped, whitespace adjusted, punctuation altered — halts the write. The Integration block is verbatim or the migration is wrong.
+
+**Why hard-gated:** The `migrate-f01a70` run transformed Integration sections in `sdlc-archive.md:230,232`, `sdlc-create-agent.md:219`, `sdlc-ingest.md:398`, `sdlc-tests-create.md:250` — producing double-paren corruption in all four. Listing Integration sections as "informationally exempt" without a structural mask is equivalent to not listing them. The `migrate-fa70ef` run exposed the follow-on: the hard-exclusion mask blocked transformation but didn't block the transformer's ancillary backtick-normalization, which stripped inline backticks from 20+ Integration lines across the repo.
+
+**Non-transformable paths — byte-verbatim preservation (added post-`migrate-fa70ef`):**
+
+The following path prefixes are NEVER touched by the transformer — not for Pattern Mapping transformation, not for audit-description metadata transformation, not for backtick normalization, not for any reason:
+
+- `[sdlc-root]/process/` — process docs live on disk in Neuroloom projects too
+- `[sdlc-root]/templates/` — templates live on disk
+- `[sdlc-root]/playbooks/` — playbooks live on disk
+- `[sdlc-root]/agents/` — agents install to `.claude/agents/`
+- `[sdlc-root]/knowledge/provenance_log.md` — project-specific on-disk file
+- `skills/` — skill paths
+
+**Byte-verbatim rule:** a file reference where the path prefix matches any of the above is preserved **character-for-character** from upstream, including:
+- Surrounding inline backticks (`` `[sdlc-root]/process/manager-rule.md` ``)
+- Escape sequences (`` \`[sdlc-root]/templates/test_spec_template.md\` ``)
+- Surrounding quotes, parentheses, brackets
+- Whitespace before and after
+
+**Why this matters:** `migrate-fa70ef` showed backticks stripped from ~20 files' references to non-transformable paths (`skills/sdlc-execute/SKILL.md`, `process/manager-rule.md`, `process/debate-protocol.md`, etc.). Individually minor — a backtick here or there doesn't break a migration — but cumulatively visible in diffs against upstream and suggests the transformer isn't honoring the exempt list strictly. Explicit byte-verbatim preservation closes this.
+
+**Post-write scan (non-transformable-path backtick audit):** for each non-transformable path prefix, grep for any occurrence of that path in the written content. For each hit, extract the ±5 surrounding characters. Compare byte-by-byte to the same surrounding characters in the upstream version. If any character differs and the path itself is unchanged, the transformer touched content it wasn't allowed to touch. Halt the write.
 
 **Fenced code blocks are structurally exempt — HARD EXCLUSION:**
 
@@ -483,28 +603,62 @@ Parse all changelog entries between `KNOWLEDGE_VERSION` (or the older of the two
 
 Note any changelog items that reference CLAUDE.md sections, skill invocation patterns, or agent configurations — these require a CLAUDE.md compatibility check in Stage 4.
 
-### 2.2a Contract Change Gate
+### 2.2a Contract Change Gate (deterministic semver check)
 
-If any `[contract-change]` entries were identified in 2.2, stop and prompt the maintainer before proceeding:
+This gate is **fully deterministic** — it does not involve LLM judgment. The plugin's `.claude-plugin/plugin.json` declares `supported_ccsdlc_version`, the highest cc-sdlc version whose `[contract-change]` entries have been reviewed and reflected in this plugin's Pattern Mapping + post-op audit. The gate compares that declaration against each contract-change entry in the migration range.
+
+**Rationale for determinism:** prior versions of this gate halted-or-auto-resolved based on prose interpretation at runtime. Two runs of the same migration against the same source/target versions produced different outcomes — one halted, another silently resolved with a free-form "pattern_mapping_already_updated" note. A gate that sometimes fires is worse than no gate; maintainers can't reason about when to trust it. This version replaces LLM judgment with a version comparison so behavior is reproducible.
+
+**Procedure:**
+
+1. Read `supported_ccsdlc_version` (call it `PSV`) from this plugin's `.claude-plugin/plugin.json`. If the field is missing, **HALT** — the plugin is non-conformant; it must declare its support level before any migration can safely run.
+
+2. For each `[contract-change]` entry collected in Stage 2.2, extract the cc-sdlc version the entry belongs to (e.g., `v1.2.1` → `1.2.1`). The version is the first changelog heading at or above the entry in `process/sdlc_changelog.md`.
+
+3. Compare each contract-change version to `PSV` using semver:
+   - If `contract_change_version <= PSV` → the plugin declares support. Emit `contract_change_covered` to the transaction log and continue.
+   - If `contract_change_version > PSV` → the plugin has not been updated for this entry. **HALT deterministically**, with the message below.
+
+4. If all entries are covered, the gate is silent — no AskUserQuestion, no maintainer prompt. Stage 2.3's general migration confirmation still runs normally.
+
+**Deterministic halt message (when `contract_change_version > PSV`):**
 
 ```
-⚠ Contract Change Detected
+⚠ Contract Change Gate — plugin behind upstream
 
-cc-sdlc has changed the phrasing contract between {KNOWLEDGE_VERSION} and {LATEST_VERSION}.
-This plugin's Pattern Mapping table must be reviewed before migration can safely proceed —
-otherwise upstream phrases the transformer doesn't recognize will be content-merged verbatim,
-leaving file path references in Neuroloom-installed skills.
+Plugin `{plugin_name}` declares supported_ccsdlc_version: {PSV}
+Migration target is cc-sdlc {LATEST_VERSION}
 
-Contract-change entries:
-  - {date}: {title}
+The following [contract-change] entries are in the migration range but ABOVE the plugin's declared support level:
+  - cc-sdlc {version}: {title}
     {summary}
+  - ...
 
-Next step: read [sdlc-root]/process/knowledge-routing.md § "Standard Phrases" in the upstream
-release, compare to the Pattern Mapping table in this skill, and add/update transformation
-rules as needed. Then re-run /sdlc-migrate.
+This is a hard, deterministic halt. The plugin's Pattern Mapping and post-op
+audit must be reviewed against each listed contract change. After review,
+bump `supported_ccsdlc_version` in plugin.json to the new level, push, and
+re-run /sdlc-migrate. The gate will then auto-resolve.
+
+Do NOT clear this halt by "eyeballing" the changelog — that re-introduces the
+LLM-judgment non-determinism this gate was designed to replace.
 ```
 
-Do not proceed to Stage 3 or Stage 4 until the Pattern Mapping table has been updated and the maintainer confirms the plugin is ready. This is a hard gate — skipping it ships a silently-broken migration.
+**Transaction-log events:**
+```
+contract_change_covered   — per entry: {version, title, psv}
+contract_change_uncovered — per entry on halt: {version, title, psv}
+```
+
+**Edge cases:**
+- Pre-release versions (e.g., `1.2.3-rc.1`) compare via semver rules. A pre-release is less than its corresponding stable release.
+- If the target cc-sdlc version is below PSV, no contract-change entries are in range — the gate is trivially silent.
+- If the changelog has a `[contract-change]` tag without a version heading above it (malformed), treat as `uncovered` and halt. This also flags upstream changelog defects.
+
+**What changing PSV means for the plugin maintainer:**
+- Before bumping PSV, review every contract-change entry between old PSV and new PSV in cc-sdlc's changelog.
+- Verify the Pattern Mapping has rules for each newly standardized phrase.
+- Verify the post-op audit's forbidden-phrasings list (`references/post-operation-audit.md` Check 2a) has detectors for each newly forbidden phrase.
+- Only then bump PSV. Bumping without verification means the gate will silently pass a broken migration — defeating the entire purpose of the determinism fix.
 
 ### 2.3 Present to CD for confirmation
 
@@ -827,7 +981,82 @@ Should return the upstream framework content with the new version tag. A separat
 
 ### 4.2 Update operational layer files
 
-#### 4.2.0 Mandatory Pre-Write MCP Preservation + Transformation Gate
+**Stage 4.2 runs as a TWO-PASS TRANSFORMATION PIPELINE (new in 0.4.0).**
+
+Prior versions applied all transformation rules in a single pass. That worked for path-bearing content but left a gap: concept-terminology (file-speak describing the knowledge layer, such as "parking lot entries" or "Knowledge YAML files") couldn't be safely applied inside Integration sections or fenced code blocks because hard-exclusion rules for those regions blocked all transformation, including harmless prose translations. Running concept terminology as a separate, later pass — with stricter "prose-only" scope — addresses this without compromising the hard exclusions that protect paths and code examples.
+
+**Pipeline structure:**
+
+```
+Stage 4.2
+├── Pass 1: Path + Instruction Transformation (existing behavior)
+│   ├── §4.2.0 pre-write MCP preservation + transformation gate
+│   ├── Pattern Mapping application (canonical phrases → MCP calls)
+│   ├── Metadata transformation (parentheticals + table cells)
+│   ├── Audit-description metadata (prose path references)
+│   ├── Hard exclusions: exempt files, Integration sections, fenced code blocks, non-transformable paths
+│   └── Per-file write + file_merged event
+├── Pass 2: Prose Concept-Terminology (new in 0.4.0)
+│   ├── Re-read each file written by Pass 1
+│   ├── Identify prose-only regions (see scope rules below)
+│   ├── Apply concept-terminology rule class (added in 0.3.9) to prose regions ONLY
+│   ├── Write updated content
+│   └── Per-file concept_terminology_applied event
+└── §4.2-gate: audit passes run AFTER both transformation passes
+    ├── Structural Content-Loss Audit
+    ├── MCP Retention Audit
+    └── Output-regression scans (orphan debris, double-paren, malformed verbs, etc.)
+```
+
+**Why two passes:** Pass 1's hard exclusions are about protecting content integrity — paths must not be corrupted, fenced code must not be syntactically altered, Integration-section path references must not be rewritten to something that breaks the semantic of "this depends on that file". Pass 2's scope is narrower: translate file-mode vocabulary to memory-graph vocabulary, touching ONLY prose. Pass 2 cannot alter paths, cannot touch YAML keys or values, cannot modify code inside fenced blocks. It can transform the *descriptor prose* after a path in an Integration section, the *body* of a heading, and bare prose anywhere not covered by another rule class.
+
+**Pass 2 scope — what counts as "prose":**
+
+A region of text is "prose" (and thus subject to concept-terminology transformation) if ALL of these hold:
+- It is NOT inside a fenced code block (```` ```...``` ````, any language)
+- It is NOT inside inline backticks (`` `...` ``)
+- It is NOT a YAML key, YAML value, JSON key, or JSON value (when the surrounding context is structured data, even if outside a fence — e.g., frontmatter fields)
+- It is NOT a path reference matching `[sdlc-root]/...`, `.claude/...`, `ops/sdlc/...`, `skills/`, or similar
+- It is NOT an MCP call already emitted by Pass 1 (`memory_search(...)`, `memory_store(...)`)
+- It is NOT a Pattern Mapping replacement string from Pass 1 (e.g., `Neuroloom knowledge store (via memory_store)`)
+
+Examples of text Pass 2 CAN transform:
+- Integration-section parenthetical descriptors after a path: `` **Depends on:** `[sdlc-root]/disciplines/*.md` (parking lot entries for knowledge hygiene) `` — the path is Pass-1-exempt, but "parking lot entries for knowledge hygiene" is prose descriptor and Pass 2 rewrites it
+- Heading bodies: `### 9a. Scan Related Parking Lot Entries` — Pass 2 rewrites to `### 9a. Scan Related Discipline Memory Entries`
+- Prose paragraphs outside any path/fence/structured-data context
+- Bullet text that doesn't contain a path or code
+
+Examples of text Pass 2 MUST NOT transform:
+- Inside ``` ```yaml ``` ``` fences — never, even if the content contains "knowledge/design/file.yaml" as a value
+- Inline `` `[sdlc-root]/knowledge/agent-context-map.yaml` `` — path refs handled by Pass 1 (or hard-excluded)
+- YAML frontmatter fields like `name:`, `description:`, `model:`
+- MCP call arguments: `memory_search(query="parking lot entries tagged X", ...)` — the query string is an MCP call argument, not prose
+
+**Pass 2 rules:** the concept-terminology rule class defined in § "Knowledge-layer concept terminology" of the Pattern Mapping section (above). Pass 2 applies those rules to matched prose regions.
+
+**Pass 2 transaction log event:**
+```json
+{
+  "ts": "ISO-8601",
+  "run_id": "migrate-xxxxxx",
+  "event": "concept_terminology_applied",
+  "stage": "4.2-pass2",
+  "file": "<install-path>",
+  "substitutions": [
+    {"rule": "<rule-label>", "before": "<snippet>", "after": "<snippet>", "region": "integration-descriptor|heading|prose"}
+  ]
+}
+```
+
+One event per file; includes an array of substitutions (may be empty if no concept-terminology rules fired). Emission is mandatory if Pass 1 wrote the file — absence of the event for a written file is a telemetry regression per Stage 5.0.
+
+**Pass 2 halts on output regression:** after Pass 2 writes, re-run the existing post-write output-regression scans (orphan debris, double-paren, malformed verbs). If Pass 2 introduces any of those patterns, halt and roll back that file to its Pass 1 output — Pass 2 must only make prose-level concept translations; producing structural corruption is a rule bug.
+
+**Fenced code blocks containing file-mode demos — deferred to 0.5.0:** Pass 2 intentionally does not modify fenced-block contents, even when those contents are file-mode demos (e.g., a ` ```yaml ` block demonstrating `mappings: ui-ux-designer: [paths]` in an adapter-unreachable format). Surrounding prose is transformed by Pass 2; the demo itself is preserved as cc-sdlc's original file-mode reference. Future work (0.5.0) may add an optional pre-fence annotation (e.g., *"In Neuroloom mode, the equivalent operation is `memory_store(..., tags=[...])`."*) as a demonstration-mapping rule class. Until then, fenced-block file-mode demos remain a project-specific customization zone — if your installation wants to replace the demo, wrap the whole fenced block in `PROJECT-SECTION` markers.
+
+---
+
+#### 4.2.0 Mandatory Pre-Write MCP Preservation + Transformation Gate (Pass 1)
 
 **This gate runs BEFORE any file write in Stage 4.2. It applies to every file, regardless of category.**
 
@@ -999,28 +1228,50 @@ Record the outcome for the Stage 5 report.
 
 MCP count can be preserved while structural content is lost. `migrate-f01a70` deleted 12 rows of Red Flags table body in `sdlc-develop-skill.md:224-234`, 5 steps of Library Verification procedure in `sdlc-plan.md:240-254`, and an entire dispatch-step body in `sdlc-review.md:49-59` — all while MCP counts stayed unchanged. The MCP Retention Audit (below) didn't catch these because they weren't MCP-bearing sections.
 
-**Procedure:** For every file written in Stage 4.2, compute four structural counts from the **project's pre-merge version** and from the **final on-disk content**:
+**Procedure:** For every file written in Stage 4.2, compute six structural counts from the **project's pre-merge version**, the **upstream version**, and the **final on-disk content**:
 
 1. `heading_count` — number of lines matching `^#{1,6} ` (H1 through H6)
 2. `table_row_count` — number of lines matching `^\|.*\|.*\|\s*$` inside any table (excludes header/separator rows)
 3. `numbered_step_count` — number of lines matching `^\s*\d+\.\s+\*\*` (numbered steps with bold lead)
 4. `fenced_block_count` — number of ` ``` ` delimiters divided by 2 (count of fenced code blocks)
+5. `mandatory_step_count` (added post-`migrate-fa70ef`) — number of numbered-bold steps that appear within a section whose heading or lead-in contains the word `MANDATORY` (case-insensitive) or within a block opened by a line matching `^\*\*[^*]+\(MANDATORY[^)]*\):\*\*`. These are high-weight steps — losing one is always a regression regardless of tolerance.
+6. `bullet_count` — number of lines matching `^\s*[-*] ` (dashes and asterisks; excludes table rows and inside fenced blocks)
 
-For each count, compare:
-- **`post >= pre`** → pass (additions from upstream are fine)
-- **`post < pre`** → a structural drop occurred. Classify:
-  - Read the upstream version and compute the same counts on it
-  - If upstream's count is also lower than project's pre-merge count by the same delta → **LEGITIMATE UPSTREAM REMOVAL** (the framework dropped content by design)
-  - Else → **CONTENT-MERGE REGRESSION** — the merge dropped content the upstream kept; halt migration
+**Comparison rules:**
+
+For each count except `mandatory_step_count`:
+- **`post == upstream`** → pass (expected state after a clean merge)
+- **`post == project_pre_merge`** AND upstream differs → `mcp_preserved` merge kept project's version; verify this is intentional by checking if the difference is inside a preservation boundary (PROJECT-SECTION markers or MCP-bearing section)
+- **`post < upstream` by more than 1**, and the delta doesn't match `project_pre_merge - upstream` → **CONTENT-MERGE REGRESSION**. Halt.
+- **`post < upstream` by exactly 1** → **WARN but don't halt** — could be a legitimate one-off project customization. Log `structural_audit_warning` for review.
+
+For `mandatory_step_count`:
+- **`post < upstream` by any amount, with no PROJECT-SECTION around the lost step** → **ALWAYS REGRESSION**. No tolerance. MANDATORY-tagged content is labelled that way because the framework considers it non-optional; silently dropping it breaks the framework's intent even if the numeric delta is small.
+
+**Why the `mandatory_step_count` addition:** `migrate-fa70ef` dropped the entire 5-step "Library verification (MANDATORY)" procedure in `sdlc-plan.md`, going from 11 numbered-bold steps upstream to 6 in sleeved. But the plain `numbered_step_count` regression check reported no issue because the absolute delta (5) was within the "maybe legitimate project customization" range when the plugin was evaluating only pre-vs-post (not pre-vs-upstream-vs-post). The `MANDATORY` flag in the heading tells us those steps are framework-required — dropping them is always wrong.
 
 **Halt and report (regression case):**
 
 ```
 CRITICAL: Structural content-loss regression detected
 File: {path}
-Dropped: {count_name} {pre} → {post} (lost {pre - post})
-Upstream {count_name}: {upstream_count} (expected post ≈ {upstream_count})
-Likely cause: misaligned merge window replaced upstream content with a duplicate of a different section.
+Count: {count_name}
+Project pre-merge: {pre}
+Upstream:          {upstream}
+Written content:   {post}
+
+Expected: post ≈ upstream (= {upstream})
+Observed: post = {post} (lost {upstream - post} vs upstream)
+
+{if count_name == 'mandatory_step_count':}
+MANDATORY STEPS DROPPED — this halt has no tolerance. The lost steps are in a
+section the framework marks as required (heading contains "MANDATORY" or the
+block's lead-in is **Label (MANDATORY...):**).
+{else:}
+Likely cause: misaligned merge window replaced upstream content with a duplicate
+of a different section. Inspect the merge output — typically the lost content
+was replaced by a verbatim copy of an earlier or later section.
+{endif}
 
 Recovery:
 1. git checkout -- {path} (restore pre-migration state)
@@ -1028,7 +1279,26 @@ Recovery:
 3. If it reoccurs, the merge implementation has a section-alignment bug — file a plugin issue
 ```
 
-**Log on pass:** Emit `structural_audit_complete` to the transaction log with the 4 counts for each file and the aggregate `files_scanned / regressions / legitimate_drops` totals.
+**Log on pass:** Emit `structural_audit_complete` to the transaction log with all six counts for each file (`heading_count`, `table_row_count`, `numbered_step_count`, `fenced_block_count`, `mandatory_step_count`, `bullet_count`) and the aggregate totals.
+
+**Mandatory event schema (added post-`migrate-fa70ef` — previous runs emitted events missing the `audit_result` field):**
+
+```json
+{
+  "ts": "ISO-8601",
+  "run_id": "migrate-xxxxxx",
+  "event": "structural_audit_complete",
+  "stage": "4.2-gate",
+  "files_scanned": <int>,
+  "regressions": <int>,
+  "warnings": <int>,
+  "legitimate_drops": <int>,
+  "drops_detail": "<comma-separated>",
+  "audit_result": "PASS | FAIL"   // REQUIRED — presence is checked by Stage 5.0 telemetry assertion
+}
+```
+
+The `audit_result` field is required. `migrate-fa70ef` emitted the event without it — Stage 5.0's telemetry assertion must be extended to check that this field is present (not just that the event exists) and halts if missing. A `structural_audit_complete` event without `audit_result` is treated identically to a missing event — the run is blocked from declaring `run_complete`.
 
 #### Mandatory: MCP Retention Audit
 
@@ -1187,19 +1457,31 @@ Before any verification runs, assert the Stage 4.2 telemetry is intact. This cat
 
 1. Read the transaction log entries for this `run_id`.
 2. Count events of each required type:
-   - `file_merged` — MUST equal the number of files written in stage 4.2 (cross-check against the change manifest). Zero is only acceptable if the change manifest says no operational files changed.
-   - `mcp_retention_audit_complete` — MUST be exactly 1. Zero means the audit gate was bypassed.
-3. If either count is wrong, **halt** the migration with:
+   - `file_merged` — MUST equal the number of files written in stage 4.2 (cross-check against the change manifest). Zero is only acceptable if the change manifest says no operational files changed. (Pass 1 event.)
+   - `concept_terminology_applied` — MUST equal the `file_merged` count for Neuroloom-backend projects (new in 0.4.0; every file Pass 1 wrote must also have a Pass 2 event, even if no substitutions fired). For non-Neuroloom projects (`neuroloom_backend: false`), this count MUST be exactly 0 because Pass 2 only runs in Neuroloom mode.
+   - `mcp_retention_audit_complete` — MUST be exactly 1 with `audit_result: "PASS"` present. Zero means the audit gate was bypassed; missing the `audit_result` field means schema regression.
+   - `structural_audit_complete` — MUST be exactly 1 with `audit_result: "PASS"` present. Same rules as mcp_retention.
+3. If any count is wrong or any required field is missing, **halt** the migration with:
 
 ```
 TELEMETRY REGRESSION — Stage 4.2 audit trail incomplete.
 
-Expected: {N} file_merged events, 1 mcp_retention_audit_complete event
-Found:    {M} file_merged events, {K} mcp_retention_audit_complete events
+Expected: {N} file_merged events, {N} concept_terminology_applied events,
+          1 mcp_retention_audit_complete event (with audit_result),
+          1 structural_audit_complete event (with audit_result)
+Found:    {M} file_merged, {P} concept_terminology_applied,
+          {K} mcp_retention_audit_complete, {S} structural_audit_complete
+
+{if counts mismatch between file_merged and concept_terminology_applied:}
+  Pass 2 (Prose Concept-Terminology) was skipped or partial. Pass 2 is
+  mandatory for Neuroloom-backend projects — concept-terminology leaks
+  (file-speak in prose descriptions of the knowledge layer) go undetected
+  without it.
+{endif}
 
 Stage 4.2 ran but did not emit the mandatory audit trail. The migration
-cannot declare run_complete because there is no record that the MCP
-Retention Audit ever evaluated the written files.
+cannot declare run_complete because there is no record that the mandatory
+audit gates evaluated the written files.
 
 Recovery:
 1. git checkout -- .claude/ (restore pre-migration state)
@@ -1207,7 +1489,7 @@ Recovery:
 3. Re-run /sdlc-migrate after the executor is fixed
 ```
 
-Do NOT proceed to 5.1 unless both counts match. Do NOT emit `run_complete` without this assertion passing.
+Do NOT proceed to 5.1 unless all counts match. Do NOT emit `run_complete` without this assertion passing.
 
 ### 5.1 Knowledge layer spot-check
 
