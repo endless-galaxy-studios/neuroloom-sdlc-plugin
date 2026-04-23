@@ -90,12 +90,28 @@ def _resolve_base_root() -> tuple[Path | None, str]:
 
 
 def _resolve_python(base_root: Path) -> tuple[Path, bool]:
-    """Return (interpreter_path, is_degraded)."""
-    venv_py = base_root / (
-        ".venv/Scripts/python.exe" if sys.platform == "win32" else ".venv/bin/python"
-    )
+    """Return (interpreter_path, is_degraded).
+
+    Venv resolution order:
+    1. ${CLAUDE_PLUGIN_DATA}/.venv  — persistent across plugin version bumps (CC v2.1.78+)
+    2. base_root / ".venv"          — dev-mode fallback (no CLAUDE_PLUGIN_DATA set)
+    3. sys.executable               — degraded, no venv found anywhere
+
+    Note: on first install, CLAUDE_PLUGIN_DATA exists but .venv has not been created
+    yet; the venv_py.exists() check handles this by falling through to the next tier.
+    """
+    suffix = ".venv/Scripts/python.exe" if sys.platform == "win32" else ".venv/bin/python"
+
+    data_dir = os.environ.get("CLAUDE_PLUGIN_DATA")
+    if data_dir:
+        venv_py = Path(data_dir) / suffix
+        if venv_py.exists():
+            return venv_py, False
+
+    venv_py = base_root / suffix
     if venv_py.exists():
         return venv_py, False
+
     return Path(sys.executable), True
 
 
@@ -111,9 +127,13 @@ if __name__ == "__main__":
     py, degraded = _resolve_python(base_root)
     module = sys.argv[1]
     if degraded and module == _SESSION_START_MODULE:
+        _data_dir = os.environ.get("CLAUDE_PLUGIN_DATA")
+        _searched = (
+            f"{_data_dir}/.venv, " if _data_dir else ""
+        ) + str(base_root / ".venv")
         print(
             f"[neuroloom-sdlc] degraded: base plugin venv not found at "
-            f"{base_root / '.venv'} — using system Python",
+            f"{_searched} — using system Python",
             file=sys.stderr,
         )
 
