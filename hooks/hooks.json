@@ -12,10 +12,21 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "matcher": "Write|Edit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
+            "if": "Write(/docs/current_work/**)",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/run_hook.py sdlc_pyhooks.post_tool_use"
+          },
+          {
+            "type": "command",
+            "if": "Edit(/docs/current_work/**)",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/run_hook.py sdlc_pyhooks.post_tool_use"
+          },
+          {
+            "type": "command",
+            "if": "NotebookEdit(/docs/current_work/**)",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/run_hook.py sdlc_pyhooks.post_tool_use"
           }
         ]
