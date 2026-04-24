@@ -365,6 +365,10 @@ Download all files under these paths. Handle each category's content format:
 | Agent templates | `agents/` | Markdown | Operational (filesystem) |
 | Process docs | `process/` | Markdown | Operational (filesystem) |
 | Templates | `templates/` | Markdown | Operational (filesystem) |
+| Skeleton manifest | `skeleton/manifest.json` | JSON | Reference (for bundles + source_files) |
+| Contract changes | `skeleton/contract_changes.yaml` | YAML | Reference (for `last_applied_contract_id` + rename history) |
+
+**`skeleton/` files are reference-only.** They are NOT written to the project's filesystem or ingested into Neuroloom. `skeleton/manifest.json` is consulted for the bundles prompt (Stage 5b) and source_files completeness check (Stage 10). `skeleton/contract_changes.yaml` is read at Stage 5b to determine the newest contract id for `.sdlc-manifest.json → last_applied_contract_id`. If `contract_changes.yaml` is absent from upstream (cc-sdlc predates 1.3.0), proceed with `last_applied_contract_id: "0000"`.
 
 **Knowledge layer exclusions:**
 - `knowledge/agent-context-map.yaml` — This is a configuration file that maps agent roles to knowledge file paths. In Neuroloom, agents use `memory_search` with tags instead of file paths. This file is not knowledge content and must NOT be ingested.
@@ -544,6 +548,16 @@ Write all non-knowledge framework files. These go to the filesystem — not into
 | Neuroloom process docs | `.claude/sdlc/process/` |
 | Templates | `.claude/sdlc/templates/` |
 
+**Optional bundles.** Before copying skills, read `manifest.bundles` from the fetched cc-sdlc source. For each bundle, prompt CD with `AskUserQuestion`:
+
+> Optional bundle available: **`[bundle-name]`** — [bundle.description]
+>
+> Skills it adds: [list bundle.skills]
+>
+> Install it?
+
+Record accepted bundles. The effective skills install set is `source_files.skills` ∪ (bundle.skills for every accepted bundle). Skip skills that belong to declined bundles. Write the accepted bundle names to `.sdlc-manifest.json` → `installed_bundles` (see below) so `/sdlc-migrate` knows which bundles are active without filesystem probing.
+
 Neuroloom-specific process docs ship with the plugin under `neuroloom-sdlc-plugin/docs/`. Copy `knowledge-routing.md` to `.claude/sdlc/process/knowledge-routing.md` during Stage 5b. This file is the installed location — the plugin's `docs/` is the source.
 
 **Plugin skill exclusion:** Do NOT write `sdlc-initialize` or `sdlc-migrate` to `.claude/skills/`. These skills are owned by the Neuroloom SDLC plugin (`neuroloom-sdlc-plugin/skills/`) and must not have cc-sdlc originals competing for skill resolution. If cc-sdlc originals already exist in `.claude/skills/`, delete them:
@@ -583,6 +597,8 @@ rm -rf .claude/skills/sdlc-initialize/ .claude/skills/sdlc-migrate/
   "initialized_at": "{ISO_DATE}",
   "workspace_id": "{workspace_id}",
   "agent_count": {M},
+  "installed_bundles": ["design"],
+  "last_applied_contract_id": "{newest id in cc-sdlc contract_changes.yaml at install time}",
   "installed_files": {
     ".claude/skills/sdlc-plan/SKILL.md":       { "sha256": "{hash}", "size": {bytes}, "installed_at": "{ISO_DATE}" },
     ".claude/skills/sdlc-execute/SKILL.md":    { "sha256": "{hash}", "size": {bytes}, "installed_at": "{ISO_DATE}" },
@@ -592,6 +608,10 @@ rm -rf .claude/skills/sdlc-initialize/ .claude/skills/sdlc-migrate/
   }
 }
 ```
+
+**`installed_bundles`:** Array of bundle names CD accepted during the 5b prompt. Empty array if none. Used by `/sdlc-migrate` to preserve opt-in skills and propagate bundle updates.
+
+**`last_applied_contract_id`:** Newest id in cc-sdlc's `skeleton/contract_changes.yaml` at install time (fetched in Stage 2c). New projects start caught up — `/sdlc-migrate` will not re-apply historical renames and field additions intended for older projects. Parse the fetched `skeleton/contract_changes.yaml` and take the `id` of the last entry in `changes`. If the file is absent (upstream cc-sdlc predates 1.3.0), set this field to `"0000"`.
 
 **Hash generation:** Use SHA-256 of the **post-transformation** content (after Neuroloom pattern mapping has been applied, since that's what actually lands on disk). Record via:
 

@@ -59,6 +59,24 @@ Framework files (skills, process docs) may contain `PROJECT-SECTION` markers tha
 
 ---
 
+## Bundle Awareness
+
+cc-sdlc's `skeleton/manifest.json` has a `bundles` section listing opt-in skill bundles (e.g., `design`) that are **not** part of the default install. A project's `.sdlc-manifest.json` records which bundles it adopted under `installed_bundles`.
+
+**Behavior for Neuroloom migrations:**
+
+1. **Detect installed bundles.** Read `.sdlc-manifest.json` → `installed_bundles`. If the field is missing (project installed before bundles existed), fall back to file-existence detection: for each bundle in upstream's `manifest.bundles`, check whether any of its skill paths exist under `.claude/skills/` and mark the bundle installed if so.
+2. **Never remove installed bundle skills.** Bundle skills are exempt from the "removed upstream → remove in project" rule. Their absence from `source_files.skills` means "not default-installed," not "deleted."
+3. **Apply §4.2.0 MCP gate to bundle skills** the same way it applies to core skills — `/sdlc-port` injects MCP calls into `sdlc-design-consult` etc. The gate already runs per-file and does not distinguish by bundle membership.
+4. **Offer uninstalled bundles at the end of migration** (mirrors cc-sdlc's §4.7). For each bundle not installed, use `AskUserQuestion` to offer adoption. If accepted, copy the bundle's skills and append the bundle name to `installed_bundles`.
+5. **Persist `installed_bundles`** in §4.4's manifest update. Back-fill from detection when absent.
+
+**Rename handling:** Skill and agent renames are driven by `skeleton/contract_changes.yaml` — see Stage 4.3 for the full algorithm.
+
+**Merge-rename semantics:** Multiple `from` values mapping to the same `to` in a single `rename_skill` entry mean a skill merge (e.g., `sdlc-review-commit` + `sdlc-review-diff` → `sdlc-review-code` in entry `0006`). Both old directories are upstream-deleted via the normal §2.1a flow; the merged skill is installed once. If the old files contained MCP-injected customizations, the §4.2.0 gate surfaces them — the migrator must re-inject them into the merged skill before deleting the old files, or log a `TRANSFORMATION_WARNING` for CD to resolve manually.
+
+---
+
 ## Project-Specific Files (Never Overwrite)
 
 These files become project-specific after initialization. They must NOT be direct-copied during migration:
@@ -618,13 +636,15 @@ Parse all changelog entries between `KNOWLEDGE_VERSION` (or the older of the two
 - **Deprecations** — entries removed from the knowledge layer
 - **Convention renames** — skill renames, tag renames, parameter changes
 - **New capabilities** — new skills, new knowledge domains, new MCP tools
-- **Contract changes** — entries tagged `[contract-change]`, indicating a new or modified phrase in cc-sdlc's phrasing contract that may require updating the Pattern Mapping table in this skill (see "Neuroloom-Aware Content Transformation" above)
+- **Contract changes** — entries tagged `[contract-change]`, indicating a new or modified phrase in cc-sdlc's phrasing contract that may require updating the Pattern Mapping table in this skill (see "Neuroloom-Aware Content Transformation" above). Since cc-sdlc 1.3.0, structured contract changes are also recorded in `skeleton/contract_changes.yaml` — read that file alongside the changelog. Every `[contract-change]` tag in the migration range should have a corresponding entry in the YAML; missing correspondence on either side is a cc-sdlc source defect worth filing upstream.
 
 Note any changelog items that reference CLAUDE.md sections, skill invocation patterns, or agent configurations — these require a CLAUDE.md compatibility check in Stage 4.
 
 ### 2.2a Contract Change Gate (deterministic semver check)
 
 This gate is **fully deterministic** — it does not involve LLM judgment. The plugin's `.claude-plugin/plugin.json` declares `supported_ccsdlc_version`, the highest cc-sdlc version whose `[contract-change]` entries have been reviewed and reflected in this plugin's Pattern Mapping + post-op audit. The gate compares that declaration against each contract-change entry in the migration range.
+
+**Dual source of truth (cc-sdlc 1.3.0+):** The gate reads both `[contract-change]` changelog entries AND `skeleton/contract_changes.yaml` entries. For each, the version threshold comparison against `PSV` is the same. An entry in either source that exceeds PSV triggers the halt. Phrasing-contract entries typically appear in both; skill renames / field additions / bundle debuts typically appear only in contract_changes.yaml. The gate treats the union as one set of contract changes — it does not matter which source surfaced a given entry.
 
 **Rationale for determinism:** prior versions of this gate halted-or-auto-resolved based on prose interpretation at runtime. Two runs of the same migration against the same source/target versions produced different outcomes — one halted, another silently resolved with a free-form "pattern_mapping_already_updated" note. A gate that sometimes fires is worse than no gate; maintainers can't reason about when to trust it. This version replaces LLM judgment with a version comparison so behavior is reproducible.
 
@@ -1166,7 +1186,7 @@ rm -rf .claude/skills/sdlc-initialize/ .claude/skills/sdlc-migrate/
 
 The plugin versions are the authoritative replacements, updated from the plugin repo, not cc-sdlc upstream.
 
-**cc-sdlc core skills** (all other skills in `.claude/skills/`): Apply the §4.2.0 preservation gate. These skills frequently contain MCP calls injected during `/sdlc-port` (e.g., `design-consult`, `research-external`, `review-fix`, `sdlc-tests-create`, `sdlc-tests-run` all carry cross-domain knowledge injection that was transformed to `memory_search`). Do NOT assume core skills have no customizations — the gate will detect and preserve MCP content. Non-MCP framework sections update verbatim from upstream.
+**cc-sdlc core skills** (all other skills in `.claude/skills/`, including opt-in bundle skills listed in `.sdlc-manifest.json` → `installed_bundles`): Apply the §4.2.0 preservation gate. These skills frequently contain MCP calls injected during `/sdlc-port` (e.g., `sdlc-design-consult`, `research-external`, `sdlc-review-fix`, `sdlc-tests-create`, `sdlc-tests-run` all carry cross-domain knowledge injection that was transformed to `memory_search`). Do NOT assume core skills have no customizations — the gate will detect and preserve MCP content. Non-MCP framework sections update verbatim from upstream.
 
 **Enhanced skills** (`sdlc-archive`, `sdlc-audit`): Apply the §4.2.0 preservation gate, then merge — keep Neuroloom-specific sections (API call patterns, MCP tool references, tag schema), update cc-sdlc sections (stage logic, verification checklists, red flags tables). Present a diff via `AskUserQuestion` if the Neuroloom sections appear to have been modified by the project.
 
@@ -1208,6 +1228,12 @@ Update the `sdlc_version` field to `LATEST_VERSION`. Preserve all project-specif
 
 - `sdlc_root` — set to the detected SDLC root path (`ops/sdlc/` or `.claude/sdlc/`)
 - `neuroloom_backend` — set to `true` if absent (load-bearing: `/sdlc-port` uses this to detect prior Neuroloom initialization)
+- `installed_bundles` — back-fill from the Bundle Awareness detection (empty array if no bundles detected)
+- `last_applied_contract_id` — back-fill to `"0000"` if absent (covers projects installed before cc-sdlc 1.3.0)
+
+**Any `manifest_field_added` entry in the §4.3 pending_changes set** contributes its `field` + `default` to this back-fill list.
+
+**Advance `last_applied_contract_id`** to the newest entry's `id` in the fetched `skeleton/contract_changes.yaml`. Do this only after §4.3 (contract-driven renames), bundle handling, and any other pending-change consumers have completed successfully — if any failed, leave the old id so the next migration retries. If `contract_changes.yaml` is absent from upstream (pre-1.3.0 cc-sdlc), skip this advancement.
 
 **Refresh `installed_files` hashes.** For every file the migration just wrote (overwrites + merges + drift resolutions), recompute SHA-256 of the final on-disk content and update the corresponding entry in `installed_files`. For drift cases where CD chose "keep mine", record the current hash so subsequent migrations see a clean baseline. For files CD chose to overwrite with upstream, the hash reflects the new upstream content. This keeps drift detection accurate for the next migration.
 
@@ -1432,10 +1458,16 @@ If all drops are legitimate, the audit passes and the Stage 5 report surfaces th
 
 ### 4.3 CLAUDE.md compatibility check
 
-Check the CLAUDE.md SDLC section for references that may have gone stale based on changelog-flagged items noted in Stage 2:
+Check the CLAUDE.md SDLC section for references that may have gone stale.
 
-- Skill invocation patterns (e.g., `/sdlc-initialize`, `/sdlc-audit`)
-- Stage or phase terminology that was renamed
+**Primary driver — `skeleton/contract_changes.yaml`:** Read `skeleton/contract_changes.yaml` from the fetched cc-sdlc source. Read `.sdlc-manifest.json` → `last_applied_contract_id` (treat missing as `"0000"`). Select entries with `id > last_applied_contract_id` — call this set **pending_changes**. Collect all `from → to` pairs from `type: rename_skill` entries (and, future, `type: rename_agent` entries). Apply them in id order with the guarded-rename rule below. Chained renames walk automatically because entries apply in order.
+
+If `contract_changes.yaml` is absent from the cc-sdlc source (upstream predates cc-sdlc 1.3.0), skip the contract-driven rename step and fall back to per-entry changelog inspection for any Stage 2-flagged renames.
+
+**Also check** (beyond structured renames):
+
+- Skill invocation patterns (e.g., `/sdlc-initialize`, `/sdlc-audit`) still resolve
+- Stage or phase terminology that was renamed by prose in the changelog (captured during Stage 2.2)
 - Tool parameter names that changed
 - Tag names that were renamed
 
@@ -1452,13 +1484,15 @@ Check the CLAUDE.md SDLC section for references that may have gone stale based o
 2. Only rename if the target agent file exists in the project
 3. If the target doesn't exist, keep the project's original agent name
 
+**Do NOT hardcode rename pairs in this skill.** Every rename goes in cc-sdlc's `contract_changes.yaml`. Adapter-maintainers: if you find yourself wanting to add a special case here, file an upstream PR adding the entry to `contract_changes.yaml` instead. The phrasing-contract Pattern Mapping table remains adapter-specific and lives here — that's the only rename-shaped data the adapter owns.
+
 **CLAUDE-SDLC.md standalone cleanup:** If `[sdlc-root]/CLAUDE-SDLC.md` exists as a separate file (legacy from older installations), verify its content is already merged into `CLAUDE.md`, then remove it. CLAUDE-SDLC.md is no longer installed as a standalone file — its content lives directly in the project's CLAUDE.md.
 
 **New CLAUDE-SDLC.md sections:** Compare the project's CLAUDE.md SDLC sections against the current upstream `CLAUDE-SDLC.md` source. If new sections were added upstream (e.g., new workflow rules, new verification policies), merge them into the project's CLAUDE.md.
 
 For each stale reference found, either update it automatically (if the change is a clear 1:1 rename with a verified target) or flag it for CD review via `AskUserQuestion`.
 
-If no changelog items flagged CLAUDE.md-relevant changes, this check is a no-op — report "No CLAUDE.md updates needed."
+If pending_changes is empty and no changelog items flagged CLAUDE.md-relevant changes, this check is a no-op — report "No CLAUDE.md updates needed."
 
 ### 4.4 Sentinel
 
@@ -1626,7 +1660,7 @@ This table governs Stage 4 decisions. Consult it when a file's category is ambig
 | Knowledge YAMLs | Server-side upsert | `knowledge_id` matching handles new/updated/unchanged/deprecated |
 | `knowledge/provenance_log.md` | **Never overwrite/ingest** | Project-specific append-only records |
 | Discipline files | §4.2.0 MCP gate + preserve parking lots | Update framework sections, preserve project entries and MCP calls |
-| `.sdlc-manifest.json` | Partial update | Update version + add missing fields (`sdlc_root`, `neuroloom_backend`) |
+| `.sdlc-manifest.json` | Partial update | Update version + add missing fields (`sdlc_root`, `neuroloom_backend`, `installed_bundles`, `last_applied_contract_id`) |
 | `hooks/` files | Always overwrite | Plugin-managed; no project customizations |
 | `CLAUDE.md` SDLC section | Targeted update + guarded renames | Only stale references; preserve project additions |
 | Standalone `CLAUDE-SDLC.md` | Delete | Legacy file; content merged into CLAUDE.md |
@@ -1768,7 +1802,7 @@ This path loses accumulated feedback and importance scores — use only when no 
 | "I'll rename all skill references to match upstream." | Guarded renames only — check that the target skill directory exists in `.claude/skills/` before renaming. Renaming to a nonexistent skill causes silent process failures. |
 | "I'll rename agent names in skills to match upstream." | Projects use different agent names (`frontend-engineer` vs `frontend-developer`). Only rename if the target agent exists in `.claude/agents/`. |
 | "The AGENT_TEMPLATE.md can be copied directly from upstream." | Neuroloom projects use `memory_search` in Knowledge Context, not file path references. Scan for MCP patterns before merging — preserve them. |
-| "Core cc-sdlc skills have no project customizations, I can overwrite them." | FALSE for Neuroloom projects. `/sdlc-port` injects MCP calls into `design-consult`, `review-fix`, `sdlc-tests-create`, `sdlc-tests-run`, `research-external`, and others. Every file write in §4.2 must pass the §4.2.0 MCP preservation gate — no exceptions by category. |
+| "Core cc-sdlc skills have no project customizations, I can overwrite them." | FALSE for Neuroloom projects. `/sdlc-port` injects MCP calls into `sdlc-design-consult`, `sdlc-review-fix`, `sdlc-tests-create`, `sdlc-tests-run`, `research-external`, and others. Every file write in §4.2 must pass the §4.2.0 MCP preservation gate — no exceptions by category. |
 | "Process docs are framework-only, direct-copy is fine." | Process docs like `discipline_capture.md`, `overview.md`, `incident_response.md` contain MCP call patterns after port/initialize. The §4.2.0 gate applies to them too. |
 | "Templates are boilerplate, no MCP there." | FALSE. `test_spec_template.md` guides authors to retrieve knowledge via `memory_search` in Neuroloom projects. Apply §4.2.0. |
 | "I'll just run the content-merge and trust the rules worked." | Always run the MCP Retention Audit (§4.2-gate). A silent regression that drops `memory_search` calls breaks knowledge retrieval in every subsequent session with no visible symptom until an agent fails to find what it needs. |
