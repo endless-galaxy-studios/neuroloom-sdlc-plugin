@@ -664,7 +664,7 @@ Do not mark the port complete if a material discrepancy cannot be explained.
 **Run the shared post-operation audit** at `${CLAUDE_PLUGIN_ROOT}/references/post-operation-audit.md`. Execute the shared checks AND the `/sdlc-port`-specific subset.
 
 The audit verifies the bulk transformation landed correctly — every file-based reference that should have become a `memory_search`/`memory_store` call actually did, across all targeted files. The port touches a much larger surface than a typical migration (it converts an entire file-based install), so aggregate checks are essential:
-- Every file in the Pattern Mapping "Files Containing These Patterns" table contains at least one MCP call
+- Every file flagged by the phrasing-contract runtime scan (see `sdlc-migrate` § "Detecting Files That Contain Phrasing-Contract Patterns") contains at least one MCP call
 - No residual cc-sdlc standard phrases (they should all be transformed)
 - No inline adapter conditionals (contract violations)
 - Knowledge YAMLs fully ingested with correct domain tags

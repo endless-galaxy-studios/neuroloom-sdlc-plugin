@@ -476,35 +476,41 @@ This is doubly wrong: `memory_store` is the write API (can't be read), and the c
 - `[sdlc-root]/knowledge/provenance_log.md` references (on-disk append-only file, project-specific; treated like `process/sdlc_changelog.md`)
 - Integration-section `**Depends on:**` / `**Uses:**` lists where the ref is an individual bullet rather than a parenthetical — these are kept verbatim as metadata; the agent understands they describe logical dependencies, not runtime file reads
 
-### Files Containing These Patterns
+### Detecting Files That Contain Phrasing-Contract Patterns (Runtime Scan)
 
-| File | Section | Pattern Type |
-|------|---------|--------------|
-| `agents/AGENT_TEMPLATE.md` | `## Knowledge Context` | Agent knowledge retrieval |
-| `agents/AGENT_TEMPLATE.md` | `## Communication Protocol` | Protocol retrieval |
-| `agents/AGENT_TEMPLATE.md` | "Surfacing Learnings" | Knowledge store reference |
-| `agents/sdlc-compliance-auditor.md` | Methodology reference | Knowledge retrieval |
-| `agents/sdlc-reviewer.md` | Agent wiring checklist | Knowledge wiring validation |
-| `process/discipline_capture.md` | Agent knowledge lookup | Knowledge retrieval |
-| `process/overview.md` | Knowledge capture | Knowledge store |
-| `process/knowledge-routing.md` | Entire file (Neuroloom variant) | `memory_search` query patterns — if the installed version contains `memory_search(` calls, preserve the entire file verbatim; upstream has a file-based variant |
-| `skills/sdlc-plan/SKILL.md` | Agent Selection / Cross-domain injection | `consult [sdlc-root]/knowledge/agent-context-map.yaml` phrases |
-| `skills/sdlc-execute/SKILL.md` | Agent Dispatch Protocol / Cross-domain injection | `consult [sdlc-root]/knowledge/agent-context-map.yaml` phrases |
-| `skills/sdlc-lite-execute/SKILL.md` | Cross-domain injection during phase dispatch | `consult [sdlc-root]/knowledge/agent-context-map.yaml` phrases |
-| `skills/sdlc-tests-create/SKILL.md` | SDET cross-domain injection | `consult [sdlc-root]/knowledge/agent-context-map.yaml` phrases |
-| `skills/sdlc-tests-run/SKILL.md` | Domain agent cross-domain injection during fixes | `consult [sdlc-root]/knowledge/agent-context-map.yaml` phrases |
-| `skills/review-fix/SKILL.md` | Cross-domain injection when fixer differs from finder | `consult [sdlc-root]/knowledge/agent-context-map.yaml` phrases |
-| `skills/team-review-fix/SKILL.md` | Reviewer spawn / fixer spawn knowledge context | `consult [sdlc-root]/knowledge/agent-context-map.yaml` phrases |
-| `skills/sdlc-create-agent/SKILL.md` | Agent template Knowledge Context scaffolding | Generated agent `## Knowledge Context` section — must scaffold with `memory_search` for Neuroloom projects |
-| `skills/sdlc-ingest/SKILL.md` | WIRE step (knowledge wiring to agent-context-map) | Wiring logic itself is skipped in Neuroloom — knowledge is stored with tags instead |
-| `skills/sdlc-audit/references/compliance-methodology.md` | Dimension 6 (knowledge layer health), knowledge wiring validation | References `agent-context-map.yaml` concepts — checks must translate to memory-graph equivalents |
-| `skills/sdlc-audit/references/improvement-methodology.md` | Knowledge gap identification | References knowledge store concepts |
+Rather than maintaining a hardcoded table of files, the migrator **scans each upstream file at merge time** to determine whether it contains phrasing-contract patterns that need transformation. The scan uses the same anchors the Pattern Mapping rules match against.
+
+**Scan algorithm (runs per file in the merge set, AFTER Transformation-Exempt and Non-transformable-path exclusions):**
+
+1. Check the file against the Transformation-Exempt list. If matched → copy verbatim, skip scan.
+2. Grep the upstream file content for any of these anchors (case-insensitive):
+   - `[sdlc-root]/knowledge/` (not followed by `provenance_log.md`)
+   - `[sdlc-root]/disciplines/`
+   - `consult [sdlc-root]/knowledge/`
+   - `agent-context-map.yaml` (outside Integration sections and fenced code blocks)
+3. If zero matches → no phrasing-contract patterns exist. Copy upstream verbatim (standard direct-copy). No Pattern Mapping invocation.
+4. If one or more matches → the file contains transformable patterns. Route it through the Pattern Mapping transformer, subject to all existing exclusion masks (Integration sections, fenced code blocks, non-transformable path prefixes, capture-target context guards).
+
+**Why scan beats a table:** cc-sdlc adds canonical phrases to skills regularly (12 were normalized in a single commit). A hardcoded table drifts silently — the migrator skips files it doesn't know about, producing installations with untransformed file-path references that break Neuroloom's semantic search. The scan derives the file set from file content, which is the actual source of truth.
+
+**Performance:** The scan is a grep over files already in memory for the merge. No additional I/O.
+
+#### Special-Case Overrides
+
+A small number of files need behavior beyond "scan and transform." These overrides apply regardless of scan results:
+
+| File | Override Behavior |
+|------|-------------------|
+| `process/knowledge-routing.md` | If the installed version contains `memory_search(` calls, preserve the entire file verbatim — the project has a Neuroloom variant. Otherwise, copy upstream verbatim (it's on the Transformation-Exempt list). |
+| `skills/sdlc-create-agent/SKILL.md` | The `## Knowledge Context` scaffolding section generates new agents. After transformation, verify the scaffolded template uses `memory_search` — not `consult [sdlc-root]/knowledge/agent-context-map.yaml`. |
+| `skills/sdlc-ingest/SKILL.md` | The WIRE step (knowledge wiring to agent-context-map) is skipped in Neuroloom — knowledge is stored with tags instead. The scan will flag this file; the transformer handles it via normal Pattern Mapping. |
+| `skills/sdlc-audit/references/compliance-methodology.md` | Dimension 6 references `agent-context-map.yaml` concepts as audit criteria — checks must translate to memory-graph equivalents. The scan will flag this file; the transformer handles it via normal Pattern Mapping. |
 
 ### Content-Merge Rules for Neuroloom
 
-1. **Detection heuristic:** Before merging any file listed above, scan the project's current version for `memory_search(` or `memory_store(`. If present, the project uses Neuroloom integration.
+1. **Detection heuristic:** Before merging any file flagged by the scan, check the project's current installed version for `memory_search(` or `memory_store(`. If present, the project already has Neuroloom integration for this file.
 
-2. **Section-level preservation:** When merging a file with Neuroloom patterns:
+2. **Section-level preservation:** When merging a file with existing Neuroloom patterns:
    - Identify sections containing MCP tool calls (usually delimited by `##` headings)
    - Extract the project's MCP-based version of those sections
    - Apply upstream framework updates to sections WITHOUT MCP calls

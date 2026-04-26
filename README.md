@@ -100,7 +100,7 @@ However, those non-override skills contain references to file-based knowledge (e
 | `/sdlc-migrate` | Pulls newer cc-sdlc, applies Pattern Mapping rules while preserving any `memory_search(` / `memory_store(` calls already present in the project copy |
 | `/sdlc-port` | Converts an existing file-based cc-sdlc install into a Neuroloom workspace, applying Pattern Mapping in bulk |
 
-The full list of skill/agent/process files covered by these transformations lives in `skills/sdlc-migrate/SKILL.md` § "Files Containing These Patterns". If cc-sdlc introduces a new file with standard phrases, that table must be updated in lockstep.
+Which files need transformation is determined at runtime by scanning each upstream file for phrasing-contract anchors (`[sdlc-root]/knowledge/`, `[sdlc-root]/disciplines/`, `consult [sdlc-root]/knowledge/`, `agent-context-map.yaml`). See `skills/sdlc-migrate/SKILL.md` § "Detecting Files That Contain Phrasing-Contract Patterns" for the algorithm and special-case overrides.
 
 ### Integrity Gates
 

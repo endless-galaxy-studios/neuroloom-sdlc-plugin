@@ -16,7 +16,7 @@ Run every check. Collect failures. Report together at the end. Do not short-circ
 
 ### Check 1 — MCP integration health (Neuroloom-specific)
 
-For Neuroloom projects (`neuroloom_backend: true` in manifest), the installed files should contain `memory_search(` / `memory_store(` calls in the places listed in the Pattern Mapping + Files Containing These Patterns tables in `skills/sdlc-migrate/SKILL.md`.
+For Neuroloom projects (`neuroloom_backend: true` in manifest), the installed files should contain `memory_search(` / `memory_store(` calls in files detected by the phrasing-contract runtime scan (see `sdlc-migrate/SKILL.md` § "Detecting Files That Contain Phrasing-Contract Patterns") and in the Pattern Mapping rules.
 
 **Procedure:**
 1. Count `memory_search(` + `memory_store(` occurrences across `.claude/sdlc/` and `.claude/agents/` → `MCP_COUNT_INSTALLED`
@@ -149,7 +149,7 @@ After the shared checks, additionally verify:
 After the shared checks, additionally verify:
 
 - **Bulk transformation applied** — `/sdlc-port` converts a file-based cc-sdlc install to Neuroloom. Verify the transformation touched the expected file set:
-  - All files in the "Files Containing These Patterns" table from `sdlc-migrate/SKILL.md`
+  - All files flagged by the phrasing-contract runtime scan (see `sdlc-migrate/SKILL.md` § "Detecting Files That Contain Phrasing-Contract Patterns")
   - All project-tailored agents in `.claude/agents/` (Knowledge Context, Communication Protocol sections)
   - Process docs: `discipline_capture.md`, `overview.md`, `incident_response.md`, etc.
 - **Knowledge ingestion complete** — all knowledge YAMLs from the file-based source were ingested into the memory graph with correct tags (`sdlc:knowledge`, `sdlc:domain:*`)

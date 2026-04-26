@@ -941,7 +941,7 @@ Run through all verification checks before declaring initialization complete:
 **Run the shared post-operation audit** at `${CLAUDE_PLUGIN_ROOT}/references/post-operation-audit.md`. Execute the shared checks AND the `/sdlc-initialize`-specific subset.
 
 The audit verifies the Neuroloom transformation landed correctly across all installed files — not just the 10a checklist items. Critical checks include:
-- Every file in the Pattern Mapping "Files Containing These Patterns" table contains at least one MCP call
+- Every file flagged by the phrasing-contract runtime scan (see `sdlc-migrate` § "Detecting Files That Contain Phrasing-Contract Patterns") contains at least one MCP call
 - No residual cc-sdlc standard phrases (they should have been transformed to `memory_search`/`memory_store`)
 - No inline adapter conditionals (contract violations)
 - Project agents created (initialization didn't skip the agent roster stage)
