@@ -30,7 +30,15 @@ The plugin versions are the authoritative replacements, updated from the plugin 
 
 #### Agents
 
-**Framework agent files** (`AGENT_TEMPLATE.md`, `AGENT_SUGGESTIONS.md`, `sdlc-reviewer.md`, `sdlc-compliance-auditor.md`): Apply the §4.2.0 preservation gate. Non-MCP framework sections update verbatim from upstream. If `AGENT_SUGGESTIONS.md` doesn't exist in the project, install it.
+**Framework agent files** (`sdlc-reviewer.md`, `sdlc-compliance-auditor.md`): Apply the §4.2.0 preservation gate. Non-MCP framework sections update verbatim from upstream.
+
+**Agent template** (`agent-template.md`): Now lives at `[sdlc-root]/templates/agent-template.md`, not `.claude/agents/`. Apply the §4.2.0 preservation gate when updating. If the project has an old `.claude/agents/AGENT_TEMPLATE.md`, delete it after verifying the templates/ copy is in place.
+
+**Ephemeral files cleanup:** `AGENT_SUGGESTIONS.md` and `sdlc-initialize` are now ephemeral upstream — used during initialization only, then deleted. During migration, remove stale copies:
+```
+rm -f .claude/agents/AGENT_SUGGESTIONS.md
+rm -rf .claude/skills/sdlc-initialize/
+```
 
 **Project domain agents** (all other files in `.claude/agents/`): Apply the §4.2.0 preservation gate. The Knowledge Context and Communication Protocol sections of project agents contain MCP calls (injected during port/initialize) and MUST be preserved — do NOT blanket-rewrite them from the upstream template. The gate's section-level preservation handles this automatically. Preserve the agent name, domain description, scope ownership, anti-rationalization tables, and any project-added agents that do not exist in the upstream template set.
 
@@ -50,7 +58,7 @@ Apply the §4.2.0 preservation gate. Templates like `test_spec_template.md` cont
 
 #### `.sdlc-manifest.json`
 
-Update the `sdlc_version` field to `LATEST_VERSION`. Preserve all project-specific fields. Add missing fields introduced in newer cc-sdlc versions if absent:
+Update the `sdlc_version` field and `source_version` to `LATEST_VERSION`. Set `source_version_sha` to the commit SHA of the release tag (via `gh api repos/Inpacchi/cc-sdlc/git/ref/tags/{LATEST_VERSION} --jq '.object.sha'`; store `"unknown"` if unavailable). Preserve all project-specific fields. Add missing fields introduced in newer cc-sdlc versions if absent:
 
 - `sdlc_root` — set to the detected SDLC root path (`ops/sdlc/` or `.claude/sdlc/`)
 - `neuroloom_backend` — set to `true` if absent (load-bearing: `/sdlc-port` uses this to detect prior Neuroloom initialization)

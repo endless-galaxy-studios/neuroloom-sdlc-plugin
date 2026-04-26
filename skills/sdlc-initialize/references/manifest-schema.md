@@ -9,6 +9,7 @@
   "neuroloom_backend": true,
   "source_repo": "https://github.com/Inpacchi/cc-sdlc",
   "source_version": "{SDLC_VERSION}",
+  "source_version_sha": "{commit SHA of the release tag, for cross-compatibility with cc-sdlc git-based migrations}",
   "initialized_at": "{ISO_DATE}",
   "workspace_id": "{workspace_id}",
   "agent_count": {M},
@@ -17,7 +18,7 @@
   "installed_files": {
     ".claude/skills/sdlc-plan/SKILL.md":       { "sha256": "{hash}", "size": {bytes}, "installed_at": "{ISO_DATE}" },
     ".claude/skills/sdlc-execute/SKILL.md":    { "sha256": "{hash}", "size": {bytes}, "installed_at": "{ISO_DATE}" },
-    ".claude/agents/AGENT_TEMPLATE.md":        { "sha256": "{hash}", "size": {bytes}, "installed_at": "{ISO_DATE}" },
+    "{sdlc_root}/templates/agent-template.md":  { "sha256": "{hash}", "size": {bytes}, "installed_at": "{ISO_DATE}" },
     ".claude/sdlc/process/overview.md":        { "sha256": "{hash}", "size": {bytes}, "installed_at": "{ISO_DATE}" },
     "...every file written in Stage 5b...":    { ... }
   }

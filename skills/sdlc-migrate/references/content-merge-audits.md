@@ -84,7 +84,7 @@ The `audit_result` field is required. `migrate-fa70ef` emitted the event without
 
 **This check is MANDATORY — it catches the failure mode that silently broke the 2026-04-22 migration.**
 
-A drop in MCP count is not automatically a bug. Upstream may legitimately remove a section that had MCP calls (e.g., cc-sdlc retired the `knowledge_feedback` reference in AGENT_TEMPLATE.md). The audit must distinguish **regression** (merge bug lost MCP content whose enclosing section still exists upstream) from **legitimate removal** (upstream deleted the enclosing section entirely, or refactored it into a non-MCP form).
+A drop in MCP count is not automatically a bug. Upstream may legitimately remove a section that had MCP calls (e.g., cc-sdlc retired the `knowledge_feedback` reference in agent-template.md). The audit must distinguish **regression** (merge bug lost MCP content whose enclosing section still exists upstream) from **legitimate removal** (upstream deleted the enclosing section entirely, or refactored it into a non-MCP form).
 
 For every file written in Stage 4.2:
 

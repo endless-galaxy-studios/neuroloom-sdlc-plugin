@@ -275,7 +275,7 @@ Scan all files matched by `.claude/agents/*.md`, `.claude/skills/**/*.md`, and
    `agent-communication-protocol.yaml` — even without the full path prefix. These appear
    in validation checklists, maturity criteria, integration steps, and template instructions.
 
-Also scan `ops/sdlc/templates/AGENT_TEMPLATE.md` — it contains runtime instructions
+Also scan `ops/sdlc/templates/agent-template.md` — it contains runtime instructions
 (Knowledge Context, Communication Protocol) that direct agents to read local YAML files.
 
 For each reference found, call `memory_search` to locate the matching seeded entry:
@@ -298,7 +298,7 @@ Files with no matching references are not transformation targets — skip them.
 - **Validation checklists** (e.g., sdlc-reviewer agent): checklist items that validate agents
   "reference `agent-context-map.yaml`" or "reference `agent-communication-protocol.yaml`" →
   update to check for `memory_search` calls in Knowledge Context and Communication Protocol sections
-- **Agent template** (`ops/sdlc/templates/AGENT_TEMPLATE.md`): Knowledge Context and Communication
+- **Agent template** (`ops/sdlc/templates/agent-template.md`): Knowledge Context and Communication
   Protocol sections that instruct agents to read local YAML files → update to use `memory_search`.
   Also update the "Surfacing Learnings" parenthetical `(see agent-communication-protocol.yaml)` →
   `(retrievable via memory_search)`

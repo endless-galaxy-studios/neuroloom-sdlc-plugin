@@ -228,6 +228,8 @@ Spec: docs/current_work/specs/d1_project_spec.md
 
 Call `sdlc_get_version` to retrieve the latest cc-sdlc release tag. Store as `SDLC_VERSION`. This version tag is embedded in all seeded knowledge entries as `sdlc:seed-version:{SDLC_VERSION}`.
 
+Also resolve `SDLC_VERSION_SHA` — the commit SHA of the release tag — for the manifest's `source_version_sha` field. Obtain via: `gh api repos/Inpacchi/cc-sdlc/git/ref/tags/{SDLC_VERSION} --jq '.object.sha'`. If unavailable, store `"unknown"`.
+
 If `sdlc_get_version` fails:
 - Auth error → "Neuroloom API key not configured. Add your API key to the Neuroloom config."
 - Network error → "Cannot reach Neuroloom API. Check your api_url configuration."
@@ -547,7 +549,7 @@ Use `AskUserQuestion` with options:
 **MANDATORY: Invoke `/sdlc-create-agent` for each agent.** Do NOT write agent files directly. The skill handles:
 - Frontmatter validation (name format, description with `<example>` blocks)
 - System prompt scaffolding (Knowledge Context, Communication Protocol, Anti-Rationalization Table)
-- Template compliance (AGENT_TEMPLATE.md structure)
+- Template compliance (agent-template.md structure)
 
 **Creation order:**
 1. **Mandatory agents first** — `software-architect` then `code-reviewer`. These must exist before any other agent is created so they can be dispatched by review/planning skills during remaining initialization stages.
@@ -570,14 +572,14 @@ Add them to the roster and re-present before proceeding to creation.
 - `sdlc-reviewer` — reviews skill/agent files against cc-sdlc conventions (dispatched by `sdlc-develop-skill`, `sdlc-create-agent`, `sdlc-review`)
 - `sdlc-compliance-auditor` — performs 9-dimension compliance scan (dispatched by `sdlc-audit`)
 
-**Neuroloom agent template transformation:** The upstream `AGENT_TEMPLATE.md` uses file path references for Knowledge Context and Communication Protocol sections. Before creating agents, transform these to Neuroloom patterns:
+**Neuroloom agent template transformation:** The upstream `agent-template.md` (at `[sdlc-root]/templates/`) uses file path references for Knowledge Context and Communication Protocol sections. Before creating agents, transform these to Neuroloom patterns:
 - `consult [sdlc-root]/knowledge/agent-context-map.yaml` → `memory_search(query="[agent-name] domain-specific patterns...", tags=["sdlc:knowledge"])`
 - `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml` → `memory_search(query="agent communication protocol...", tags=["sdlc:knowledge", "sdlc:domain:architecture"])`
 - `Append to [sdlc-root]/disciplines/*.md` → `memory_store(tags=["sdlc:discipline:{name}", "sdlc:parking-lot"])`
 
-Also install `AGENT_SUGGESTIONS.md` to `.claude/agents/` — this is a new upstream file with agent role suggestions for projects.
+`AGENT_SUGGESTIONS.md` is ephemeral — it is used during agent roster planning but deleted in the cleanup phase. Do NOT install it permanently to `.claude/agents/`.
 
-**Ensure `knowledge_feedback` is not present in Knowledge Context sections** — this field was removed from the upstream AGENT_TEMPLATE. If the fetched template still contains it, strip it before creating agents.
+**Ensure `knowledge_feedback` is not present in Knowledge Context sections** — this field was removed from the upstream agent-template. If the fetched template still contains it, strip it before creating agents.
 
 **Pass stack context to the agent creation skill.** Each agent's system prompt must reference the project's actual technologies, not generic placeholders. Include in the creation prompt:
 - Which packages/directories the agent owns
@@ -752,6 +754,18 @@ Next step: Run /sdlc-plan to create the first deliverable.
 ## Stage 10 — Verification + Compliance Audit
 
 Verification checklist (knowledge layer, operational layer, agents, catalog, plugins), post-operation audit, compliance audit dispatch, and final report template: see `references/verification-audit.md`.
+
+## Stage 11 — Ephemeral Cleanup
+
+Remove files that were only needed during initialization:
+
+```bash
+rm -f .claude/agents/AGENT_SUGGESTIONS.md
+```
+
+**On failure:** If initialization fails partway, leave `AGENT_SUGGESTIONS.md` in place so the user can retry.
+
+---
 
 ## Progress Reporting Between Stages
 

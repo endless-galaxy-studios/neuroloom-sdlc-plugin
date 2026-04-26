@@ -11,6 +11,7 @@ Write `.sdlc-manifest.json` in the project root:
   "sdlc_root": ".claude/sdlc",
   "source_repo": "https://github.com/Inpacchi/cc-sdlc",
   "source_version": "{version from sdlc_get_version, or 'local' if unavailable}",
+  "source_version_sha": "{commit SHA of the release tag, if available}",
   "ported_at": "{ISO 8601 timestamp}"
 }
 ```
