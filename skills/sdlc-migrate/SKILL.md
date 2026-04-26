@@ -624,6 +624,8 @@ heading_fuzzy_match — logged when §4.2.0 section preservation fell back to a 
 
 **Why mandatory:** The 2026-04-22 `migrate-f01a70` run wrote stage-4.2 files without emitting any `file_merged` events and without emitting the `mcp_retention_audit_complete` event below. The migration reported `run_complete` successfully despite the audit being invisible — silent gate bypass. The pre-`run_complete` assertion in §5 below now fails if these events are missing for any file written during stage 4.2.
 
+**Recurrence in `migrate-6f4217` (sleeved 2026-04-26) — read this if you are the executor:** the same regression recurred 4 days after the §5 pre-`run_complete` assertion was added. The 2026-04-26 run emitted exactly 7 events for 88 written files: a `checkpoint`, five aggregate `stage_end` summaries (one per stage 4.1–5), and `run_complete`. Zero `file_merged`, zero subtype events, zero `concept_terminology_applied`, zero `mcp_retention_audit_complete`, zero `structural_audit_complete`. The §5 assertion was bypassed because the executor never reached it as a separate step — it emitted `run_complete` from inside the stage 5 summary without running the assertion procedure. **If you are running this skill right now and find yourself thinking "I'll batch the events" or "the stage_end summary is good enough" or "I'll write the events at the end" — STOP. The events are not optional, the assertion is not optional, and the per-file emission is what the gates need to detect regressions. Emit `file_merged` IMMEDIATELY after each file write — don't continue to the next file until you've written the event to `.sdlc-transaction-log`.** Concretely: each file write is a two-step pattern (Write tool → Edit `.sdlc-transaction-log` to append the event) and you do these two steps for file N before starting file N+1's two steps. There is no version of "I'll catch up on telemetry later" that produces valid output.
+
 **Why this gate exists:** A 2026-04-22 migration regression overwrote 65 MCP calls across 44 files because the content-merge rules were inconsistent across file categories. This gate enforces uniform MCP preservation AND uniform forward transformation — every upstream file lands as Neuroloom-native in a Neuroloom project, whether it's new, newly-transformed, or merged with an existing MCP-bearing version.
 
 **When this gate does NOT apply:**
@@ -686,9 +688,22 @@ The sentinel is managed SERVER-SIDE by `seed()`. Do not create, update, or tag i
 
 ## Stage 5 — Verification + Compliance Audit + Report
 
-### 5.0 Telemetry Assertion (pre-flight for Stage 5)
+### 5.0 Telemetry Assertion (pre-flight for Stage 5 — NO OVERRIDE, NO EXCEPTIONS)
 
 Before any verification runs, assert the Stage 4.2 telemetry is intact. Full procedure (event counting, schema validation, halt conditions): see `references/content-merge-audits.md` § "Telemetry Assertion".
+
+**This gate is hard-blocking. The executor MUST NOT emit `run_complete` until every assertion below passes. There is no override flag, no "skip-this-time" mode, no batch mode that defers it.** Sleeved's `migrate-6f4217` (2026-04-26) emitted exactly 7 events for an 88-file migration: a checkpoint, five `stage_end` summaries, and `run_complete`. Zero `file_merged`, zero `mcp_retention_audit_complete`, zero `structural_audit_complete`, zero `concept_terminology_applied`. The migration was declared successful and the user discovered the regression only via outside-the-run diff audit. **That failure mode is the reason this gate exists — bypassing it is the worst class of plugin defect because it hides every other defect.**
+
+**Required assertions (the executor MUST pass all of these before emitting `run_complete`; if any fails, emit a `TELEMETRY REGRESSION` halt and refuse to proceed):**
+
+1. Count `file_merged` events for the current `run_id`. The count MUST equal the number of operational files written in stage 4.2 (cross-check against the change manifest). Zero is only acceptable if the manifest declared zero operational files (rare — knowledge-only re-seed runs).
+2. Count `concept_terminology_applied` events. For Neuroloom-backend installations (`.sdlc-manifest.json` shows `neuroloom_backend: true`), the count MUST equal the `file_merged` count. Pass 2 fires for every file Pass 1 wrote, even if no substitutions actually applied — the empty-substitutions event is what proves Pass 2 was evaluated.
+3. Verify exactly one `mcp_retention_audit_complete` event with `audit_result: "PASS"` (or `"FAIL"` and a corresponding halt earlier — never silently skipped).
+4. Verify exactly one `structural_audit_complete` event with `audit_result: "PASS"` and ALL six structural counts (`heading_count`, `table_row_count`, `numbered_step_count`, `fenced_block_count`, `mandatory_step_count`, `bullet_count`) present per file.
+5. Verify every file on the Transformation-Exempt list emitted `file_merged` with `subtype: "exempt_verbatim"`. Any other subtype on an exempt file is a regression — surface it before emitting `run_complete`.
+6. Verify zero unresolved `transformation_warning` events (warnings must be either resolved by a later event in the same run, or the run halted before `run_complete`).
+
+**No telemetry → no `run_complete`.** If you (the executor running this skill) reach this point and notice you didn't emit `file_merged` events during stage 4.2 because you "did the writes in a loop and didn't think to log each one" or "summarized them in stage_end", **that is the failure mode**. Roll back via `git checkout -- .claude/` and restart from stage 4.0 with per-file telemetry enabled. Do not paper over by emitting after-the-fact reconstructed events — those don't carry the actual `mcp_before/after`, `headings_preserved`, or `rules_fired` data that the gate uses to detect regressions.
 
 ### 5.1 Knowledge layer spot-check
 

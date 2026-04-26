@@ -194,9 +194,20 @@ If all drops are legitimate, the audit passes and the Stage 5 report surfaces th
 
 ---
 
-### 5.0 Telemetry Assertion (pre-flight for Stage 5)
+### 5.0 Telemetry Assertion (pre-flight for Stage 5 — NO OVERRIDE)
 
 Before any verification runs, assert the Stage 4.2 telemetry is intact. This catches the silent-bypass failure mode where the executor skipped per-file emission and the MCP Retention Audit summary event.
+
+**This assertion has recurred as the failure mode TWICE — in `migrate-f01a70` (2026-04-22) and `migrate-6f4217` (2026-04-26).** Both runs reached `run_complete` without emitting any of the required Stage 4.2 events. Each recurrence cost an after-the-fact outside-the-run diff audit to detect. **The assertion below is the only thing standing between a silent regression and a successful migration. It cannot be skipped, batched, or paraphrased — run it as a discrete step before emitting any version of `run_complete`.**
+
+**Operational pattern for the executor:** the assertion is a real procedural step, not a check-box. To run it:
+
+1. Use the `Read` tool (or shell `cat`) to read `.sdlc-transaction-log` for the current `run_id`.
+2. Using the JSON event lines, count by `event` type. (Use `grep ... | wc -l` if reading the file is large.)
+3. Compare each count to the expectations below. Surface specifics — "I have 6 file_merged events, expected 88" — not "telemetry looks fine."
+4. Only after counts match every expectation may you emit `run_complete`.
+
+If you find yourself wanting to emit `run_complete` and you have not done steps 1–4 above, the assertion has not run. Stop and run it. There is no override path.
 
 **Procedure:**
 

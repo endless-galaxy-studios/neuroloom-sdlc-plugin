@@ -18,9 +18,13 @@
    - Output: `(e.g., memory entries tagged sdlc:knowledge + sdlc:domain:<discipline>)`
 
    Do NOT require the captured value to be a "real" domain name. The rule's job is structural transformation, not semantic validation.
-6. **Wildcard captures (`[X]`, `<name>`, `<purpose>`, `<tag-expr>`, etc.) are non-greedy and MUST terminate at any of:** `(`, `)`, `[` (not the opening `[` of the wildcard itself), `]`, `,`, `.`, `;`, `:` followed by whitespace, or end-of-line. A capture MUST NOT swallow a following parenthetical, list comma, or sentence boundary. Specifically: if the text after the wildcard is `(e.g., ...)` or `, [...]` or `. Sentence continues`, the capture stops **before** that punctuation.
+6. **Wildcard captures (`[X]`, `<name>`, `<purpose>`, `<tag-expr>`, etc.) are non-greedy and MUST terminate at any of:** `(`, `)`, `[` (not the opening `[` of the wildcard itself), `]`, `,`, `.`, `;`, `:` followed by whitespace, **`for `**, **`to `**, **`during `**, **`when `**, **`per `**, **`with `**, or end-of-line. A capture MUST NOT swallow a following parenthetical, list comma, sentence boundary, OR a purpose-clause introducer (`for X`, `to X`, `with X`, etc.). Specifically: if the text after the wildcard is `(e.g., ...)` or `, [...]` or `. Sentence continues` or `for knowledge wiring` or `to retrieve X`, the capture stops **before** that token.
 
    **The bug this prevents:** In `migrate-f01a70`, `sdlc-archive.md:175` matched `read [sdlc-root]/disciplines/*.md and find parking lot entries tagged with that deliverable's ID (e.g., [D05 — phase 2], [D05 — planning]).` The `[X]` capture in rule `Read [sdlc-root]/disciplines/*.md and find [X]` greedily consumed up through `ID (e` then stopped at an arbitrary character, producing a query string of `"parking lot entries tagged with that deliverable's ID (e"` and leaking the remaining `g., [D05 — phase 2]...)` outside the `memory_search(...)` call as orphan text. A non-greedy capture with explicit terminators stops at `(` and produces a clean `memory_search(query="parking lot entries tagged with that deliverable's ID", tags=[...])` followed by the original `(e.g., [D05 — phase 2], [D05 — planning]).` preserved verbatim.
+
+   **Bullet-tail consumption — sleeved `migrate-6f4217` regression class (added post-`migrate-6f4217`, 2026-04-26):** in a bullet item like `- Consult [sdlc-root]/knowledge/agent-context-map.yaml for knowledge wiring`, the matcher fired the rule `Consult [sdlc-root]/knowledge/agent-context-map.yaml for knowledge wiring` → `memory_search(query="agent knowledge wiring", tags=["sdlc:knowledge"])` (rule on line 45) but the capture additionally swallowed the `for knowledge wiring` tail into the replacement query string instead of leaving it as bullet context. Output became `- call memory_search(query="knowledge wiring", tags=["sdlc:knowledge"])` — losing both the explicit `agent` qualifier of the documented replacement AND the bullet's `for [purpose]` context that gave the reader a reason for the lookup. Match rule #6's expanded terminator list (above) prevents this — `for ` is now a hard terminator regardless of whether the surrounding rule has a literal `for ` in its pattern. Rules that intentionally consume `for [purpose]` (e.g., `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml for the handoff schema` on line 52) take precedence as longest-match-wins per rule ordering, so explicit `for X` rules still fire first; only opportunistic mid-sentence captures are stopped at the `for` boundary.
+
+   **Post-write regression check:** scan output for `- (call |Call )memory_search\(query="[a-z]` followed by no surrounding context that explains the lookup's purpose. A bullet that became a bare MCP call with no remaining prose has lost its semantic context — flag as bullet-tail-consumption regression and halt.
 
 7. **Verb-phrase awareness — rules that replace a verb phrase MUST produce a verb phrase** (added post-`migrate-fa70ef`). When the source phrase is a verb + object (`update X`, `read Y`, `append to Z`), the replacement must also be a verb + object — never a parenthetical aside, noun phrase, or standalone clause that can't take an object.
 
@@ -231,6 +235,13 @@ When multiple rows could match the same substring, apply them in this order and 
 - `) *.md)` (orphan-glob-without-backtick)
 - `Read memory_store` anywhere (nonsensical — `memory_store` is the write API, can't be `Read`)
 - `Read memory_search` anywhere (`memory_search` is a function call; `Call memory_search(...)` is the correct verb — `Read memory_search` is a malformed transformation)
+- `Update memory_search` anywhere (added post-`migrate-6f4217`, sleeved 2026-04-26 — symmetric to `Read memory_store`. `memory_search` is the read API; you cannot update entries via it. Correct destination is `memory_store`)
+- `Add memory_search` / `Append to memory_search` / `Wire memory_search` / `Tag memory_search` / `Store via memory_search` (same write-of-read class)
+- `Add to memory_search` / `Append memory_search` (same class, different word order)
+- `query="\* ` (literal asterisk-space at the START of an MCP query string — added post-`migrate-6f4217`. This indicates a glob (`*.md`) was literally injected into a query string instead of being normalized into a tag wildcard. Exemplar: `memory_search(query="* discipline", tags=["sdlc:discipline"])` at sleeved `sdlc-execute.md:345/367`. Correct form: `memory_search(query="discipline entries", tags=["sdlc:discipline:*"])` — the `*` belongs in the tag, not the query)
+- `query=".*\.md` (file extension `.md` inside a query string — added post-`migrate-6f4217`. Same root cause as the asterisk-in-query case)
+- `\`the knowledge graph (memory_search` (added post-`migrate-6f4217` — the prose-concept replacement `the knowledge graph` ran INSIDE backtick-formatted code context. Exemplar at sleeved `sdlc-execute.md:368`: `Knowledge store updates (\`the knowledge graph (memory_search with tags=["sdlc:knowledge"]) *.md\`)` — Pass 2 prose-concept terminology fired inside an inline-backtick code span where it should have been excluded)
+- ``) \*\.md\`\)`` (terminal orphan-glob-with-backtick — broader form of `*.md\`)` that also catches the surrounding paren close. Exemplar at sleeved `sdlc-lite-execute.md:302`)
 
 **Orphan extension-debris scan (added post-`migrate-fa70ef`):** extend the same halt-on-hit policy to these patterns. They're the same bug class as `*.md\`)` — partial-consume leaving a file-extension or glob suffix outside a completed replacement.
 
@@ -316,6 +327,31 @@ Read memory_store with tags ["sdlc:knowledge", "sdlc:domain:architecture"] for t
 This is doubly wrong: `memory_store` is the write API (can't be read), and the correct transformation for `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml for <purpose>` is the specific rule added in the instruction table (`Call memory_search(query="...<purpose>", tags=[...])`).
 
 **Matcher requirement:** When the enclosing sentence begins with `Read ` (or `read ` mid-sentence per match rule #1), the matcher must exclude capture-target rules from the candidate set entirely. Only instruction rules (those whose replacement begins with `memory_search(` or preserves a `Read`/`Call` verb) are eligible. If the only matching rule in a `Read` context is a capture-target row, the matcher emits a `TRANSFORMATION_WARNING` for a missing instruction rule rather than producing malformed output.
+
+**Read-rules must NEVER fire in `Update`/`Add`/`Append` contexts (added post-`migrate-6f4217` sleeved audit, 2026-04-26):**
+
+The symmetric failure mode of "Read memory_store" is "Update memory_search" / "Add memory_search" / "Append to memory_search". `memory_search` is the read API; you cannot add, update, or append entries via it. The correct destination for write operations is always `memory_store`.
+
+**The bug this prevents:** In the 2026-04-26 `migrate-6f4217` run, `sdlc-create-agent.md:124-128` had upstream:
+```
+Update `[sdlc-root]/knowledge/agent-context-map.yaml` to add a new entry mapping the agent to relevant knowledge files
+```
+The matcher fired a generic `[sdlc-root]/knowledge/agent-context-map.yaml` → `memory_search with tags=["sdlc:knowledge"]` rule against the path inside a write-context sentence, producing:
+```
+Update memory_search with tags=["sdlc:knowledge"] to add a new entry mapping the agent to relevant knowledge files
+```
+This is semantically impossible — `memory_search` returns entries; "Update memory_search to add a new entry" is nonsensical. Same defect at `sdlc-create-agent.md:138` (`Update memory_search with tags=["sdlc:knowledge"] with the mapping`).
+
+**Matcher requirement:** When the enclosing sentence begins with `Update `, `Add `, `Append to `, `Wire `, `Tag `, `Store `, `Write to ` (case-insensitive on the verb per match rule #1), the matcher must exclude `memory_search`-replacement rules from the candidate set entirely. Only `memory_store`-targeted rules (those whose replacement begins with `memory_store(` or describes a write/tag operation) are eligible. If the only matching rule in an `Update`/`Add`/`Append` context is a `memory_search`-replacement, the matcher emits a `TRANSFORMATION_WARNING` and falls back to the rule on line 47 (`update [sdlc-root]/knowledge/agent-context-map.yaml` → `skip this step (Neuroloom uses tag-based wiring via memory_store; no map to update)`) or to verbatim preservation. Producing `Update memory_search` output is a hard halt — see the post-write halt list in the metadata-rules section below.
+
+The full guard set is now bidirectional:
+
+| Verb context (case-insensitive) | Forbidden replacement family | Why |
+|---|---|---|
+| `Read ...`, `read ...` | `memory_store with tags [...]` | `memory_store` is the write API; cannot be read |
+| `Update ...`, `update ...`, `Add ...`, `Append to ...`, `Wire ...`, `Tag ...`, `Store ...` | `memory_search(...)` | `memory_search` is the read API; cannot accept new entries |
+
+If a sentence's verb belongs to one column, replacements from the other column are forbidden. Symmetric handling closes the write-of-read loophole that `migrate-6f4217` exposed.
 
 | cc-sdlc Metadata Pattern | Neuroloom Metadata Replacement |
 |--------------------------|--------------------------------|
