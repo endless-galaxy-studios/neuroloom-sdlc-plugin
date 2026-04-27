@@ -177,6 +177,197 @@ If the audit is skipped (e.g., no files modified this run), the executor MUST st
 
 If all drops are legitimate, the audit passes and the Stage 5 report surfaces them for CD awareness.
 
+#### Mandatory: Stale Agent Reference Audit
+
+**This check is MANDATORY — it catches the failure mode that silently broke `migrate-6f4217` (sleeved 2026-04-26) at `team-communication-protocol.md`, `sdlc-debug-incident.md`, `sdlc-plan.md`, and ~10 other framework files where agent-name examples don't resolve to the project's actual `.claude/agents/` roster.**
+
+cc-sdlc framework content names canonical agents in examples and dispatch maps — `security-engineer`, `data-architect`, `ml-engineer`, `devops-engineer`, etc. Projects often have a different roster (sleeved has `infosec-engineer` instead of `security-engineer`, `firebase-architect` instead of `data-architect`). When the migration writes upstream framework content verbatim, those canonical names land on disk pointing at agents the project never adopted. Result: skills dispatch agents that don't exist, message envelopes reference unknown reviewers, debug-incident routing tables misroute. The bugs are silent at write time; they surface as runtime dispatch failures days or weeks later.
+
+**Procedure (runs after all stage 4.2 file writes complete, before §4.3):**
+
+1. **Build the project agent roster:** scan `<target>/.claude/agents/` for `*.md` files; strip `.md` to get the roster set (e.g., `{accessibility-auditor, ai-engineer, backend-developer, infosec-engineer, ...}`).
+
+2. **Read project-side rename declarations** from `<target>/.sdlc-manifest.json` → `agent_renames` (a new optional field; absent = empty map). The schema is `{"<canonical-name>": "<project-name>", ...}` — e.g., `{"security-engineer": "infosec-engineer", "data-architect": "firebase-architect"}`. These declarations let projects map cc-sdlc canonical names to their renamed equivalents without touching framework content.
+
+3. **Scan every file written in stage 4.2** (skills, process docs, templates — exclude exempt files and project-specific files that aren't framework content). Use these patterns to extract candidate agent references:
+
+   - Backtick-quoted role names: `` `<name>-engineer` ``, `` `<name>-developer` ``, `` `<name>-architect` ``, `` `<name>-designer` ``, `` `<name>-auditor` ``, `` `<name>-specialist` ``, `` `<name>-advisor` ``, `` `<name>-strategist` ``, `` `<name>-researcher` ``, `` `<name>-reviewer` ``, `` `<name>-officer` `` (added post-`migrate-0957db` 2026-04-26 — sleeved Flag 4 had `chief-product-officer` and `brand-officer` in `templates/decision_record_template.md` and `skills/sdlc-design-brand-asset/SKILL.md`)
+   - Message envelope quoted values: `"reviewer-<name>"`, `"fixer-<name>"`, `"architect-<name>"` (strip prefix; use bare name for resolution)
+   - YAML/dispatch-map keys: lines like `<name>-engineer:` or `specialist: <name>-engineer` inside fenced YAML blocks
+   - Plain-prose role mentions inside dispatch tables (e.g., "auth → security-engineer")
+
+4. **For each candidate agent name, classify:**
+
+   a. **Resolves directly:** the bare name is a key in the project roster — no action.
+   b. **Resolves via `agent_renames`:** the canonical name appears in `agent_renames` and the mapped name is in the roster — emit `agent_substituted` event and rewrite the reference in-place to the mapped name.
+   c. **Stale, dispatch-position context:** the name doesn't resolve, AND the surrounding context is a dispatch instruction (e.g., a `Dispatch ...` instruction, a `from:`/`to:` field in a message envelope example, a routing-table key in `agent-selection.yaml`-shaped fenced YAML, or a Step-N "Spawn `<name>` as a teammate" instruction). **HALT** — these will fail at runtime.
+   d. **Stale, descriptive context:** the name doesn't resolve, AND the surrounding context is descriptive prose (e.g., "consult security-engineer for auth issues", "(e.g., ml-engineer)", an example list item under a heading like "Common dispatch domains"). Emit `agent_unresolved_warning` event but do NOT halt — these don't break runtime, but CD should review whether to declare a rename or accept the stale reference.
+
+5. **Substitution scope and limits:**
+   - Substitution applies only to whole-token matches (`security-engineer` doesn't match `security-engineer-2` or `security-engineering`)
+   - Substitution preserves the surrounding prefix (`reviewer-security-engineer` → `reviewer-infosec-engineer`)
+   - Substitution does NOT cross the exempt-file boundary — files on the verbatim list (`process/knowledge-routing.md` etc.) are scanned for warnings but never rewritten
+   - Substitution does NOT apply inside fenced code blocks marked as upstream-cc-sdlc-canonical examples (a future fence annotation `<!-- canonical-example -->` will signal "leave verbatim regardless of project roster"; until that lands, fenced YAML blocks default to substituted)
+
+**Halt and report (dispatch-position case):**
+
+```
+CRITICAL: Stale agent reference in dispatch-position context
+
+File: <path>:<line>
+Reference: <name>
+Context: <one-line surrounding text>
+
+Project roster (.claude/agents/): <count> agents
+  <agent1>, <agent2>, ... <agentN>
+
+The reference does not resolve and is in a dispatch position. At runtime,
+the dispatching skill will spawn an agent that doesn't exist.
+
+Resolution options:
+1. If your project renamed this agent, declare it in .sdlc-manifest.json:
+     "agent_renames": {"<name>": "<your-project-name>"}
+   then re-run /sdlc-migrate.
+2. If your project doesn't have an equivalent, the framework content references
+   a domain you don't cover. Either add the agent (project work) or accept the
+   limitation (framework content will reference an unimplemented role).
+3. To proceed despite the unresolved reference: explicitly add it to the
+   manifest's "agent_unresolved_accepted" list (also new field). The audit
+   will surface it as a warning instead of halting.
+
+Recovery: git checkout -- .claude/  (migration is uncommitted)
+```
+
+**Log on pass or warn:** Emit the mandatory event below regardless of outcome.
+
+**Mandatory event schema:**
+
+```json
+{
+  "ts": "ISO-8601",
+  "run_id": "migrate-xxxxxx",
+  "event": "agent_resolution_audit_complete",
+  "stage": "4.2-gate",
+  "roster_size": <int>,
+  "files_scanned": <int>,
+  "candidates_found": <int>,
+  "resolved_direct": <int>,
+  "resolved_via_renames": <int>,
+  "halt_class": <int>,
+  "warn_class": <int>,
+  "accepted_class": <int>,
+  "renames_applied": [{"file": "...", "line": <int>, "from": "...", "to": "..."}],
+  "unresolved_dispatch": [{"file": "...", "line": <int>, "name": "...", "context": "..."}],
+  "unresolved_descriptive": [{"file": "...", "line": <int>, "name": "...", "context": "..."}],
+  "audit_result": "PASS | FAIL"
+}
+```
+
+**Audit implications:**
+- Missing event = the audit didn't run; treat as a telemetry regression in §5.0 below
+- `audit_result: "FAIL"` means at least one halt-class reference was found — migration must halt before §4.3
+- `warn_class > 0` should be surfaced in the §5.4 final report so CD can decide whether to declare additional renames
+- `resolved_via_renames` events provide audit trail for any substitution applied — CD can verify the rename was intentional
+
+**Why hard-gated:** sleeved's `migrate-6f4217` produced ~11 stale agent references in framework content (`security-engineer`, `data-architect`, `ml-engineer`, `db-engineer`, `devops-engineer`, `frontend-engineer`, `data-pipeline-engineer`, `database-architect`, `ml-architect`, `security-auditor`, `systems-engineer`). The user discovered them by manually diffing `team-communication-protocol.md` weeks after the migration completed. The plugin's existing guarded-rename rules (§4.3, restricted to `contract_changes.yaml`-driven renames in CLAUDE.md only) didn't fire because there was no contract change driving these — they were project-roster drift, not cc-sdlc renames. This new gate covers the proactive case: every reference, every file, every migration.
+
+**Schema migration for `agent_renames`:** Plugin 0.4.7+ recognizes the field. Older manifests (no field) default to empty. Adding the field is non-breaking — projects that don't declare any renames get the same behavior as before, except the audit now halts on dispatch-class stale refs. Projects that need to substitute should declare the renames before running migrate; the audit's halt message points them at the field.
+
+#### Mandatory: Contract Residue Audit
+
+**This check is MANDATORY — it catches the failure mode where a file is written with untransformed cc-sdlc canonical phrasing despite being a Neuroloom-backend installation. Specifically targets the `mcp_new_file` install path where there's no pre-existing project version to merge against and Pattern Mapping silently bypasses.**
+
+The plugin spec says (SKILL.md §4.2.0 step 2): *"This step runs for every file in a Neuroloom project, whether or not the project already had MCP calls. New files and previously-untransformed files get transformed here."* In practice, sleeved `migrate-6f4217` wrote `incident-runbook-template.md` (a new-file install introduced upstream after sleeved's previous migration) with untransformed `[sdlc-root]/knowledge/architecture/debugging-methodology.yaml` and `[sdlc-root]/knowledge/architecture/error-cascade-methodology.yaml` references. Pattern Mapping never fired for that file. The existing post-write regression scans (orphan debris, double-paren, malformed verbs) all passed because the upstream content was clean — it just hadn't been transformed.
+
+This audit is the catch-all for Pattern Mapping bypass: *if upstream has canonical phrasing AND the post-write content still has it AND the file is non-exempt, the transformer didn't run.*
+
+**Procedure (runs after all stage 4.2 file writes complete, including Pass 2):**
+
+For every file written in stage 4.2 with `subtype != exempt_verbatim`, scan output for two residue classes:
+
+1. **Path-bearing residue (Pass 1 territory):**
+   ```bash
+   grep -nE '\[sdlc-root\]/(knowledge|disciplines)/' <written-file> \
+     | grep -vE 'provenance_log\.md'
+   ```
+2. **Concept-terminology residue (Pass 2 territory) — case-insensitive to catch heading title-case:**
+   ```bash
+   grep -inE '\bknowledge files?\b|\bdiscipline files?\b|\bparking[- ]lot entr|\bknowledge stores?\b|\bknowledge-store entr|\bdiscipline parking lots?\b|\bknowledge YAMLs?\b|\bYAML knowledge files?\b|\bagent-context-map\b|\bknowledge area\b|\bsuggested knowledge area\b' <written-file>
+   ```
+
+   **Why these specific extensions (added post-`migrate-0957db` 2026-04-26 review):**
+   - `parking[- ]lot` (with `[- ]` character class) catches both `parking lot` and `parking-lot` — sleeved Flag 10 had `discipline parking-lot entry` (line 287) and `parking-lot memory entries` (line 357) that the space-only form missed.
+   - `knowledge-store entr` (hyphenated compound) catches `knowledge-store entries` / `knowledge-store entry` — sleeved Flag 10 lines 265, 283.
+   - `-i` (case-insensitive) catches title-cased headings — `Knowledge Stores`, `Discipline Parking Lots`, `Knowledge YAML addition` from sleeved Flag 9 lines 60, 90, 484, 491. Without `-i`, lowercase-only patterns miss heading body text.
+   - `knowledge area` / `suggested knowledge area` catches the `Suggested knowledge area: [sdlc-root]/knowledge/architecture/` template prose pattern from sleeved Flag 10 line 298. The path-residue grep would catch the path on the same line, but the audit's defect detail benefits from naming the specific concept-terminology rule that should have fired.
+
+For each hit, classify:
+
+- **Exempt — fenced code block:** the hit is between matching ```` ``` ```` fences. Pass 2 doesn't transform fences; Pass 1 hard-excludes them. Legitimate retention.
+- **Exempt — Integration section:** the hit is inside a region opened by `^\*\*(Uses|Depends on|Updates|Feeds into|Complements|Downstream|Does NOT replace|DRY notes):\*\*` and continuing until the next blank line, next `^\*\*[A-Z]`, or next heading. Integration sections are hard-excluded by both passes.
+- **Exempt — known data-context file:** the hit is in `process/path-mappings.md` (path-mapping table is data; on the exempt list).
+- **Warn-class — YAML mechanism context:** the hit is in `sdlc-ingest/SKILL.md` and the surrounding sentence describes the file-mode YAML format that ingest consumes (e.g., "Existing knowledge: [count] YAML files"). Distinguishing signal: the sentence's subject is the upstream file format, not a Neuroloom-mode operation. Surface as warning, do not halt — CD reviews and either accepts or migrates the language.
+- **Defect — Pattern Mapping bypass:** the hit is in operational prose describing Neuroloom-mode operation. The transformer either didn't fire on this file or has a coverage gap. **Halt.**
+
+**Mandatory event schema:**
+
+```json
+{
+  "ts": "ISO-8601",
+  "run_id": "migrate-xxxxxx",
+  "event": "contract_residue_audit_complete",
+  "stage": "4.2-gate",
+  "files_scanned": <int>,
+  "path_residue_hits": <int>,
+  "concept_residue_hits": <int>,
+  "exempt_hits": <int>,
+  "warn_hits": <int>,
+  "defect_hits": <int>,
+  "details": [
+    {"file": "...", "line": <int>, "phrase": "...", "class": "exempt|warn|defect", "context": "..."}
+  ],
+  "audit_result": "PASS | FAIL"
+}
+```
+
+**Halt and report (defect case):**
+
+```
+CRITICAL: Contract residue detected — Pattern Mapping bypass
+
+File: <path>:<line>
+Phrase: <phrase>
+Context: <one-line surrounding text>
+Subtype: <mcp_new_file | mcp_backfilled | mcp_preserved>
+
+This file was written for a Neuroloom-backend project but contains
+untransformed cc-sdlc canonical phrasing. Likely cause:
+
+- mcp_new_file path: Pattern Mapping silently bypassed for the new
+  file. Spec §4.2.0 step 2 requires the transformer to run for every
+  file in a Neuroloom project regardless of whether the project had
+  a prior version. Verify the executor invoked it.
+
+- mcp_backfilled / mcp_preserved path: Pass 2 didn't run on this file
+  (concept-terminology residue) OR Pass 1 has a coverage gap for the
+  specific phrasing form (path residue not in Pattern Mapping table).
+
+Recovery: git checkout -- .claude/  (migration is uncommitted)
+File a plugin bug with run_id <run_id> and the residue details above.
+```
+
+**Why hard-gated:** the user discovered `incident-runbook-template.md`'s untransformed knowledge yaml references manually, weeks after `migrate-6f4217`. The previous post-write checks (Pass 2 residue halt added in 0.4.6, output regression scans, MCP retention) all passed because none of them check for "upstream content with canonical phrases written verbatim." The Pass 2 residue halt only catches concept-terminology — it doesn't catch path-bearing residue, and it only fires for files that went through Pass 2. A new-file install that bypassed Pass 1 entirely also bypassed Pass 2 (Pass 2 only re-reads files Pass 1 wrote, but the bypass scenario is "Pass 1 wrote upstream content unchanged"). This audit is the catch-all that runs regardless of which pass touched the file.
+
+**Relationship to existing audits:**
+
+- **Pass 2 residue halt (0.4.6, in pattern-mapping-rules.md):** runs inline as Pass 2 finishes a file. Narrower scope (concept-terminology only) but tighter timing (catches bugs before §4.2-gate aggregate). Keep both — defense in depth.
+- **MCP Retention Audit:** measures MCP count drop. Doesn't detect canonical-phrase residue in absolute terms.
+- **Structural Content-Loss Audit:** measures heading/table/step counts. Doesn't detect canonical-phrase residue.
+- **Stale Agent Reference Audit:** detects unresolved agent names. Different defect class.
+- **Output regression scans (post-write halt list):** detects malformed transformer output. Doesn't detect "transformer didn't fire at all."
+
+The Contract Residue Audit closes the gap between "transformer fired and produced something malformed" (regression scans) and "transformer fired and produced clean Neuroloom output" (MCP retention). It catches "transformer didn't fire and produced clean upstream output instead."
+
 #### Quick sanity checks
 
 1. **Skill customization preservation** — spot-check 1 enhanced skill (e.g., `sdlc-audit`):
@@ -217,6 +408,8 @@ If you find yourself wanting to emit `run_complete` and you have not done steps 
    - `concept_terminology_applied` — MUST equal the `file_merged` count for Neuroloom-backend projects (new in 0.4.0; every file Pass 1 wrote must also have a Pass 2 event, even if no substitutions fired). For non-Neuroloom projects (`neuroloom_backend: false`), this count MUST be exactly 0 because Pass 2 only runs in Neuroloom mode.
    - `mcp_retention_audit_complete` — MUST be exactly 1 with `audit_result: "PASS"` present. Zero means the audit gate was bypassed; missing the `audit_result` field means schema regression.
    - `structural_audit_complete` — MUST be exactly 1 with `audit_result: "PASS"` present. Same rules as mcp_retention.
+   - `agent_resolution_audit_complete` — MUST be exactly 1 with `audit_result: "PASS"` present (added in plugin 0.4.7 post-`migrate-6f4217` sleeved audit). Zero means the agent-resolution audit was bypassed; missing the field means schema regression. Halt-class entries in `unresolved_dispatch` would have already triggered an earlier halt in §4.2-gate, so reaching §5.0 with this audit's `audit_result: "FAIL"` should be impossible — if it happens, the executor wrote files despite the §4.2-gate halt.
+   - `contract_residue_audit_complete` — MUST be exactly 1 with `audit_result: "PASS"` present (added in plugin 0.4.8 post-`migrate-6f4217` sleeved audit, second follow-up). Zero means Pattern Mapping bypass went undetected. The audit catches the failure mode where `mcp_new_file` install paths wrote upstream content verbatim without running Pattern Mapping — the existing per-pass checks miss this because they only detect malformed output, not "transformer didn't fire."
 3. If any count is wrong or any required field is missing, **halt** the migration with:
 
 ```
