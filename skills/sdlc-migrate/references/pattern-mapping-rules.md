@@ -137,6 +137,32 @@ Added post-`migrate-fa70ef` audit: the previous audit-description rules fired on
 | `discipline file` (bare singular) | `discipline memory entry` |
 | `parking lot placement` / `parking lot triage` / `parking lot candidate` | `discipline memory placement` / `discipline memory triage` / `discipline memory candidate` |
 | `knowledge file` (bare singular, used as a concept) | `knowledge memory entry` |
+| `knowledge-store entry` / `knowledge-store entries` (hyphenated compound, added post-`migrate-0957db` 2026-04-26) | `knowledge memory entry` / `knowledge memory entries` |
+| `knowledge-store` (bare hyphenated, used as a concept) | `knowledge memory` |
+| `parking-lot entry` / `parking-lot entries` (hyphenated, added post-`migrate-0957db`) | `discipline memory entry` / `discipline memory entries` |
+| `parking-lot memory entries` / `parking-lot memory entry` (hyphenated form already partially Neuroloom-ified — drop the `parking-lot` prefix) | `discipline memory entries` / `discipline memory entry` |
+| `discipline parking-lot entry` / `discipline parking-lot entries` (hyphenated compound) | `discipline memory entry` / `discipline memory entries` |
+| `knowledge area` (bare, in "Suggested knowledge area: <X>" / "the knowledge area for <X>") | `domain tag` (`Suggested domain tag: sdlc:domain:<X>`) |
+| `Suggested knowledge area: [sdlc-root]/knowledge/<domain>/` (full template form) | `Suggested domain tag: sdlc:domain:<domain>` |
+
+**Verb-of-path constructions (added post-`migrate-0957db` 2026-04-26 — sleeved Class G):**
+
+Upstream prose sometimes uses a verb followed by a prepositional phrase referring to a path-as-noun-phrase, rather than the canonical `<verb> [sdlc-root]/<path>` form. Example: `Explicit reads of [sdlc-root]/knowledge/ files` — the `[sdlc-root]/knowledge/` is the object of `of` rather than the direct object of `reads`. Pass 2 noun-phrase rules don't fire on this construction because the noun phrase is split across the path and the trailing `files` token. Pass 1 instruction rules don't fire either because the verb isn't immediately adjacent to a recognizable canonical-phrase pattern.
+
+| Construction | Replacement |
+|---|---|
+| `<verb> of [sdlc-root]/knowledge/ files` (e.g., `Explicit reads of [sdlc-root]/knowledge/ files`) | `<verb> of memory entries tagged sdlc:knowledge` |
+| `<verb> of [sdlc-root]/disciplines/ files` | `<verb> of memory entries tagged sdlc:discipline:*` |
+| `<verb> against [sdlc-root]/knowledge/ files` | `<verb> against memory entries tagged sdlc:knowledge` |
+| `<verb> across [sdlc-root]/knowledge/ files` | `<verb> across memory entries tagged sdlc:knowledge` |
+| `<verb> through [sdlc-root]/knowledge/ files` | `<verb> through memory entries tagged sdlc:knowledge` |
+| `<verb> from [sdlc-root]/knowledge/ files` | `<verb> from memory entries tagged sdlc:knowledge` |
+
+**Captured verbs (non-exhaustive):** `reads`, `writes`, `consults`, `lookups`, `references`, `mentions`, `searches`, `queries`, `iterations`, `passes`. The capture is `<verb>` not a literal — match any preceding word followed by `of [sdlc-root]/...` (or `against`, `across`, `through`, `from`).
+
+**Match scope:** verb-of-path rules apply in PROSE contexts only — not inside fenced code blocks, Integration sections, or YAML/JSON structured data. Same exclusions as other Pass 2 rules.
+
+**Bug this prevents:** sleeved `migrate-0957db` left `analysis-methodology.md:66` with `- Explicit reads of [sdlc-root]/knowledge/ files` — the only known instance of the verb-of-path class at the time. The cc-sdlc upstream line has been rephrased to canonical form (`Explicit \`Read [sdlc-root]/knowledge/<file>.yaml\` calls`) so the existing Pass 1 wildcard rule fires; this Pass 2 class catches any future verb-of-path constructions that slip through.
 | `knowledge files` (bare plural, used as a concept) | `knowledge memory entries` |
 | `YAML rule file` / `rule YAML file` / `rule file` (knowledge-layer context) | `knowledge memory entry` |
 | `Knowledge Stores` (heading label) | `Knowledge Memory` (heading label) — paired with body-text update per heading rule |
@@ -427,6 +453,26 @@ Examples of text Pass 2 MUST NOT transform:
 One event per file; includes an array of substitutions (may be empty if no concept-terminology rules fired). Emission is mandatory if Pass 1 wrote the file — absence of the event for a written file is a telemetry regression per Stage 5.0.
 
 **Pass 2 halts on output regression:** after Pass 2 writes, re-run the existing post-write output-regression scans (orphan debris, double-paren, malformed verbs). If Pass 2 introduces any of those patterns, halt and roll back that file to its Pass 1 output — Pass 2 must only make prose-level concept translations; producing structural corruption is a rule bug.
+
+**Pass 2 residue scan — added post-`migrate-6f4217` (sleeved 2026-04-26):** after Pass 2 completes for a file in a Neuroloom-backend project, scan the written content for bare concept-terminology forms that should have been transformed. If any are present **outside** the legitimate-retention contexts listed below, Pass 2 didn't fire (or didn't fire on this file) and the output is still in upstream's file-mode prose despite a Neuroloom installation:
+
+```bash
+# Run on every file Pass 2 wrote, after the write completes. A non-zero hit count
+# in non-retention contexts indicates a Pass 2 misfire.
+grep -inE '\bknowledge files?\b|\bdiscipline files?\b|\bparking[- ]lot entr|\bknowledge stores?\b|\bknowledge-store entr|\bdiscipline parking lots?\b|\bknowledge YAMLs?\b|\bYAML knowledge files?\b|\bagent-context-map\b|\bknowledge area\b|\bsuggested knowledge area\b' <written-file>
+```
+
+**Legitimate-retention contexts (these are NOT regressions and should be excluded from the halt):**
+
+- Inside fenced code blocks (already excluded by Pass 2 scope rules — but verify)
+- Inside Integration sections (`**Uses:**`, `**Depends on:**`, `**Feeds into:**`, etc.)
+- Where the term refers to a YAML file mechanism specifically rather than the live knowledge layer (e.g., `sdlc-ingest`'s "Existing knowledge: 3 YAML files" describes the upstream file structure ingest consumes; `compliance-methodology.md` audit-dimension prose where `agent-context-map.yaml` is named as a config artifact's identity)
+- The exempt files list (`process/knowledge-routing.md`, `process/sdlc_changelog.md`, `agents/sdlc-reviewer.md`, `agents/sdlc-compliance-auditor.md`, `process/path-mappings.md`) — these contain the canonical phrases as data
+- Project-authored content under `.claude/agent-memory/` (filtered upstream)
+
+**Halt condition:** if non-retention hits exist after Pass 2 wrote a file, EITHER (a) Pass 2 didn't actually run on this file (telemetry assertion will catch this independently) OR (b) the Pass 2 rules have a coverage gap. In both cases the file is in a hybrid-mode state — partial-Neuroloom, partial-file-mode prose — which is the worst output state because it's harder to detect than uniform regression. Halt before declaring `concept_terminology_applied: PASS` for that file; emit `transformation_warning` with the specific phrase, line number, and surrounding context.
+
+**The bug this prevents:** sleeved's `process/deliverable_lifecycle.md:76` post-`migrate-6f4217` had `- Testing knowledge files updated` written to disk despite the Pass 2 rule `knowledge files` → `knowledge memory entries` existing in the table above. Pass 2 didn't fire on this file (along with ~37 sibling sites across sleeved). The user found it manually after the outside-the-run audit also missed it — the audit's path-bearing-residue grep doesn't catch bare forms. This residue scan halts the write before silent regression reaches disk; the audit skill's Scan 3b (cc-sdlc `ccsdlc-audit-adapter-installation`) catches anything that still slips through.
 
 **Fenced code blocks containing file-mode demos — deferred to 0.5.0:** Pass 2 intentionally does not modify fenced-block contents, even when those contents are file-mode demos (e.g., a ` ```yaml ` block demonstrating `mappings: ui-ux-designer: [paths]` in an adapter-unreachable format). Surrounding prose is transformed by Pass 2; the demo itself is preserved as cc-sdlc's original file-mode reference. Future work (0.5.0) may add an optional pre-fence annotation (e.g., *"In Neuroloom mode, the equivalent operation is `memory_store(..., tags=[...])`."*) as a demonstration-mapping rule class. Until then, fenced-block file-mode demos remain a project-specific customization zone — if your installation wants to replace the demo, wrap the whole fenced block in `PROJECT-SECTION` markers.
 
