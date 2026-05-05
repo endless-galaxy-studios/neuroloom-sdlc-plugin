@@ -1,0 +1,135 @@
+# Neuroloom SDLC Plugin — Post-Execution Transforms
+#
+# Declares transforms wired into installed skills during init/migrate.
+# The neuroloom-transformer agent is dispatched after these skills complete
+# to apply Neuroloom-specific augmentation to their output files.
+
+# Tool profiles — different agent roles get different tool subsets.
+# Referenced by name in the transforms below.
+tool_profiles:
+  full:
+    description: All Neuroloom tools — for implementation agents that read, write, and navigate
+    tools:
+      - mcp__plugin_neuroloom_neuroloom__memory_search
+      - mcp__plugin_neuroloom_neuroloom__memory_explore
+      - mcp__plugin_neuroloom_neuroloom__memory_by_file
+      - mcp__plugin_neuroloom_neuroloom__memory_get_detail
+      - mcp__plugin_neuroloom_neuroloom__memory_rate
+      - mcp__plugin_neuroloom_neuroloom__memory_store
+      - mcp__plugin_neuroloom_neuroloom__code_search
+      - mcp__plugin_neuroloom_neuroloom__code_context
+      - mcp__plugin_neuroloom_neuroloom__code_callers
+      - mcp__plugin_neuroloom_neuroloom__code_callees
+      - mcp__plugin_neuroloom_neuroloom__code_navigate
+
+  read_only:
+    description: Search and navigate only — for reviewers and auditors that consume but don't produce knowledge
+    tools:
+      - mcp__plugin_neuroloom_neuroloom__memory_search
+      - mcp__plugin_neuroloom_neuroloom__memory_explore
+      - mcp__plugin_neuroloom_neuroloom__memory_by_file
+      - mcp__plugin_neuroloom_neuroloom__memory_get_detail
+      - mcp__plugin_neuroloom_neuroloom__memory_rate
+      - mcp__plugin_neuroloom_neuroloom__code_search
+      - mcp__plugin_neuroloom_neuroloom__code_context
+      - mcp__plugin_neuroloom_neuroloom__code_callers
+      - mcp__plugin_neuroloom_neuroloom__code_callees
+      - mcp__plugin_neuroloom_neuroloom__code_navigate
+
+  knowledge_contributor:
+    description: Search + store — for agents that discover patterns and write them back
+    tools:
+      - mcp__plugin_neuroloom_neuroloom__memory_search
+      - mcp__plugin_neuroloom_neuroloom__memory_explore
+      - mcp__plugin_neuroloom_neuroloom__memory_by_file
+      - mcp__plugin_neuroloom_neuroloom__memory_get_detail
+      - mcp__plugin_neuroloom_neuroloom__memory_rate
+      - mcp__plugin_neuroloom_neuroloom__memory_store
+      - mcp__plugin_neuroloom_neuroloom__code_search
+      - mcp__plugin_neuroloom_neuroloom__code_context
+
+# Agent-to-profile mapping — determines which tools each agent gets.
+# Agents not listed here get the "full" profile as default.
+agent_profiles:
+  code-reviewer: read_only
+  sdlc-reviewer: read_only
+  sdlc-compliance-auditor: read_only
+  sdet: knowledge_contributor
+  software-architect: full
+  # Project-specific agents default to "full" unless overridden here
+
+# Transforms wired into installed skills
+transforms:
+  - skill: sdlc-create-agent
+    description: Augment newly created agents with Neuroloom MCP tools and transform knowledge-routing references
+    target_patterns:
+      - ".claude/agents/*.md"
+    actions:
+      - inject_mcp_tools
+      - transform_knowledge_context
+      - transform_communication_protocol
+
+  - skill: enrich-agent
+    description: Re-apply Neuroloom transforms after agent enrichment modifies agent files
+    target_patterns:
+      - ".claude/agents/*.md"
+    actions:
+      - ensure_mcp_tools
+      - transform_knowledge_context
+      - transform_communication_protocol
+
+  - skill: sdlc-develop-skill
+    description: Apply Pattern Mapping to newly developed or modified skills that reference the knowledge layer
+    target_patterns:
+      - ".claude/skills/*/SKILL.md"
+    actions:
+      - pattern_mapping
+
+  - skill: sdlc-ingest
+    description: Route ingested knowledge to Neuroloom backend instead of flat files
+    target_patterns:
+      - "[sdlc-root]/knowledge/**/*.yaml"
+      - "[sdlc-root]/disciplines/*.md"
+    actions:
+      - ingest_to_neuroloom
+
+# Action definitions
+actions:
+  inject_mcp_tools:
+    description: Add Neuroloom MCP tools to the agent's tools frontmatter line
+    behavior: |
+      Read the agent file name, look up its profile in agent_profiles (default: full).
+      Resolve the profile to a tool list from tool_profiles.
+      If the tools: line does not already contain these tools, append them.
+
+  ensure_mcp_tools:
+    description: Verify MCP tools are still present after enrichment (may have rewritten the tools line)
+    behavior: |
+      Same as inject_mcp_tools but also verify no previously-present tools were removed.
+      If tools were lost, re-inject them.
+
+  transform_knowledge_context:
+    description: Transform the agent's Knowledge Context section from file-path references to memory_search
+    behavior: |
+      Find ## Knowledge Context section.
+      Apply Pattern Mapping instruction rules to transform file-path references.
+
+  transform_communication_protocol:
+    description: Transform the Communication Protocol reference to memory_search
+    behavior: |
+      Find the Communication Protocol reference line.
+      Apply Pattern Mapping instruction rules.
+
+  pattern_mapping:
+    description: Apply the full two-pass Pattern Mapping pipeline
+    behavior: |
+      Pass 1: instruction + metadata rules (path-bearing transformations)
+      Pass 2: concept-terminology rules (prose-only, no paths/code/Integration)
+      Read ${CLAUDE_PLUGIN_ROOT}/references/pattern-mapping-rules.md for the full rule table.
+
+  ingest_to_neuroloom:
+    description: Route knowledge/discipline content to Neuroloom backend via document_ingest_batch
+    behavior: |
+      Instead of leaving the flat file on disk, ingest the content into Neuroloom
+      with appropriate tags derived from file path and YAML metadata.
+      After successful ingestion, delete the flat file.

@@ -1,0 +1,5 @@
+{
+  "ccsdlc_adapter": true,
+  "supported_ccsdlc_version": "1.4.1",
+  "phase_handlers": "references/adapter-lifecycle.md"
+}
