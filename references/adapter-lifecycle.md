@@ -220,12 +220,12 @@ The transformer reads `${CLAUDE_PLUGIN_ROOT}/references/pattern-mapping-rules.md
 
 **Why wire at install/migrate time:** The skill becomes self-contained at runtime — it knows to dispatch the transformer without hooks, config lookups, or runtime adapter detection. Adding new skills to `transforms.yaml` takes effect on the next migration.
 
-### Adapter-specific docs (initialize only)
+### Adapter-specific docs (initialize and migrate)
 
 Copy Neuroloom-specific process docs from the plugin into the project:
 - `${CLAUDE_PLUGIN_ROOT}/docs/knowledge-routing.md` → `[sdlc-root]/process/knowledge-routing.md`
 
-This overrides the upstream version with the Neuroloom-aware variant that documents `memory_search`/`memory_store` patterns instead of file-path routing.
+This overrides the upstream version with the Neuroloom-aware variant that documents `memory_search`/`memory_store` patterns instead of file-path routing. Runs on every migration (not just init) because upstream's direct-copy overwrites the file with the file-mode original — the adapter must re-apply its variant each time.
 
 ---
 

@@ -7,38 +7,50 @@
 2. Patterns must match as a full phrase within a sentence.
 3. **Inline backticks around paths are markdown formatting — match THROUGH them.** A rule `Append to [sdlc-root]/disciplines/*.md` matches `Append to \`[sdlc-root]/disciplines/*.md\`` (with inline backticks) and vice versa. Strip inline backticks before matching.
 4. Only skip matching inside **fenced code blocks** (triple backticks ```` ``` ````) — those are literal code examples, not instructions.
-5. When the rule pattern contains `<domain>` or `{name}` or `[agent-name]`, treat as a wildcard that captures the substring at that position. **The wildcard matches ANY value at that position, including other angle-bracket-looking placeholders in the source.** If upstream cc-sdlc content uses a different placeholder name (e.g., `<discipline>`, `<file>`, `<name>`) at the same structural position, the rule's wildcard matches that placeholder string as its captured value. When substituting, the captured string (placeholder and all) is inserted into the replacement.
+5. When the rule pattern contains `<domain>` or `{name}` or `[agent-name]`, treat as a wildcard that captures the substring at that position. **The wildcard matches ANY value at that position, including other angle-bracket-looking placeholders in the source.** The captured string (placeholder and all) is inserted into the replacement. Do NOT require the captured value to be a "real" domain name — the rule's job is structural transformation, not semantic validation.
 
-   **The bug this prevents:** In `migrate-f01a70` AND `migrate-fa70ef`, `sdlc-ingest.md:231` had upstream `- Files from the same discipline (e.g., \`[sdlc-root]/knowledge/<discipline>/\`)`. The metadata rule `(e.g., [sdlc-root]/knowledge/<domain>/)` → `(e.g., memory entries tagged sdlc:knowledge + sdlc:domain:<domain>)` should match, capturing `<discipline>` into the `<domain>` wildcard slot. But both runs left the upstream text untransformed — the executor was requiring `<domain>` in the rule pattern to match a real domain value in the source, not another placeholder. Correct behavior: the wildcard matches `<discipline>` and the output is `(e.g., memory entries tagged sdlc:knowledge + sdlc:domain:<discipline>)` — the captured placeholder survives into the replacement because documentation describing a template should remain template-shaped after transformation.
-
-   **Explicit worked example:**
-   - Rule pattern: `(e.g., [sdlc-root]/knowledge/<domain>/)` with `<domain>` as wildcard per rule #5
-   - Input (with backticks stripped per rule #3): `(e.g., [sdlc-root]/knowledge/<discipline>/)`
-   - Match: `<domain>` wildcard captures the literal string `<discipline>`
+   **Worked example:**
+   - Rule: `(e.g., [sdlc-root]/knowledge/<domain>/)` → `(e.g., memory entries tagged sdlc:knowledge + sdlc:domain:<domain>)`
+   - Input: `(e.g., [sdlc-root]/knowledge/<discipline>/)`
+   - `<domain>` wildcard captures `<discipline>`
    - Output: `(e.g., memory entries tagged sdlc:knowledge + sdlc:domain:<discipline>)`
+6. **Wildcard captures (`[X]`, `<name>`, `<purpose>`, `<tag-expr>`, etc.) are non-greedy and MUST terminate at any of:** `(`, `)`, `[` (not the opening `[` of the wildcard itself), `]`, `,`, `.`, `;`, `:` followed by whitespace, **`for `**, **`to `**, **`during `**, **`when `**, **`per `**, **`with `**, or end-of-line. A capture MUST NOT swallow a following parenthetical, list comma, sentence boundary, or purpose-clause introducer. Rules that intentionally consume `for [purpose]` (e.g., `Read ... for the handoff schema`) take precedence as longest-match-wins; only opportunistic captures are stopped at these boundaries.
 
-   Do NOT require the captured value to be a "real" domain name. The rule's job is structural transformation, not semantic validation.
-6. **Wildcard captures (`[X]`, `<name>`, `<purpose>`, `<tag-expr>`, etc.) are non-greedy and MUST terminate at any of:** `(`, `)`, `[` (not the opening `[` of the wildcard itself), `]`, `,`, `.`, `;`, `:` followed by whitespace, **`for `**, **`to `**, **`during `**, **`when `**, **`per `**, **`with `**, or end-of-line. A capture MUST NOT swallow a following parenthetical, list comma, sentence boundary, OR a purpose-clause introducer (`for X`, `to X`, `with X`, etc.). Specifically: if the text after the wildcard is `(e.g., ...)` or `, [...]` or `. Sentence continues` or `for knowledge wiring` or `to retrieve X`, the capture stops **before** that token.
+   **Wrong:** `find parking lot entries tagged with that deliverable's ID (e.g., [D05])` → capture swallows through `(e` → query = `"...ID (e"`
+   **Correct:** capture stops at `(` → query = `"parking lot entries tagged with that deliverable's ID"`, parenthetical preserved verbatim
 
-   **The bug this prevents:** In `migrate-f01a70`, `sdlc-archive.md:175` matched `read [sdlc-root]/disciplines/*.md and find parking lot entries tagged with that deliverable's ID (e.g., [D05 — phase 2], [D05 — planning]).` The `[X]` capture in rule `Read [sdlc-root]/disciplines/*.md and find [X]` greedily consumed up through `ID (e` then stopped at an arbitrary character, producing a query string of `"parking lot entries tagged with that deliverable's ID (e"` and leaking the remaining `g., [D05 — phase 2]...)` outside the `memory_search(...)` call as orphan text. A non-greedy capture with explicit terminators stops at `(` and produces a clean `memory_search(query="parking lot entries tagged with that deliverable's ID", tags=[...])` followed by the original `(e.g., [D05 — phase 2], [D05 — planning]).` preserved verbatim.
+   **Post-write check:** scan output for `- (call |Call )memory_search\(query="[a-z]` with no surrounding prose context. A bullet that became a bare MCP call has lost its semantic context — halt.
 
-   **Bullet-tail consumption — sleeved `migrate-6f4217` regression class (added post-`migrate-6f4217`, 2026-04-26):** in a bullet item like `- Consult [sdlc-root]/knowledge/agent-context-map.yaml for knowledge wiring`, the matcher fired the rule `Consult [sdlc-root]/knowledge/agent-context-map.yaml for knowledge wiring` → `memory_search(query="agent knowledge wiring", tags=["sdlc:knowledge"])` (rule on line 45) but the capture additionally swallowed the `for knowledge wiring` tail into the replacement query string instead of leaving it as bullet context. Output became `- call memory_search(query="knowledge wiring", tags=["sdlc:knowledge"])` — losing both the explicit `agent` qualifier of the documented replacement AND the bullet's `for [purpose]` context that gave the reader a reason for the lookup. Match rule #6's expanded terminator list (above) prevents this — `for ` is now a hard terminator regardless of whether the surrounding rule has a literal `for ` in its pattern. Rules that intentionally consume `for [purpose]` (e.g., `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml for the handoff schema` on line 52) take precedence as longest-match-wins per rule ordering, so explicit `for X` rules still fire first; only opportunistic mid-sentence captures are stopped at the `for` boundary.
+7. **Verb-phrase awareness — rules that replace a verb phrase MUST produce a verb phrase.** When the source is verb + object (`update X`, `read Y`), the replacement must also be verb + object. Three options when a rule's replacement is a parenthetical or noun phrase:
 
-   **Post-write regression check:** scan output for `- (call |Call )memory_search\(query="[a-z]` followed by no surrounding context that explains the lookup's purpose. A bullet that became a bare MCP call with no remaining prose has lost its semantic context — flag as bullet-tail-consumption regression and halt.
+   a. **Preferred:** extend the match to the full sentence clause (consume trailing `with Y`, `to Z`). Use extended-variant rules when the context contains `to <verb>` or `with <object>`.
+   b. **Acceptable:** emit a grammatically-valid verb-phrase replacement (e.g., `skip this step (reason)` instead of bare `(reason)`).
+   c. **Last resort:** emit `TRANSFORMATION_WARNING` and leave verbatim.
 
-7. **Verb-phrase awareness — rules that replace a verb phrase MUST produce a verb phrase** (added post-`migrate-fa70ef`). When the source phrase is a verb + object (`update X`, `read Y`, `append to Z`), the replacement must also be a verb + object — never a parenthetical aside, noun phrase, or standalone clause that can't take an object.
+   **Enforcement:** tag every rule as `VERB_PHRASE` or `CLAUSE_REPLACEMENT`. `CLAUSE_REPLACEMENT` rules MUST match whole-clause spans. Applying one to a sub-clause match produces grammatical corruption — halt.
 
-   If a rule's replacement is a parenthetical like `(skip — X)` or a bare noun phrase, it MUST NOT fire mid-sentence where surrounding text assumes a verb phrase. For such rules, the matcher has three options:
+   **Wrong:** `2. update [sdlc-root]/knowledge/agent-context-map.yaml with the mapping` → `2. (skip — Neuroloom uses tag-based wiring) with the mapping`
+   **Correct:** extend match to consume `with the mapping` → `2. Tag new knowledge via memory_store with sdlc:domain:[domain] tags`
 
-   a. **Preferred: extend the match to the full sentence clause**, replacing everything from the verb to the next sentence boundary. Example for `update [sdlc-root]/knowledge/agent-context-map.yaml to wire newly created knowledge files to relevant agents`: match the entire clause, replace with `Tag new knowledge via memory_store with sdlc:agent:[agent-name] and domain tags`. The extended-match form already exists in the specific-rule table (lines 135–136) — the matcher should prefer these extended variants over the terse `update X` rule whenever the surrounding context contains `to <verb>` or `with <object>`.
+8. **Concept-terminology is unidirectional (file-mode → Neuroloom only).** Before applying a substitution, check if the target text already contains the Neuroloom form. If it does, SKIP. If a substitution would produce a LEFT-column term from the concept-terminology table, the rule is running backwards — halt.
 
-   b. **Acceptable: emit a grammatically-valid verb-phrase replacement.** If no extended variant matches, rewrite the rule's replacement to a phrase that can accept following objects. Instead of `(skip — Neuroloom uses tag-based wiring)`, use `skip this step (Neuroloom uses tag-based wiring via memory_store)` which remains grammatical even if the original sentence had trailing `with the mapping` — the reader parses it as a dangling qualifier rather than a broken sentence.
+   **Wrong:** `"knowledge memory entries"` (already Neuroloom) → `"knowledge files"` (reverted to file-mode)
+   **Correct:** text already says `"knowledge memory entries"` → no substitution, leave as-is
 
-   c. **Last resort: emit `TRANSFORMATION_WARNING` and leave verbatim.** If the rule's replacement genuinely can't be reformulated as a verb phrase AND no extended variant covers the compound form, the matcher emits a warning and writes the original upstream text unchanged. This surfaces a Pattern Mapping gap rather than producing malformed output.
+9. **Integration sections with existing MCP calls are preserved verbatim.** The "do not transform Integration sections" exclusion means "do not apply new forward transforms." It does NOT mean "revert existing `memory_search()`/`memory_store()` calls back to `[sdlc-root]/` file paths." If an Integration line already contains MCP calls, those are the final form.
 
-   **The bug this prevents:** In `migrate-fa70ef`, `sdlc-create-agent.md:256` had upstream `2. update [sdlc-root]/knowledge/agent-context-map.yaml with the mapping` — and the `update [sdlc-root]/knowledge/agent-context-map.yaml` rule fired with its `(skip — Neuroloom uses tag-based wiring via memory_store; no map to update)` replacement, producing the ungrammatical `2. (skip — Neuroloom uses tag-based wiring via memory_store; no map to update) with the mapping`. A verb-phrase-aware matcher would either extend the match to consume `with the mapping` (option a, since "update X with Y" is a compound verb construction), or rewrite the replacement to a clause-starting verb (option b). Same-class bug at `sdlc-audit.md:121`.
+   **Wrong:** `- **Knowledge routing:** memory_search(query="...", tags=[...])` → `- **Knowledge routing:** [sdlc-root]/knowledge/agent-context-map.yaml`
+   **Correct:** line has `memory_search(` → skip entirely, already transformed
 
-   **Enforcement:** the matcher MUST tag every Pattern Mapping rule as either `VERB_PHRASE` or `CLAUSE_REPLACEMENT`. Rules emitting parentheticals or noun phrases are `CLAUSE_REPLACEMENT` and MUST match whole-clause spans. Rules emitting verb phrases are `VERB_PHRASE` and may match mid-sentence. Applying a `CLAUSE_REPLACEMENT` rule to a sub-clause match produces grammatical corruption — halt with `TRANSFORMATION_WARNING` rather than write the broken output.
+10. **Never flatten domain-specific queries into generic ones.** Existing `memory_search()` calls with specific tags (`sdlc:domain:*`, `sdlc:discipline:*`) are already in their final form. Pattern Mapping defines what to PRODUCE from file-mode input — not how to rewrite existing MCP calls. If tags get shorter or less specific after transformation, flag as precision loss and halt.
+
+    **Wrong:** `tags=["sdlc:knowledge", "sdlc:domain:testing"]` → `tags=["sdlc:knowledge"]` (lost domain scope)
+    **Correct:** existing MCP call with domain tags → preserve verbatim
+
+11. **Multi-step conditional logic survives transformation intact.** Pattern Mapping fires on individual PHRASES within algorithmic blocks (if/then/else, numbered conditional steps) but must NOT restructure the surrounding algorithm. If a section has 4 conditional steps pre-transform, it must have 4 post-transform — only the MCP call syntax within each step changes.
+
+    **Wrong:** 4-step conditional (check tags → fallback → filter → always-include) → collapsed to 3-step unconditional
+    **Correct:** each step's `memory_search()` syntax is transformed but the branching structure and step count are preserved
 
 | cc-sdlc Generic Pattern | Neuroloom Pattern (preserve if present) |
 |-------------------------|----------------------------------------|
@@ -49,8 +61,8 @@
 | `Consult [sdlc-root]/knowledge/agent-context-map.yaml for knowledge wiring` | `memory_search(query="agent knowledge wiring", tags=["sdlc:knowledge"])` |
 | `Consult [sdlc-root]/knowledge/agent-context-map.yaml to identify agents whose mappings include` | `memory_search(query="agents with mappings in [discipline]", tags=["sdlc:knowledge"])` |
 | `update [sdlc-root]/knowledge/agent-context-map.yaml` (whole-clause match only — see match rule #7; if surrounded by `to <verb>` or `with <object>`, prefer the extended-compound rules below) | `skip this step (Neuroloom uses tag-based wiring via memory_store; no map to update)` — `VERB_PHRASE` class, can slot mid-sentence |
-| `Update [sdlc-root]/knowledge/agent-context-map.yaml to add a new entry mapping the agent to relevant knowledge files` | Store knowledge tagged with `sdlc:agent:[agent-name]` and domain tags via memory_store |
-| `Update [sdlc-root]/knowledge/agent-context-map.yaml to wire newly created knowledge files to relevant agents` | Tag new knowledge via memory_store with `sdlc:agent:[agent-name]` and domain tags |
+| `Update [sdlc-root]/knowledge/agent-context-map.yaml to add a new entry mapping the agent to relevant knowledge files` | Skip — Neuroloom uses domain-scoped tags (`sdlc:domain:[domain]`) for routing; no map to update |
+| `Update [sdlc-root]/knowledge/agent-context-map.yaml to wire newly created knowledge files to relevant agents` | Skip — tag new knowledge with `sdlc:domain:[domain]` via memory_store; agents self-route by domain |
 | `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml` | `memory_search(query="agent communication protocol structured progress handoff format", tags=["sdlc:knowledge", "sdlc:domain:architecture"])` |
 | `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml and follow the canonical agent communication protocol it defines` | `memory_search(query="agent communication protocol structured progress handoff format", tags=["sdlc:knowledge", "sdlc:domain:architecture"]) and follow the canonical agent communication protocol it defines` |
 | `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml for the handoff schema` | `Call memory_search(query="agent communication protocol handoff schema", tags=["sdlc:knowledge", "sdlc:domain:architecture"]) for the handoff schema` |
@@ -92,7 +104,7 @@
 |-----------------------------------|-----------------------|
 | `Any YAML file in [sdlc-root]/knowledge/` | `Any memory entry tagged sdlc:knowledge` |
 | `files in [sdlc-root]/knowledge/` | `memory entries tagged sdlc:knowledge` |
-| `listed in [sdlc-root]/knowledge/agent-context-map.yaml` | `indexed by sdlc:agent:* tags in the memory graph` |
+| `listed in [sdlc-root]/knowledge/agent-context-map.yaml` | `discoverable via domain-scoped memory_search (sdlc:domain:* tags)` |
 | `[sdlc-root]/knowledge/<discipline>/ directory` | `sdlc:knowledge + sdlc:domain:<discipline> memory entries` |
 | `entries in [sdlc-root]/disciplines/` | `entries tagged sdlc:discipline:*` |
 | `patterns that should be in [sdlc-root]/knowledge/ or [sdlc-root]/disciplines/` | `patterns that should be in the memory graph (sdlc:knowledge / sdlc:discipline:* tags)` |
@@ -115,8 +127,8 @@ Added post-`migrate-fa70ef` audit: the previous audit-description rules fired on
 | `Knowledge YAML files` / `knowledge YAML files` / `YAML knowledge files` | `memory entries tagged sdlc:knowledge` |
 | `knowledge YAML addition (new file or new rules in existing file)` | `knowledge memory addition (new entries or new rules in existing entries)` |
 | `knowledge YAML` (bare, as live concept — not describing a file format) | `memory entries tagged sdlc:knowledge` |
-| `agent-context-map.yaml` (referenced as a live config file) | `the memory graph (agents indexed by sdlc:agent:* tags)` |
-| `agent-context-map` (bare, used as a live thing) | `the memory graph's agent index` |
+| `agent-context-map.yaml` (referenced as a live config file) | `domain-scoped memory search (agents query by sdlc:domain:* tags)` |
+| `agent-context-map` (bare, used as a live thing) | `domain-scoped memory routing` |
 | `Disciplines exercised without parking lots` | `Disciplines exercised without memory entries` |
 | `Discipline parking lot entry` (as a log-of-insight type) | `Discipline memory entry` |
 | `YAML files` (when referring to knowledge-layer storage) | `memory entries` |
@@ -201,7 +213,7 @@ When a metadata-transformation parenthetical rule fires (e.g., `([sdlc-root]/dis
 - Distinguishing signal: if removing the path would leave the sentence still making sense (just less specific), it's audit-description metadata. If removing it breaks an instruction, it's a runtime ref — use the instruction rules above.
 - **Fragments match independently within compound sentences.** A sentence with multiple path references (e.g., `Any memory entry tagged sdlc:knowledge not listed in any agent's mapping in [sdlc-root]/knowledge/agent-context-map.yaml. Severity: Warning...`) must have every `[sdlc-root]/...` fragment matched separately. The matcher walks the sentence and applies each audit-description rule to each fragment independently. Mixed results (one half transformed, one half untransformed) are a known failure mode and indicate the matcher only ran once per sentence.
 
-   **The bug this prevents:** In `migrate-f01a70`, `compliance-methodology.md:208` became a compound mess: `Any memory entry tagged sdlc:knowledge not listed in any agent's mapping in the agent knowledge graph (via memory_store with sdlc:agent:{name} tags). Severity: Warning (the knowledge exists but no agent consumes it).` — the `listed in [sdlc-root]/knowledge/agent-context-map.yaml` fragment got the canonical `indexed by sdlc:agent:* tags` replacement on ONE half but the other half was independently misrewritten. The matcher must treat each `[sdlc-root]/...` occurrence as a separate match target.
+   **The bug this prevents:** In `migrate-f01a70`, a compound sentence with multiple `[sdlc-root]/...` fragments got only one fragment transformed, leaving the other as a corrupted hybrid. The matcher must treat each `[sdlc-root]/...` occurrence as a separate match target — walk the sentence and apply rules independently to each fragment.
 - **Bare target-path rewrites (`.claude/sdlc/...`, `ops/sdlc/...`) are NOT audit-description transforms.** If a fragment already shows a resolved `.claude/sdlc/knowledge/` or `ops/sdlc/knowledge/` path (not `[sdlc-root]/`), that's a prior bug where path-variable rewriting fired instead of knowledge-layer transformation. Flag as `TRANSFORMATION_WARNING` — don't silently leave the target-path in installed content (`research-external.md:72` exemplar).
 - `<domain>`, `<name>`, `<file>`, `<section>`, `[X]` capture the substring at that position
 - For `<file-name-as-topic>`, convert the filename to a natural-language topic (e.g., `testing-paradigm.yaml` → `"testing paradigm"`, `debugging-methodology.yaml` → `"debugging methodology"`)
@@ -235,7 +247,7 @@ Apply these rules to: parenthetical paths `(...)`, table cells containing paths 
 | `` - Discipline parking lot entries (`[sdlc-root]/disciplines/*.md`) `` | `- Discipline parking lot entries (memory graph, entries tagged sdlc:discipline:*)` |
 | `` - Files from the same discipline (e.g., `[sdlc-root]/knowledge/<discipline>/`) `` | `- Files from the same discipline (e.g., memory entries tagged sdlc:knowledge + sdlc:domain:<discipline>)` |
 | `` \| Validated, testable rules \| `[sdlc-root]/knowledge/<discipline>/<file>.yaml` \| Specific, testable... \| `` | `\| Validated, testable rules \| memory entries tagged sdlc:knowledge + sdlc:domain:<discipline> \| Specific, testable... \|` |
-| `` - Agent knowledge context: `[sdlc-root]/knowledge/agent-context-map.yaml` `` | `- Agent knowledge context: memory graph (agents indexed by sdlc:agent:* tags)` |
+| `` - Agent knowledge context: `[sdlc-root]/knowledge/agent-context-map.yaml` `` | `- Agent knowledge context: domain-scoped memory search (sdlc:domain:* tags)` |
 | `### 6a. Discipline Parking Lots (`[sdlc-root]/disciplines/`)` | `### 6a. Discipline Parking Lots (memory graph, entries tagged sdlc:discipline:*)` |
 | `` Read `[sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml` for the handoff schema. `` | `Call memory_search(query="agent communication protocol handoff schema", tags=["sdlc:knowledge", "sdlc:domain:architecture"]) for the handoff schema.` (NOT `Read memory_store with tags [...]` — that's a capture-target rule leaking into a Read context, see below) |
 | `` belong in knowledge stores (`[sdlc-root]/knowledge/`), not agent memory. `` | `belong in the Neuroloom knowledge store (via memory_store), not agent memory.` (the `knowledge stores ([sdlc-root]/knowledge/)` rule must match mid-sentence with backticks around the path — match rule #1 applies) |
@@ -299,7 +311,7 @@ Any line matching `^\*\*(Uses|Depends on|Updates|Feeds into|Complements|Downstre
 - No capture-target-rule matching
 - No audit-description rule matching
 
-Integration sections describe logical dependencies between skills/agents/files, not runtime operations. Transforming `**Uses:** [sdlc-root]/knowledge/agent-context-map.yaml (for wiring)` into `**Uses:** memory graph (agents indexed by sdlc:agent:* tags) (knowledge wiring)` adds noise (the parenthetical purpose tag now wraps a non-file reference) and produces double-paren corruption. Leave Integration sections verbatim.
+Integration sections describe logical dependencies between skills/agents/files, not runtime operations. Transforming `**Uses:** [sdlc-root]/knowledge/agent-context-map.yaml (for wiring)` into a Neuroloom equivalent adds noise and produces double-paren corruption. Leave Integration sections verbatim.
 
 **Enforcement:** The matcher must mask out Integration sections before any rule evaluation. A post-write regression scan for `\*\*(Uses|Depends on|Updates|Feeds into):\*\*.*memory_(search|store)` on a single line halts the write — the Integration section was transformed and must be re-copied verbatim.
 
@@ -381,7 +393,7 @@ If a sentence's verb belongs to one column, replacements from the other column a
 
 | cc-sdlc Metadata Pattern | Neuroloom Metadata Replacement |
 |--------------------------|--------------------------------|
-| `([sdlc-root]/knowledge/agent-context-map.yaml)` | `(memory graph, agents indexed by sdlc:agent:* tags)` |
+| `([sdlc-root]/knowledge/agent-context-map.yaml)` | `(domain-scoped memory search, sdlc:domain:* tags)` |
 | `([sdlc-root]/knowledge/**/*.yaml)` | `(memory graph, entries tagged sdlc:knowledge)` |
 | `([sdlc-root]/knowledge/*.md)` | `(memory graph, entries tagged sdlc:knowledge)` |
 | `([sdlc-root]/knowledge/<domain>/*.yaml)` | `(memory graph, entries tagged sdlc:knowledge and sdlc:domain:<domain>)` |
@@ -391,10 +403,10 @@ If a sentence's verb belongs to one column, replacements from the other column a
 | `(e.g., [sdlc-root]/knowledge/<domain>/)` | `(e.g., memory entries tagged sdlc:knowledge + sdlc:domain:<domain>)` |
 | `(e.g., [sdlc-root]/knowledge/<domain>/*.yaml)` | `(e.g., memory entries tagged sdlc:knowledge + sdlc:domain:<domain>)` |
 | `(e.g., [sdlc-root]/disciplines/<name>.md)` | `(e.g., memory entries tagged sdlc:discipline:<name>)` |
-| Bullet label + colon + path: `<Label>: [sdlc-root]/knowledge/agent-context-map.yaml` (e.g., `- Agent knowledge context: [sdlc-root]/knowledge/agent-context-map.yaml`) | `<Label>: memory graph (agents indexed by sdlc:agent:* tags)` |
+| Bullet label + colon + path: `<Label>: [sdlc-root]/knowledge/agent-context-map.yaml` (e.g., `- Agent knowledge context: [sdlc-root]/knowledge/agent-context-map.yaml`) | `<Label>: domain-scoped memory search (sdlc:domain:* tags)` |
 | Bullet label + colon + path: `<Label>: [sdlc-root]/knowledge/<domain>/<file>.yaml` | `<Label>: memory entries tagged sdlc:knowledge + sdlc:domain:<domain>` |
 | Bullet label + colon + path: `<Label>: [sdlc-root]/disciplines/<name>.md` | `<Label>: memory entries tagged sdlc:discipline:<name>` |
-| Table cell containing `[sdlc-root]/knowledge/agent-context-map.yaml` (any column) | Cell becomes `memory graph (sdlc:agent:* tags)` |
+| Table cell containing `[sdlc-root]/knowledge/agent-context-map.yaml` (any column) | Cell becomes `domain-scoped memory search (sdlc:domain:* tags)` |
 | Table cell containing `[sdlc-root]/knowledge/<domain>/<file>.yaml` (any column) | Cell becomes `memory entries tagged sdlc:knowledge + sdlc:domain:<domain>` |
 | Table cell containing `[sdlc-root]/knowledge/<domain>/` (any column, directory ref) | Cell becomes `memory entries tagged sdlc:knowledge + sdlc:domain:<domain>` |
 | Table cell containing `[sdlc-root]/knowledge/**/*.yaml` or `[sdlc-root]/knowledge/*.md` (any column) | Cell becomes `memory entries tagged sdlc:knowledge` |
@@ -475,4 +487,3 @@ grep -inE '\bknowledge files?\b|\bdiscipline files?\b|\bparking[- ]lot entr|\bkn
 **The bug this prevents:** sleeved's `process/deliverable_lifecycle.md:76` post-`migrate-6f4217` had `- Testing knowledge files updated` written to disk despite the Pass 2 rule `knowledge files` → `knowledge memory entries` existing in the table above. Pass 2 didn't fire on this file (along with ~37 sibling sites across sleeved). The user found it manually after the outside-the-run audit also missed it — the audit's path-bearing-residue grep doesn't catch bare forms. This residue scan halts the write before silent regression reaches disk; the audit skill's Scan 3b (cc-sdlc `ccsdlc-audit-adapter-installation`) catches anything that still slips through.
 
 **Fenced code blocks containing file-mode demos — deferred to 0.5.0:** Pass 2 intentionally does not modify fenced-block contents, even when those contents are file-mode demos (e.g., a ` ```yaml ` block demonstrating `mappings: ui-ux-designer: [paths]` in an adapter-unreachable format). Surrounding prose is transformed by Pass 2; the demo itself is preserved as cc-sdlc's original file-mode reference. Future work (0.5.0) may add an optional pre-fence annotation (e.g., *"In Neuroloom mode, the equivalent operation is `memory_store(..., tags=[...])`."*) as a demonstration-mapping rule class. Until then, fenced-block file-mode demos remain a project-specific customization zone — if your installation wants to replace the demo, wrap the whole fenced block in `PROJECT-SECTION` markers.
-

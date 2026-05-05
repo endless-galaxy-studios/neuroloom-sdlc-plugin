@@ -114,7 +114,7 @@ Write the transformed content to the file.
 Re-read the file written by Pass 1. Identify prose-only regions (exclude fenced code blocks, YAML/JSON data, Integration sections, inline backticked paths). Apply concept-terminology rules:
 - "parking lot entries" → "discipline memory entries"
 - "Knowledge YAML files" → "memory entries tagged sdlc:knowledge"
-- "agent-context-map.yaml" (as live config) → "the memory graph (agents indexed by sdlc:agent:* tags)"
+- "agent-context-map.yaml" (as live config) → "domain-scoped memory search (agents query by sdlc:domain:* tags)"
 - All singular/plural/hyphenated variants per the rule table
 
 Write updated content. Log `concept_terminology_applied` event.
