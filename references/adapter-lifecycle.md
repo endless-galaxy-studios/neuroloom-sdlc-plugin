@@ -169,7 +169,18 @@ The agent reads `${CLAUDE_PLUGIN_ROOT}/references/pattern-mapping-rules.md` and 
 
 **If the agent reports HALT** → this phase fails. Upstream stops the migration/initialization per the `On failure: halt` directive.
 
-**If the agent reports PASS** → proceed to the initialize-only steps below (if applicable), then return control to upstream.
+**If the agent reports PASS** → proceed to the steps below, then return control to upstream.
+
+### Agent tool injection (initialize and migrate)
+
+After the transformer completes Pattern Mapping, ensure all agent files in `.claude/agents/*.md` have the correct Neuroloom MCP tools in their frontmatter. Read `${CLAUDE_PLUGIN_ROOT}/transforms.yaml` for tool profiles and agent-to-profile mappings.
+
+For each agent file:
+1. Look up the agent's name in `transforms.yaml → agent_profiles` (default: `full`)
+2. Resolve to the tool list from `tool_profiles`
+3. If the agent's `tools:` frontmatter line is missing any declared tools, append them
+
+This runs on EVERY migration (not just init) to catch agents that were created before the plugin was installed or before tool profiles were defined. It's idempotent — agents that already have the correct tools are unchanged.
 
 ### Adapter content injection (initialize only)
 
