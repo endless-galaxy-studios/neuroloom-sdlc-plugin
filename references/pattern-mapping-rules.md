@@ -154,8 +154,44 @@ Added post-`migrate-fa70ef` audit: the previous audit-description rules fired on
 | `parking-lot entry` / `parking-lot entries` (hyphenated, added post-`migrate-0957db`) | `discipline memory entry` / `discipline memory entries` |
 | `parking-lot memory entries` / `parking-lot memory entry` (hyphenated form already partially Neuroloom-ified — drop the `parking-lot` prefix) | `discipline memory entries` / `discipline memory entry` |
 | `discipline parking-lot entry` / `discipline parking-lot entries` (hyphenated compound) | `discipline memory entry` / `discipline memory entries` |
+| `knowledge store gaps` / `knowledge-store gaps` | `knowledge layer gaps` |
+| `knowledge index` (bare, describing the knowledge layer's table of contents) | drop the reference — Neuroloom uses tag-based indexing; there is no manual index to maintain |
+| `under the ## Parking Lot heading` / `under the Parking Lot heading` / `in the parking lot section` (markdown-structure reference to discipline file layout) | drop or rephrase — Neuroloom discipline entries are discrete memory entries, not sections within a file; e.g., `as a discipline memory entry` |
+| `produces knowledge YAML in [sdlc-root]/knowledge/` / `produces knowledge YAML under [sdlc-root]/knowledge/` | `produces knowledge memory entries via memory_store` |
 | `knowledge area` (bare, in "Suggested knowledge area: <X>" / "the knowledge area for <X>") | `domain tag` (`Suggested domain tag: sdlc:domain:<X>`) |
 | `Suggested knowledge area: [sdlc-root]/knowledge/<domain>/` (full template form) | `Suggested domain tag: sdlc:domain:<domain>` |
+
+**Contextual file→entry substitutions (added post-v1.5.4 second-pass audit):**
+
+The first-pass rules catch explicit terms (`knowledge stores`, `knowledge files`, `agent-context-map.yaml`). This class catches **contextual "file" usage** — places where "file" is used generically to mean "piece of knowledge content" without being paired with "knowledge" or "discipline" as a keyword. Examples: "one file says", "mapped files", "per-file staleness".
+
+**Scope restriction (CRITICAL — prevents false positives):** These rules fire ONLY within sections that deal with knowledge or discipline content. A section qualifies if its nearest enclosing heading (any `#` level) contains any of: `Knowledge`, `Discipline`, `Parking Lot`, `Agent Knowledge`, `Contradiction`, `Staleness`, `Knowledge Layer`, `Knowledge Wiring`, `Knowledge Store`. This avoids false positives in sections discussing actual on-disk files (process docs, agent files, skill files, source code).
+
+| cc-sdlc Contextual Pattern | Neuroloom Replacement | Context |
+|-----------------------------|------------------------|---------|
+| `mapped files` (agent dispatch context — "the agent's mapped files") | `mapped entries` | Knowledge wiring sections |
+| `spec-relevant files` | `spec-relevant entries` | Spec filtering in sdlc-plan |
+| `loaded files` (agent memory section — "loaded files from knowledge") | `loaded memory entries` | Agent knowledge context |
+| `Cross-File` (in section headings, e.g., "Cross-File Contradiction") | `Cross-Entry` | Compliance methodology headings |
+| `one file says` / `two files recommend` / `N files <verb>` (report prose) | `one entry says` / `two entries recommend` / `N entries <verb>` | Contradiction detection reports |
+| `File A:` / `File B:` (report template labels) | `Entry A:` / `Entry B:` | Report templates showing contradictions |
+| `per-file staleness` / `per-file freshness` | `per-entry staleness` / `per-entry freshness` | Staleness audit dimensions |
+| `unmapped files` (report placeholder) | `unmapped entries` | Audit reports |
+| `N design files mapped` (display blocks) | `N design entries mapped` | Ingest UI examples |
+| `agents with N+ files from` | `agents with N+ entries from` | Ingest coverage reports |
+| `YAML skeleton` (for knowledge additions) | `memory entry draft (content and tags)` | Improvement methodology |
+| `discipline/store` (compound shorthand) | `discipline/domain` | Audit improvement tables |
+| `knowledge/discipline stores` (compound) | `knowledge/discipline memory entries` | Audit summary prose |
+
+**Bare path fragments in example tables (not instruction contexts):**
+
+| cc-sdlc Example-Table Pattern | Neuroloom Replacement |
+|-------------------------------|------------------------|
+| `knowledge/architecture/` (in example table cells, not instructions) | `knowledge memory (sdlc:domain:architecture)` |
+| `knowledge/<domain>/` (in example table cells) | `knowledge memory (sdlc:domain:<domain>)` |
+| `disciplines/<name>.md` (in example table cells) | `discipline memory (sdlc:discipline:<name>)` |
+
+These fire only in table cells (`|...|`) where the path is illustrative, not in instruction contexts (which are handled by Pass 1 rules).
 
 **Verb-of-path constructions (added post-`migrate-0957db` 2026-04-26 — sleeved Class G):**
 
@@ -200,7 +236,7 @@ When a metadata-transformation parenthetical rule fires (e.g., `([sdlc-root]/dis
 **Concept-terminology match notes:**
 
 - These rules apply in PROSE contexts that describe the knowledge layer's **shape** rather than its **paths**. They're distinguished from audit-description rules by the absence of `[sdlc-root]/` in the matched text.
-- **Do NOT apply inside:** Integration sections, fenced code blocks, headings that are the literal title of a framework-defined procedure (e.g., `### 9a. Scan Related Parking Lot Entries` as a defined section of the archive skill is a different case — see below), changelog entries, the phrasing contract doc itself.
+- **Do NOT apply inside:** fenced code blocks, changelog entries, the phrasing contract doc itself. **Integration sections ARE eligible** for concept-terminology (Pass 2) — only Pass 1 path transforms are excluded from Integration sections. Headings that are the literal title of a framework-defined procedure (e.g., `### 9a. Scan Related Parking Lot Entries` as a defined section of the archive skill) are a different case — see below.
 - **Headings are a special case.** An H3/H4 heading like `### 9a. Scan Related Parking Lot Entries` names a procedure that cc-sdlc defines. In Neuroloom the procedure still exists but operates on memory entries, so rename the heading to `### 9a. Scan Related Discipline Memory Entries` AND adjust the body's procedure text to match. Do NOT transform the heading without transforming the body — that produces a mismatch where the heading says "memory entries" and the body says "files".
 - **Procedure-specific steps are a special case.** Content like "Write new YAML files or append to existing ones" is a file-mode procedure. In Neuroloom, the procedure is "call `memory_store(content=..., tags=[...])`" — a completely different mechanism. When you see a numbered step that's a file-mode procedure, the replacement must be the Neuroloom procedure equivalent, not a word-for-word term swap. When no clean equivalent exists (e.g., "update the README.md structure listing"), emit `TRANSFORMATION_WARNING` and consider dropping the step since it's file-mode-only work the adapter doesn't need.
 - **Fragments match independently within sentences,** same rule as audit-description. A sentence with multiple concept-terms must have each term transformed separately.
@@ -302,22 +338,32 @@ A post count that differs from the expected by an odd number = an unclosed fence
 
 If any match, the matcher picked a bare-path rule over a parenthetical rule, OR a capture-target rule over an instruction rule, OR the merge window was misaligned — the output file MUST NOT be written.
 
-**Integration sections are structurally exempt — HARD EXCLUSION:**
+**Integration sections are structurally exempt from Pass 1 — HARD EXCLUSION:**
 
-Any line matching `^\*\*(Uses|Depends on|Updates|Feeds into|Complements|Downstream|Does NOT replace|DRY notes):\*\*` and every bullet/text line following it up to the next blank line, the next `^\*\*[A-Z]` (new Integration label), or the next `^#{1,6} ` (heading) is an **Integration section**. Integration sections are exempt from ALL transformation:
+Any line matching `^\*\*(Uses|Depends on|Updates|Feeds into|Complements|Downstream|Does NOT replace|DRY notes):\*\*` and every bullet/text line following it up to the next blank line, the next `^\*\*[A-Z]` (new Integration label), or the next `^#{1,6} ` (heading) is an **Integration section**. Integration sections are exempt from **Pass 1** transformation:
 
 - No instruction-rule matching
 - No metadata-rule matching
 - No capture-target-rule matching
 - No audit-description rule matching
 
-Integration sections describe logical dependencies between skills/agents/files, not runtime operations. Transforming `**Uses:** [sdlc-root]/knowledge/agent-context-map.yaml (for wiring)` into a Neuroloom equivalent adds noise and produces double-paren corruption. Leave Integration sections verbatim.
+Integration sections describe logical dependencies between skills/agents/files, not runtime operations. Transforming `**Uses:** [sdlc-root]/knowledge/agent-context-map.yaml (for wiring)` into a Neuroloom equivalent adds noise and produces double-paren corruption. Leave path references in Integration sections verbatim.
 
-**Enforcement:** The matcher must mask out Integration sections before any rule evaluation. A post-write regression scan for `\*\*(Uses|Depends on|Updates|Feeds into):\*\*.*memory_(search|store)` on a single line halts the write — the Integration section was transformed and must be re-copied verbatim.
+**Pass 2 concept-terminology IS allowed in Integration sections.** Prose descriptors within Integration bullets — parenthetical explanations, trailing descriptions — use concept terms like "knowledge stores" and "parking lot entries" that describe the knowledge layer's shape. These are prose, not paths, and must be transformed. Example:
+- Input: `` **Depends on:** `[sdlc-root]/disciplines/*.md` (parking lot entries for knowledge hygiene) ``
+- After Pass 2: `` **Depends on:** `[sdlc-root]/disciplines/*.md` (discipline memory entries for knowledge hygiene) ``
+- The backticked path is untouched (Pass 1 exempt); the parenthetical prose is transformed (Pass 2).
 
-**VERBATIM means byte-identical, not "semantically preserved":** Integration-section lines must be written out byte-for-byte identical to the upstream source. This includes — and this is the failure mode `migrate-fa70ef` surfaced across 20+ files — **surrounding backticks on path references**. `` **Uses:** `[sdlc-root]/process/manager-rule.md` `` must remain with its inline backticks intact. Any incidental side-effect that strips backticks (e.g., a path-normalization pass that runs alongside the Pattern Mapping) violates the hard exclusion.
+**What Pass 2 MUST NOT touch in Integration sections:**
+- Path references (backticked or bare `[sdlc-root]/...` paths) — these are Pass 1's domain
+- Backticks around paths — preserve byte-identical
+- The `**Label:**` prefix itself
 
-**Post-write backtick-preservation check:** diff the written Integration-section block against the upstream Integration-section block byte-for-byte. Any character-level difference — backticks stripped, whitespace adjusted, punctuation altered — halts the write. The Integration block is verbatim or the migration is wrong.
+**Enforcement (Pass 1):** The matcher must mask out Integration sections before Pass 1 rule evaluation. A post-write regression scan for `\*\*(Uses|Depends on|Updates|Feeds into):\*\*.*memory_(search|store)` on a single line halts the write — Pass 1 leaked into an Integration section.
+
+**Path byte-preservation in Integration sections:** Path references and their surrounding backticks in Integration-section lines must be written out byte-for-byte identical to the upstream source. This includes — and this is the failure mode `migrate-fa70ef` surfaced across 20+ files — **surrounding backticks on path references**. `` **Uses:** `[sdlc-root]/process/manager-rule.md` `` must retain its inline backticks intact. Any incidental side-effect that strips backticks violates the hard exclusion. Pass 2 concept-terminology changes to non-path prose tokens are the ONLY allowed difference.
+
+**Post-write Integration check:** diff Integration-section path references (any token matching `[sdlc-root]/...` or `.claude/...` including surrounding backticks) byte-for-byte against upstream. Any path-character difference halts the write. Non-path prose tokens may differ only if they match a Pass 2 concept-terminology substitution.
 
 **Why hard-gated:** The `migrate-f01a70` run transformed Integration sections in `sdlc-archive.md:230,232`, `sdlc-create-agent.md:219`, `sdlc-ingest.md:398`, `sdlc-tests-create.md:250` — producing double-paren corruption in all four. Listing Integration sections as "informationally exempt" without a structural mask is equivalent to not listing them. The `migrate-fa70ef` run exposed the follow-on: the hard-exclusion mask blocked transformation but didn't block the transformer's ancillary backtick-normalization, which stripped inline backticks from 20+ Integration lines across the repo.
 
@@ -429,7 +475,7 @@ If a sentence's verb belongs to one column, replacements from the other column a
 A region of text is "prose" (and thus subject to concept-terminology transformation) if ALL of these hold:
 - It is NOT inside a fenced code block (```` ```...``` ````, any language)
 - It is NOT inside inline backticks (`` `...` ``)
-- It is NOT a YAML key, YAML value, JSON key, or JSON value (when the surrounding context is structured data, even if outside a fence — e.g., frontmatter fields)
+- It is NOT a YAML key, YAML value, JSON key, or JSON value (when the surrounding context is structured data, even if outside a fence — e.g., frontmatter fields) — **EXCEPTION:** `description:` values in skill/agent YAML frontmatter ARE prose-eligible, because agents read these descriptions to decide whether to invoke a skill. Terms like "knowledge stores" in a description field must be transformed. Other frontmatter fields (`name:`, `model:`, `tools:`, `allowed_tools:`) remain exempt.
 - It is NOT a path reference matching `[sdlc-root]/...`, `.claude/...`, `ops/sdlc/...`, `skills/`, or similar
 - It is NOT an MCP call already emitted by Pass 1 (`memory_search(...)`, `memory_store(...)`)
 - It is NOT a Pattern Mapping replacement string from Pass 1 (e.g., `Neuroloom knowledge store (via memory_store)`)
@@ -443,7 +489,7 @@ Examples of text Pass 2 CAN transform:
 Examples of text Pass 2 MUST NOT transform:
 - Inside ``` ```yaml ``` ``` fences — never, even if the content contains "knowledge/design/file.yaml" as a value
 - Inline `` `[sdlc-root]/knowledge/agent-context-map.yaml` `` — path refs handled by Pass 1 (or hard-excluded)
-- YAML frontmatter fields like `name:`, `description:`, `model:`
+- YAML frontmatter fields like `name:`, `model:`, `tools:` — but NOT `description:` values (those are prose-eligible per the frontmatter exception above)
 - MCP call arguments: `memory_search(query="parking lot entries tagged X", ...)` — the query string is an MCP call argument, not prose
 
 **Pass 2 rules:** the concept-terminology rule class defined in § "Knowledge-layer concept terminology" of the Pattern Mapping section (above). Pass 2 applies those rules to matched prose regions.
@@ -487,3 +533,21 @@ grep -inE '\bknowledge files?\b|\bdiscipline files?\b|\bparking[- ]lot entr|\bkn
 **The bug this prevents:** sleeved's `process/deliverable_lifecycle.md:76` post-`migrate-6f4217` had `- Testing knowledge files updated` written to disk despite the Pass 2 rule `knowledge files` → `knowledge memory entries` existing in the table above. Pass 2 didn't fire on this file (along with ~37 sibling sites across sleeved). The user found it manually after the outside-the-run audit also missed it — the audit's path-bearing-residue grep doesn't catch bare forms. This residue scan halts the write before silent regression reaches disk; the audit skill's Scan 3b (cc-sdlc `ccsdlc-audit-adapter-installation`) catches anything that still slips through.
 
 **Fenced code blocks containing file-mode demos — deferred to 0.5.0:** Pass 2 intentionally does not modify fenced-block contents, even when those contents are file-mode demos (e.g., a ` ```yaml ` block demonstrating `mappings: ui-ux-designer: [paths]` in an adapter-unreachable format). Surrounding prose is transformed by Pass 2; the demo itself is preserved as cc-sdlc's original file-mode reference. Future work (0.5.0) may add an optional pre-fence annotation (e.g., *"In Neuroloom mode, the equivalent operation is `memory_store(..., tags=[...])`."*) as a demonstration-mapping rule class. Until then, fenced-block file-mode demos remain a project-specific customization zone — if your installation wants to replace the demo, wrap the whole fenced block in `PROJECT-SECTION` markers.
+
+**EXCEPTION — Agent template code blocks (added post-v1.5.4 audit):**
+
+Fenced code blocks that serve as **copy-paste templates for new agent content** (not format demos) ARE eligible for transformation. These blocks contain instructions or sections that get literally inserted into new agents — if they reference `[sdlc-root]/knowledge/agent-context-map.yaml`, the created agent will have stale file-mode instructions.
+
+**Identification:** A template code block is eligible if it meets ALL of:
+1. It appears inside an agent-creation or agent-modification skill (e.g., `sdlc-create-agent`)
+2. Its content contains `## Knowledge Context` or `## Communication Protocol` headings, OR it's introduced by surrounding prose that says "inject", "insert", "add this section", "template for", or "paste into the agent"
+3. It is NOT a ` ```yaml ` or ` ```json ` block showing data format — it's a ` ```markdown ` or unfenced template block showing agent prose
+
+**Transformation:** Apply the same Pass 1 instruction rules that would fire if the content were outside a fence. The template block's `consult [sdlc-root]/knowledge/agent-context-map.yaml` becomes `memory_search(query="[agent-name] domain-specific patterns", tags=["sdlc:knowledge"])`.
+
+**Transaction log:** Log `template_block_transformed` event with the file, block line range, and rules fired. The post-write MCP-in-fenced-block assertion must be updated to EXCLUDE template blocks from the count comparison — these blocks are expected to gain MCP calls.
+
+**Currently known template blocks:**
+- `sdlc-create-agent/SKILL.md` step 3b — Knowledge Context section template
+- `sdlc-create-agent/SKILL.md` step 3c — Communication Protocol section template
+- `AGENT_TEMPLATE.md` — the full agent template file

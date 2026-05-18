@@ -165,11 +165,11 @@ Input:
   run_id: "{current transaction log run_id}"
 ```
 
-The agent reads `${CLAUDE_PLUGIN_ROOT}/references/pattern-mapping-rules.md` and `${CLAUDE_PLUGIN_ROOT}/references/content-merge-audits.md` as its reference material. It processes all files, emits per-file transaction log events, runs the five verification audits (Structural Content-Loss, MCP Retention, Stale Agent Reference, Contract Residue, Telemetry Sanity), and returns a structured report.
+The agent reads `${CLAUDE_PLUGIN_ROOT}/references/pattern-mapping-rules.md` and `${CLAUDE_PLUGIN_ROOT}/references/content-merge-audits.md` as its reference material. It processes all files, emits per-file transaction log events, runs the seven verification audits (Structural Content-Loss, PROJECT-SECTION Preservation, MCP Retention, Stale Agent Reference, Contract Residue, Telemetry Sanity, Concept-Terminology Residue), and returns a structured report.
 
 **If the agent reports HALT** → this phase fails. Upstream stops the migration/initialization per the `On failure: halt` directive.
 
-**If the agent reports PASS** → proceed to the steps below, then return control to upstream.
+**If the agent reports PASS** → proceed to the **mandatory post-transformer steps** below IN ORDER, then return control to upstream. All steps marked "(initialize and migrate)" MUST execute on every operation — skipping any step is a regression that surfaces as missing wiring or stale docs on next skill invocation.
 
 ### Agent tool injection (initialize and migrate)
 
@@ -199,7 +199,9 @@ All agents with Neuroloom tools follow these patterns:
 - **Feedback**: `memory_rate` positively when a memory answered a question or saved you from a mistake, negatively when outdated/wrong. Skip if merely irrelevant.
 ```
 
-### Skill transform wiring (initialize and migrate)
+### Skill transform wiring (initialize and migrate — MANDATORY)
+
+**This step is MANDATORY on every migration, not just initialization.** Upstream's direct-copy overwrites skill files with upstream versions that lack the `## Neuroloom Post-Execution Transform` section. Without re-wiring, skills created or modified after migration won't trigger the transformer, causing silent regression in all future agent-creation and knowledge-ingestion operations.
 
 After the transformer completes on the batch of operational files, wire post-execution transforms into installed skills. Read `${CLAUDE_PLUGIN_ROOT}/transforms.yaml` — for each entry, inject a dispatch instruction at the end of the target skill's SKILL.md so the skill itself triggers the transformer after it runs.
 
@@ -225,18 +227,20 @@ The transformer reads `${CLAUDE_PLUGIN_ROOT}/references/pattern-mapping-rules.md
 | Skill | Target | Actions |
 |-------|--------|---------|
 | `sdlc-create-agent` | `.claude/agents/*.md` | Inject MCP tools per agent's tool profile, transform Knowledge Context and Communication Protocol sections |
-| `enrich-agent` | `.claude/agents/*.md` | Ensure MCP tools still present per profile, re-transform Knowledge Context and Communication Protocol |
+| `sdlc-create-agent` (ENRICH mode) | `.claude/agents/*.md` | Ensure MCP tools still present per profile, re-transform Knowledge Context and Communication Protocol |
 | `sdlc-develop-skill` | `.claude/skills/*/SKILL.md` | Apply full two-pass Pattern Mapping pipeline |
 | `sdlc-ingest` | `[sdlc-root]/knowledge/**/*.yaml`, `[sdlc-root]/disciplines/*.md` | Route to Neuroloom backend via `document_ingest_batch` instead of writing flat files |
 
 **Why wire at install/migrate time:** The skill becomes self-contained at runtime — it knows to dispatch the transformer without hooks, config lookups, or runtime adapter detection. Adding new skills to `transforms.yaml` takes effect on the next migration.
 
-### Adapter-specific docs (initialize and migrate)
+### Adapter-specific docs (initialize and migrate — MANDATORY)
 
 Copy Neuroloom-specific process docs from the plugin into the project:
 - `${CLAUDE_PLUGIN_ROOT}/docs/knowledge-routing.md` → `[sdlc-root]/process/knowledge-routing.md`
 
-This overrides the upstream version with the Neuroloom-aware variant that documents `memory_search`/`memory_store` patterns instead of file-path routing. Runs on every migration (not just init) because upstream's direct-copy overwrites the file with the file-mode original — the adapter must re-apply its variant each time.
+This overrides the upstream version with the Neuroloom-aware variant that documents `memory_search`/`memory_store` patterns instead of file-path routing. **This step is MANDATORY on every migration** because upstream's direct-copy (§2.1) overwrites the file with the file-mode original before post-file-write fires. Without re-applying, the project retains upstream's flat-file knowledge-routing doc, which tells agents to use `[sdlc-root]/knowledge/agent-context-map.yaml` — a file that doesn't exist in Neuroloom projects.
+
+**Verification:** After copying, diff the first 5 lines of `[sdlc-root]/process/knowledge-routing.md` against the plugin's version. If they don't match, the copy failed or was overwritten by a later step.
 
 ---
 
@@ -262,6 +266,10 @@ Execute the checks documented in `${CLAUDE_PLUGIN_ROOT}/references/post-operatio
 6. **Knowledge layer reachable** — `memory_search(query="SDLC workspace sentinel", tags=["sdlc:sentinel"])` returns exactly one result with current version tag.
 
 7. **No stale agent-context-map** — verify `[sdlc-root]/knowledge/agent-context-map.yaml` does not exist as a live config file.
+
+8. **Skill transform wiring intact** — for each skill listed in `${CLAUDE_PLUGIN_ROOT}/transforms.yaml`, verify the installed skill file contains a `## Neuroloom Post-Execution Transform` section. If any declared skill is missing its wiring → REGRESSION (the mandatory skill-transform-wiring step in post-file-write was skipped).
+
+9. **Knowledge-routing.md is Neuroloom-aware** — verify `[sdlc-root]/process/knowledge-routing.md` contains `memory_search` or `memory_store` (the Neuroloom-aware version). If it contains `agent-context-map.yaml` as a live reference without MCP equivalents → REGRESSION (the adapter-specific docs copy was skipped or overwritten).
 
 ### Telemetry assertion (migrate only)
 

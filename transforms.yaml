@@ -69,8 +69,9 @@ transforms:
       - transform_knowledge_context
       - transform_communication_protocol
 
-  - skill: enrich-agent
-    description: Re-apply Neuroloom transforms after agent enrichment modifies agent files
+  - skill: sdlc-create-agent
+    mode: ENRICH
+    description: Re-apply Neuroloom transforms after agent enrichment (ENRICH mode of sdlc-create-agent) modifies agent files
     target_patterns:
       - ".claude/agents/*.md"
     actions:

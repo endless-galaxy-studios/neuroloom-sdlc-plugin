@@ -80,6 +80,40 @@ Recovery:
 
 The `audit_result` field is required. `migrate-fa70ef` emitted the event without it — Stage 5.0's telemetry assertion must be extended to check that this field is present (not just that the event exists) and halts if missing. A `structural_audit_complete` event without `audit_result` is treated identically to a missing event — the run is blocked from declaring `run_complete`.
 
+#### Mandatory: PROJECT-SECTION Preservation Audit
+
+**This check is MANDATORY — it catches the failure mode that silently dropped a project-specific dispatch block in the v1.5.4 migration.**
+
+PROJECT-SECTION marker blocks contain project-specific customizations (custom agent dispatches, pipeline enrichment scans, project-specific workflow steps) that `sdlc-migrate` preserves during content-merge. The transformer must not drop them during Pattern Mapping — they may not contain MCP calls and thus are invisible to the MCP Retention Audit.
+
+For every file written in Stage 4.2:
+
+1. Count `PROJECT-SECTION-START` markers in the **project's pre-merge version** → `MARKER_COUNT_BEFORE` (from Step 2a extraction)
+2. Count `PROJECT-SECTION-START` markers in the **final on-disk content** → `MARKER_COUNT_AFTER`
+3. **If `MARKER_COUNT_AFTER == MARKER_COUNT_BEFORE`:** pass
+4. **If `MARKER_COUNT_AFTER < MARKER_COUNT_BEFORE`:** → **HALT**. Report each lost marker by label.
+
+**Halt and report:**
+
+```
+CRITICAL: PROJECT-SECTION marker(s) lost during transformation
+File: {path}
+Before: {N} PROJECT-SECTION blocks
+After: {M} PROJECT-SECTION blocks
+Lost: {N - M} block(s)
+
+Lost blocks:
+- {label}: under heading "§ {heading}" — {first 80 chars of content}
+
+This is project-specific content that sdlc-migrate preserved but the transformer
+silently dropped. The transformer's Step 2a extraction failed to capture this block,
+or Step 3 re-injection failed to place it.
+
+Recovery: git checkout -- {path} to restore; then re-run /sdlc-migrate.
+```
+
+**Log on pass:** Emit `project_section_audit_complete` with `marker_count_before`, `marker_count_after`, `audit_result: "PASS"`.
+
 #### Mandatory: MCP Retention Audit
 
 **This check is MANDATORY — it catches the failure mode that silently broke the 2026-04-22 migration.**
