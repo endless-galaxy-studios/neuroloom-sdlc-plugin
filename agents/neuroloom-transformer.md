@@ -52,10 +52,12 @@ These files are NEVER transformed. If they appear in your file list, skip them e
 - `process/knowledge-routing.md`
 - `process/sdlc_changelog.md`
 - `process/path-mappings.md`
-- `agents/sdlc-reviewer.md`
-- `agents/sdlc-compliance-auditor.md`
 
 A `mcp_preserved` or `mcp_backfilled` event on an exempt file is a regression — halt immediately.
+
+**Previously excluded, now IN SCOPE (since v1.5.5):** `agents/sdlc-reviewer.md` and `agents/sdlc-compliance-auditor.md` are framework subagents that contain operational instructions referencing the knowledge layer (e.g., "consult agent-context-map.yaml", "check knowledge wiring"). They must be transformed like any other operational file. Their phrasing-contract validation checklists (which quote canonical phrases as validation criteria) live inside fenced code blocks or are recognizable as checklist items (`- [ ]`) — the transformer's existing fence exclusion and the new checklist-item exclusion (below) prevent false-positive transformation of those quoted phrases.
+
+**Checklist-item exclusion:** Lines matching `^\s*- \[ \]` (markdown checkbox items) that quote canonical phrasing as validation criteria are exempt from Pass 1 instruction-rule transformation. These lines CHECK whether other files use the canonical phrases — they are not instructions to read files themselves. Pass 2 concept-terminology still applies to non-path prose within checklist items.
 
 ## Transformation Pipeline
 

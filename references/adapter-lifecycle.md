@@ -149,7 +149,7 @@ Update the Neuroloom knowledge layer using server-side idempotent upsert. No fla
 
 ## post-file-write
 **On failure:** halt
-**Applies to:** `[sdlc-root]/**/*.md`, `.claude/agents/*.md`, `.claude/skills/*/SKILL.md`
+**Applies to:** `[sdlc-root]/**/*.md`, `.claude/agents/*.md`, `.claude/skills/*/SKILL.md`, `.claude/skills/*/references/*.md`
 **Skip:** `[sdlc-root]/knowledge/**/*.yaml`
 
 Dispatch the `neuroloom-transformer` agent with the full list of written files. The agent handles the entire transformation pipeline (two-pass Pattern Mapping, MCP preservation gate, five verification audits) and returns an aggregate pass/fail report.

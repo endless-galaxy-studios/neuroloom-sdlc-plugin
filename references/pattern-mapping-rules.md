@@ -525,7 +525,8 @@ grep -inE '\bknowledge files?\b|\bdiscipline files?\b|\bparking[- ]lot entr|\bkn
 - Inside fenced code blocks (already excluded by Pass 2 scope rules — but verify)
 - Inside Integration sections (`**Uses:**`, `**Depends on:**`, `**Feeds into:**`, etc.)
 - Where the term refers to a YAML file mechanism specifically rather than the live knowledge layer (e.g., `sdlc-ingest`'s "Existing knowledge: 3 YAML files" describes the upstream file structure ingest consumes; `compliance-methodology.md` audit-dimension prose where `agent-context-map.yaml` is named as a config artifact's identity)
-- The exempt files list (`process/knowledge-routing.md`, `process/sdlc_changelog.md`, `agents/sdlc-reviewer.md`, `agents/sdlc-compliance-auditor.md`, `process/path-mappings.md`) — these contain the canonical phrases as data
+- The exempt files list (`process/knowledge-routing.md`, `process/sdlc_changelog.md`, `process/path-mappings.md`) — these contain the canonical phrases as data
+- Checklist items (`- [ ] ...`) in `agents/sdlc-reviewer.md` that quote canonical phrasing as validation criteria — these CHECK other files' compliance, they are not operational instructions themselves
 - Project-authored content under `.claude/agent-memory/` (filtered upstream)
 
 **Halt condition:** if non-retention hits exist after Pass 2 wrote a file, EITHER (a) Pass 2 didn't actually run on this file (telemetry assertion will catch this independently) OR (b) the Pass 2 rules have a coverage gap. In both cases the file is in a hybrid-mode state — partial-Neuroloom, partial-file-mode prose — which is the worst output state because it's harder to detect than uniform regression. Halt before declaring `concept_terminology_applied: PASS` for that file; emit `transformation_warning` with the specific phrase, line number, and surrounding context.

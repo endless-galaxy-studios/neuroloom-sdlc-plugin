@@ -1,8 +1,8 @@
 {
   "$schema": "https://code.claude.com/docs/en/plugins-reference#plugin-manifest-schema",
   "name": "neuroloom-sdlc",
-  "version": "0.5.2",
-  "supported_ccsdlc_version": "1.5.4",
+  "version": "0.5.3",
+  "supported_ccsdlc_version": "1.5.8",
   "description": "cc-sdlc process knowledge survives context clears. Deliverables, playbooks, and discipline captures become searchable memory across sessions.",
   "author": {
     "name": "Endless Galaxy Studios"
