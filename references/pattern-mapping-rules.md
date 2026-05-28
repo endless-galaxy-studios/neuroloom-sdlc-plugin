@@ -67,8 +67,19 @@
 | `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml and follow the canonical agent communication protocol it defines` | `memory_search(query="agent communication protocol structured progress handoff format", tags=["sdlc:knowledge", "sdlc:domain:architecture"]) and follow the canonical agent communication protocol it defines` |
 | `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml for the handoff schema` | `Call memory_search(query="agent communication protocol handoff schema", tags=["sdlc:knowledge", "sdlc:domain:architecture"]) for the handoff schema` |
 | `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml for <purpose>` (generic `for <purpose>` suffix) | `Call memory_search(query="agent communication protocol <purpose>", tags=["sdlc:knowledge", "sdlc:domain:architecture"]) for <purpose>` |
-| `Append to [sdlc-root]/disciplines/*.md` | `memory_store(tags=["sdlc:discipline:{name}", "sdlc:parking-lot"])` |
-| `Append each insight or GAP entry to the relevant [sdlc-root]/disciplines/*.md parking lot` | `memory_store(tags=["sdlc:discipline:{name}", "sdlc:parking-lot"]) each insight or GAP entry` |
+| `Append to [sdlc-root]/disciplines/*.md` | `memory_store(tags=["sdlc:discipline:{name}", "sdlc:parking-lot", "sdlc:deliverable:{id}"])` |
+| `Append each insight or GAP entry to the relevant [sdlc-root]/disciplines/*.md parking lot` | `memory_store(tags=["sdlc:discipline:{name}", "sdlc:parking-lot", "sdlc:deliverable:{id}"]) each insight or GAP entry` |
+**`sdlc:deliverable:{id}` derivation for discipline entries:** The `{id}` placeholder is the deliverable ID extracted from the entry's context tag at store time. The discipline capture protocol defines four context formats — the orchestrator derives the tag as follows:
+
+| Context format | Tag |
+|---|---|
+| `[DNN — phase N]` | `sdlc:deliverable:DNN` |
+| `[DNN — planning]` | `sdlc:deliverable:DNN` |
+| `[idea: {slug}]` | `sdlc:context:idea:{slug}` |
+| `[sdlc-design-consult: {slug}]` | `sdlc:context:design-consult:{slug}` |
+
+For idea and design-consult entries, use `sdlc:context:` instead of `sdlc:deliverable:` since these aren't tied to a numbered deliverable. The `sdlc-archive` skill's step 9a can filter by `sdlc:deliverable:{id}` for precise retrieval instead of scanning entry content.
+
 | `look up the agent's mapped files from [sdlc-root]/knowledge/agent-context-map.yaml` | `memory_search(query="{agent-name} domain patterns", tags=["sdlc:knowledge"])` |
 | `knowledge stores ([sdlc-root]/knowledge/)` | `Neuroloom knowledge store (via memory_store)` |
 | `[sdlc-root]/knowledge/testing/` (as capture target) | `memory_store with tags ["sdlc:knowledge", "sdlc:domain:testing"]` |
@@ -89,7 +100,7 @@
 | `Read [sdlc-root]/disciplines/<name>.md` | `memory_search(query="<name> discipline entries", tags=["sdlc:discipline:<name>"])` |
 | `Read [sdlc-root]/disciplines/*.md` (glob across all disciplines) | `memory_search(query="discipline entries", tags=["sdlc:discipline:*"])` |
 | `Read [sdlc-root]/disciplines/*.md and find [X]` | `memory_search(query="[X]", tags=["sdlc:discipline:*"])` |
-| `read [sdlc-root]/disciplines/*.md and find parking lot entries tagged with <tag-expr>` (mid-sentence verb) | `memory_search(query="parking lot entries tagged <tag-expr>", tags=["sdlc:discipline:*", "sdlc:parking-lot"])` |
+| `read [sdlc-root]/disciplines/*.md and find parking lot entries tagged with <tag-expr>` (mid-sentence verb) | `memory_search(query="parking lot entries tagged <tag-expr>", tags=["sdlc:discipline:*", "sdlc:parking-lot"])` — when `<tag-expr>` contains a deliverable ID (e.g., `D05`), add `"sdlc:deliverable:D05"` to the tags array for precise filtering |
 | `Read [sdlc-root]/disciplines/<name>.md and find [X]` | `memory_search(query="[X]", tags=["sdlc:discipline:<name>"])` |
 | `scan [sdlc-root]/disciplines/ for [X]` / `scan [sdlc-root]/disciplines/*.md for [X]` | `memory_search(query="[X]", tags=["sdlc:discipline:*"])` |
 | `Read relevant files under [sdlc-root]/knowledge/ and [sdlc-root]/disciplines/ for [X]` | `memory_search(query="[X]", tags=["sdlc:knowledge", "sdlc:discipline:*"])` |

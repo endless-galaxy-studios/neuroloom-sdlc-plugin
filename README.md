@@ -177,7 +177,8 @@ All process-layer data in Neuroloom is organized via tags with the `sdlc:` prefi
 | `sdlc:knowledge-id:{id}` | Stable identifier for upsert deduplication | All ingestion paths |
 | `sdlc:project-specific` | Protects memories from being overwritten or deprecated during re-seed | User (manual tag) |
 | `sdlc:deprecated` | Marks entries removed from upstream framework (not deleted, just tagged) | `seed()` |
-| `sdlc:deliverable:{id}` | Links a memory to a deliverable (e.g., `sdlc:deliverable:d17`) | PostToolUse hook |
+| `sdlc:deliverable:{id}` | Links a memory to a deliverable (e.g., `sdlc:deliverable:d17`) | PostToolUse hook, Discipline capture |
+| `sdlc:context:{type}:{slug}` | Links a discipline entry to a non-deliverable context (e.g., `sdlc:context:idea:caching`) | Discipline capture |
 | `sdlc:doc:{type}` | Document type: `spec`, `plan`, `result`, `chronicle` | PostToolUse hook |
 | `sdlc:pattern:{name}` | YAML pattern type: `entries`, `gotchas`, `rules`, `methodology` | YAML parsers |
 | `sdlc:triage:{marker}` | Discipline parking lot triage state | Discipline parser |
