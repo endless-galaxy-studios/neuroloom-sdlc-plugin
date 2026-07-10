@@ -220,6 +220,27 @@ After this skill completes its work, dispatch the `neuroloom-transformer` agent 
 The transformer reads `${CLAUDE_PLUGIN_ROOT}/references/pattern-mapping-rules.md` and applies the declared actions to matching files.
 ```
 
+**`path_pairs` dispatch shape (added for `sdlc-archive` — the exception to the `files:` glob shape above):**
+
+The `files:` field above works because every other wired skill's target files still exist at a discoverable path when the transformer runs — `target_patterns` resolves to a live glob. `sdlc-archive` breaks that assumption: by the time its Step 5 (Archive Deliverables, copy-then-delete — not `git mv`) has run, the pre-move path no longer exists on disk, so a glob can't recover it. The skill already knows both paths (it read the file from the pre-move path before copying it to the post-move path), so it must pass them explicitly instead of relying on glob resolution.
+
+When a `transforms.yaml` entry declares `dispatch_mode: path_pairs` (currently only `sdlc-archive`), the injected section replaces the `files:` line with a `path_pairs:` line, and the skill collects the pairs itself over the course of its own run rather than the transformer resolving them:
+
+```markdown
+## Neuroloom Post-Execution Transform
+
+After this skill completes its work, dispatch the `neuroloom-transformer` agent to apply Neuroloom-specific augmentation to the output files.
+
+**Dispatch:**
+- path_pairs: [{old: pre-move path, new: post-move path} for every deliverable doc archived in this run — collect from Step 5's approval table as each item is moved]
+- operation: "transform"
+- actions: [actions list from transforms.yaml]
+
+The transformer reads `${CLAUDE_PLUGIN_ROOT}/references/pattern-mapping-rules.md` and applies the declared actions to the given path pairs.
+```
+
+All other action handlers (`inject_mcp_tools`, `ensure_mcp_tools`, `transform_knowledge_context`, `transform_communication_protocol`, `pattern_mapping`, `ingest_to_neuroloom`) are unaffected — they keep the `files:` glob shape. Only `sync_archive_status` reads `path_pairs`.
+
 **The injected section is idempotent** — if the skill already contains a `## Neuroloom Post-Execution Transform` section, replace it (in case the transforms.yaml was updated between migrations). If the section is absent, inject it.
 
 **Currently declared transforms** (see `${CLAUDE_PLUGIN_ROOT}/transforms.yaml`):
@@ -230,6 +251,7 @@ The transformer reads `${CLAUDE_PLUGIN_ROOT}/references/pattern-mapping-rules.md
 | `sdlc-create-agent` (ENRICH mode) | `.claude/agents/*.md` | Ensure MCP tools still present per profile, re-transform Knowledge Context and Communication Protocol |
 | `sdlc-develop-skill` | `.claude/skills/*/SKILL.md` | Apply full two-pass Pattern Mapping pipeline |
 | `sdlc-ingest` | `[sdlc-root]/knowledge/**/*.yaml`, `[sdlc-root]/disciplines/*.md` | Route to Neuroloom backend via `document_ingest_batch` instead of writing flat files |
+| `sdlc-archive` | `path_pairs` (pre-move -> post-move, assembled by the skill, no glob) | Sync each archived doc's DocumentSource anchor via `PATCH /api/v1/documents/by-path` |
 
 **Why wire at install/migrate time:** The skill becomes self-contained at runtime — it knows to dispatch the transformer without hooks, config lookups, or runtime adapter detection. Adding new skills to `transforms.yaml` takes effect on the next migration.
 

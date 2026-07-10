@@ -36,12 +36,13 @@ Do NOT reconstruct rules from memory. Do NOT summarize. Read the full file and a
 
 You will be dispatched with:
 - `files`: list of file paths to transform
+- `path_pairs` (transform mode only, `dispatch_mode: path_pairs` actions only — currently only `sync_archive_status`): list of `{old, new}` path pairs in place of `files`. Used when the target file no longer exists at a resolvable glob by the time the transformer runs (e.g., it has already been moved). See `references/adapter-lifecycle.md` § "Skill transform wiring" § `path_pairs` dispatch shape.
 - `operation`: `"initialize"`, `"migrate"`, or `"transform"`
 - `sdlc_root`: the project's SDLC root path (e.g., `ops/sdlc` or `.claude/sdlc`)
 - `actions` (transform mode only): list of action names from `transforms.yaml` to apply
 - `run_id` (init/migrate only): transaction log run ID for event emission
 
-**When `operation == "transform"`:** Apply only the declared actions to the listed files. Skip the full pipeline (no batch audits, no transaction log events). This mode is lightweight — the skill that dispatched you has already written the files, you're just augmenting them.
+**When `operation == "transform"`:** Apply only the declared actions to the listed files (or `path_pairs`, for actions declaring `dispatch_mode: path_pairs`). Skip the full pipeline (no batch audits, no transaction log events). This mode is lightweight — the skill that dispatched you has already written the files, you're just augmenting them.
 
 **When `operation == "initialize"` or `"migrate"`:** Apply the full pipeline (Steps 1–5 below) with verification audits.
 
@@ -288,6 +289,8 @@ When dispatched from a wired skill (e.g., after `/sdlc-create-agent` runs), appl
 
 **`ingest_to_neuroloom`:** Instead of letting the file be written to disk as a flat YAML, ingest the content into the Neuroloom backend via `document_ingest_batch` with appropriate tags derived from the file path and YAML metadata. After ingestion, delete the flat file if it was created by the upstream skill.
 
+**`sync_archive_status`:** Reads `path_pairs` from the dispatch, not `files` (see Input section above). For each `{old, new}` pair, call `PATCH /api/v1/documents/by-path` with `target_source_path=old`, `new_source_path=new`, `archival_status="archived"`. A `404` response with `code=document_source_not_found` means the anchor was already synced by a prior attempt, or the document never had one (e.g. tier-gated at first ingest) — treat this as a successful no-op, not a failure; do not retry, do not report it in the transform-mode output as an error. This action makes no file-content edits and deletes nothing — unlike `ingest_to_neuroloom`, it is a pure API side effect with no accompanying filesystem mutation.
+
 ### Transform mode output
 
 ```
@@ -299,6 +302,8 @@ Actions applied: {list}
   {file}: {actions applied} — OK
   {file}: {actions applied} — OK
 ```
+
+For `dispatch_mode: path_pairs` actions (`sync_archive_status`), report per pair instead of per file: `{old} -> {new}: sync_archive_status — OK` (or `— NO-OP (already archived)` for a 404 `document_source_not_found`).
 
 ## Constraints
 

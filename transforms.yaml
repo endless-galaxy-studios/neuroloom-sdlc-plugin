@@ -94,6 +94,17 @@ transforms:
     actions:
       - ingest_to_neuroloom
 
+  - skill: sdlc-archive
+    description: Sync each archived deliverable doc's DocumentSource anchor (source_path, archival_status) after Step 5 moves it from docs/current_work/ to docs/chronicle/
+    dispatch_mode: path_pairs
+    # No target_patterns: the pre-move path no longer exists on disk after Step 5's
+    # copy-then-delete, so glob resolution (the mechanism every other transform below
+    # uses) cannot produce it. The skill assembles {old, new} pairs itself from its own
+    # Step 4 approval table and passes them directly — see dispatch_mode below and
+    # references/adapter-lifecycle.md § "Skill transform wiring" for the injected shape.
+    actions:
+      - sync_archive_status
+
 # Action definitions
 actions:
   inject_mcp_tools:
@@ -134,3 +145,24 @@ actions:
       Instead of leaving the flat file on disk, ingest the content into Neuroloom
       with appropriate tags derived from file path and YAML metadata.
       After successful ingestion, delete the flat file.
+
+  sync_archive_status:
+    description: Sync a document's DocumentSource anchor to its post-archive location via PATCH /api/v1/documents/by-path
+    dispatch_mode: path_pairs
+    behavior: |
+      Dispatched with path_pairs (see transforms: entry above), not a resolved files
+      glob — every other action in this file operates on a static glob because the
+      target file still exists at a discoverable path; this one doesn't, because the
+      file has already moved by the time the transformer runs.
+
+      For each {old, new} pair in path_pairs, call PATCH /api/v1/documents/by-path
+      with target_source_path=old, new_source_path=new, archival_status="archived".
+
+      A 404 response with code=document_source_not_found means the anchor was already
+      updated by a prior attempt (or never existed, e.g. a document tier-gated at
+      first ingest) — treat as a successful no-op, not a failure. Do not retry and do
+      not re-buffer on this specific error code.
+
+      This action makes no file-content edits and deletes nothing — it is a pure API
+      side effect, unlike ingest_to_neuroloom which also mutates/deletes the file it
+      processes.
