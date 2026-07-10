@@ -211,13 +211,15 @@ class TestPostToolUsePayloadConstruction:
 
 class TestPostToolUseSqliteBuffer:
     def _make_db(self, tmp_path: Path) -> Path:
-        """Create a temporary SQLite state DB with the event_buffer table."""
+        """Create a temporary SQLite state DB with the event_buffer table
+        (post-Phase-6 schema, including payload_type)."""
         db_path = tmp_path / ".neuroloom.db"
         conn = sqlite3.connect(str(db_path))
         conn.execute("""
             CREATE TABLE IF NOT EXISTS event_buffer (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 payload TEXT NOT NULL,
+                payload_type TEXT,
                 created_at REAL NOT NULL
             )
         """)
@@ -345,6 +347,82 @@ class TestPostToolUseSqliteBuffer:
         rows = conn.execute("SELECT payload FROM event_buffer").fetchall()
         conn.close()
         assert len(rows) >= 1
+
+    def test_buffer_row_marked_as_document_payload_type(self, tmp_path: Path) -> None:
+        """New-schema DB (with payload_type column): buffered row is tagged 'document'."""
+        import sdlc_pyhooks.post_tool_use as ptu
+
+        db_path = self._make_db(tmp_path)
+        test_config = self._make_test_config(db_path)
+        _, stdin_data = self._setup_doc_file(tmp_path)
+
+        with (
+            patch("pyhooks.config.load", return_value=test_config),
+            patch("pyhooks.http.post_json", return_value=(500, b"error")),
+            patch(
+                "sdlc_pyhooks.post_tool_use.open_db",
+                return_value=sqlite3.connect(str(db_path), check_same_thread=False),
+            ),
+            patch("sys.stdin", io.StringIO(stdin_data)),
+        ):
+            ptu.main()
+            time.sleep(0.3)
+
+        conn = sqlite3.connect(str(db_path))
+        rows = conn.execute("SELECT payload_type FROM event_buffer").fetchall()
+        conn.close()
+        assert len(rows) >= 1
+        assert rows[0][0] == "document"
+
+    def test_missing_payload_type_column_is_silently_absorbed(
+        self, tmp_path: Path
+    ) -> None:
+        """
+        Pre-Phase-6 schema fixture: event_buffer has only the OLD 2-column shape
+        (payload, created_at), simulating an installed neuroloom-claude-plugin
+        that hasn't applied Phase 6's additive payload_type migration yet.
+
+        The buffered-insert's inner try/except must swallow the resulting
+        sqlite3.OperationalError (no such column: payload_type) without
+        crashing main(), and the outer hook contract (never raise) must hold.
+        """
+        import sdlc_pyhooks.post_tool_use as ptu
+
+        db_path = tmp_path / ".neuroloom.db"
+        conn_setup = sqlite3.connect(str(db_path))
+        conn_setup.execute(
+            """
+            CREATE TABLE event_buffer (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                payload TEXT NOT NULL,
+                created_at REAL NOT NULL
+            )
+            """
+        )
+        conn_setup.commit()
+        conn_setup.close()
+
+        test_config = self._make_test_config(db_path)
+        _, stdin_data = self._setup_doc_file(tmp_path)
+
+        with (
+            patch("pyhooks.config.load", return_value=test_config),
+            patch("pyhooks.http.post_json", return_value=(500, b"error")),
+            patch(
+                "sdlc_pyhooks.post_tool_use.open_db",
+                return_value=sqlite3.connect(str(db_path), check_same_thread=False),
+            ),
+            patch("sys.stdin", io.StringIO(stdin_data)),
+        ):
+            # Must not raise — hook contract is "never crash".
+            ptu.main()
+            time.sleep(0.3)
+
+        # No row was buffered (the INSERT failed), but the DB/table are intact.
+        conn = sqlite3.connect(str(db_path))
+        rows = conn.execute("SELECT payload FROM event_buffer").fetchall()
+        conn.close()
+        assert len(rows) == 0
 
 
 # ---------------------------------------------------------------------------

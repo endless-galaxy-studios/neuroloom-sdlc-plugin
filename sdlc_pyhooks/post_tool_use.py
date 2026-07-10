@@ -4,7 +4,9 @@ SDLC post-tool-use hook (Python port of hooks/post-tool-use.sh).
 Watches for Write/Edit tool events that touch SDLC deliverable documents
 under ``docs/current_work/**/*.md`` and syncs them to the Neuroloom
 documents ingest endpoint. Failed syncs are buffered to the local SQLite
-``event_buffer`` table for later retry.
+``event_buffer`` table (tagged ``payload_type='document'``) for later
+retry — the neuroloom-claude-plugin's ``session_start.py`` flush routes
+buffered rows to the correct ingest endpoint by this marker.
 
 This module is invoked as a script by the hook launcher. It never raises —
 any failure is silently swallowed so that Claude Code is never interrupted.
@@ -31,7 +33,10 @@ from pathlib import Path
 
 import pyhooks.config  # type: ignore[import-untyped]
 import pyhooks.http  # type: ignore[import-untyped]
+import pyhooks.trace as trace  # type: ignore[import-untyped]
 from pyhooks.db import open_db  # type: ignore[import-untyped]
+
+_SCRIPT = "sdlc_pyhooks.post_tool_use"
 
 
 def _debug(msg: str) -> None:
@@ -142,11 +147,18 @@ def main() -> None:
             _debug(f"Sync failed ({status_detail}) for {file_path} — buffering in state DB")
 
             if conn is not None:
-                conn.execute(
-                    "INSERT INTO event_buffer (payload, created_at) VALUES (?, ?)",
-                    (json.dumps(payload_dict), time.time()),
-                )
-                conn.commit()
+                try:
+                    conn.execute(
+                        "INSERT INTO event_buffer (payload, payload_type, created_at) "
+                        "VALUES (?, ?, ?)",
+                        (json.dumps(payload_dict), "document", time.time()),
+                    )
+                    conn.commit()
+                except sqlite3.OperationalError as exc:
+                    # Benign version-skew no-op: the installed base plugin predates
+                    # Phase 6's payload_type column. Distinguish this from a genuine
+                    # buffer-write failure (disk full, corrupted DB) in trace output.
+                    trace.write(conn, _SCRIPT, "buffer_insert_failed", detail=str(exc))
         except Exception:
             pass
         finally:
