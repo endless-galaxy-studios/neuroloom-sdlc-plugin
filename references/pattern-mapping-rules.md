@@ -551,7 +551,7 @@ grep -inE '\bknowledge files?\b|\bdiscipline files?\b|\bparking[- ]lot entr|\bkn
 Fenced code blocks that serve as **copy-paste templates for new agent content** (not format demos) ARE eligible for transformation. These blocks contain instructions or sections that get literally inserted into new agents — if they reference `[sdlc-root]/knowledge/agent-context-map.yaml`, the created agent will have stale file-mode instructions.
 
 **Identification:** A template code block is eligible if it meets ALL of:
-1. It appears inside an agent-creation or agent-modification skill (e.g., `sdlc-create-agent`)
+1. It appears inside an agent-creation or agent-modification skill (e.g., `sdlc-develop-agent`)
 2. Its content contains `## Knowledge Context` or `## Communication Protocol` headings, OR it's introduced by surrounding prose that says "inject", "insert", "add this section", "template for", or "paste into the agent"
 3. It is NOT a ` ```yaml ` or ` ```json ` block showing data format — it's a ` ```markdown ` or unfenced template block showing agent prose
 
@@ -560,6 +560,6 @@ Fenced code blocks that serve as **copy-paste templates for new agent content** 
 **Transaction log:** Log `template_block_transformed` event with the file, block line range, and rules fired. The post-write MCP-in-fenced-block assertion must be updated to EXCLUDE template blocks from the count comparison — these blocks are expected to gain MCP calls.
 
 **Currently known template blocks:**
-- `sdlc-create-agent/SKILL.md` step 3b — Knowledge Context section template
-- `sdlc-create-agent/SKILL.md` step 3c — Communication Protocol section template
+- `sdlc-develop-agent/SKILL.md` step 3b — Knowledge Context section template
+- `sdlc-develop-agent/SKILL.md` step 3c — Communication Protocol section template
 - `AGENT_TEMPLATE.md` — the full agent template file

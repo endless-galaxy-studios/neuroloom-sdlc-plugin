@@ -247,8 +247,8 @@ All other action handlers (`inject_mcp_tools`, `ensure_mcp_tools`, `transform_kn
 
 | Skill | Target | Actions |
 |-------|--------|---------|
-| `sdlc-create-agent` | `.claude/agents/*.md` | Inject MCP tools per agent's tool profile, transform Knowledge Context and Communication Protocol sections |
-| `sdlc-create-agent` (ENRICH mode) | `.claude/agents/*.md` | Ensure MCP tools still present per profile, re-transform Knowledge Context and Communication Protocol |
+| `sdlc-develop-agent` | `.claude/agents/*.md` | Inject MCP tools per agent's tool profile, transform Knowledge Context and Communication Protocol sections |
+| `sdlc-develop-agent` (ENRICH mode) | `.claude/agents/*.md` | Ensure MCP tools still present per profile, re-transform Knowledge Context and Communication Protocol |
 | `sdlc-develop-skill` | `.claude/skills/*/SKILL.md` | Apply full two-pass Pattern Mapping pipeline |
 | `sdlc-ingest` | `[sdlc-root]/knowledge/**/*.yaml`, `[sdlc-root]/disciplines/*.md` | Route to Neuroloom backend via `document_ingest_batch` instead of writing flat files |
 | `sdlc-archive` | `path_pairs` (pre-move -> post-move, assembled by the skill, no glob) | Sync each archived doc's DocumentSource anchor via `PATCH /api/v1/documents/by-path` |

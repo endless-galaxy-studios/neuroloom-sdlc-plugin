@@ -270,7 +270,7 @@ If any audit HALTs, the overall result is HALT. The dispatcher (upstream's skill
 
 ## Transform Mode (operation == "transform")
 
-When dispatched from a wired skill (e.g., after `/sdlc-create-agent` runs), apply only the declared actions to the listed files. No batch audits, no transaction log, no full pipeline.
+When dispatched from a wired skill (e.g., after `/sdlc-develop-agent` runs), apply only the declared actions to the listed files. No batch audits, no transaction log, no full pipeline.
 
 ### Action handlers
 

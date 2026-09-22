@@ -164,7 +164,7 @@ Read the returned entries before proceeding.
 
 3. If the agent's domain spans two knowledge areas (e.g., a `fullstack-engineer` covers both `architecture` and `coding`), run a second search with the secondary domain tag, or drop the domain tag and use a specific query.
 
-**At initialization time**, this work happens automatically. `sdlc-initialize` Stage 6 dispatches `/sdlc-create-agent` for each agent in the roster, which applies the Neuroloom agent template transformation — replacing the file-path Knowledge Context pattern with `memory_search()` calls using the appropriate domain tags. `Stage 6c` then verifies each agent can find its domain knowledge by running the search and confirming results come back.
+**At initialization time**, this work happens automatically. `sdlc-initialize` Stage 6 dispatches `/sdlc-develop-agent` for each agent in the roster, which applies the Neuroloom agent template transformation — replacing the file-path Knowledge Context pattern with `memory_search()` calls using the appropriate domain tags. `Stage 6c` then verifies each agent can find its domain knowledge by running the search and confirming results come back.
 
 ---
 

@@ -302,7 +302,7 @@ Files with no matching references are not transformation targets — skip them.
   Protocol sections that instruct agents to read local YAML files → update to use `memory_search`.
   Also update the "Surfacing Learnings" parenthetical `(see agent-communication-protocol.yaml)` →
   `(retrievable via memory_search)`
-- **Skill integration steps** (e.g., sdlc-create-agent): steps that say "update
+- **Skill integration steps** (e.g., sdlc-develop-agent): steps that say "update
   `agent-context-map.yaml`" → update to reflect Neuroloom as the knowledge backend
 - **Compliance/audit methodology** (e.g., compliance-methodology.md): maturity level criteria and
   wiring tier descriptions that reference `agent-context-map` as a concept → update to reference

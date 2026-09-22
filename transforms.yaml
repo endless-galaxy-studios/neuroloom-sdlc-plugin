@@ -60,7 +60,7 @@ agent_profiles:
 
 # Transforms wired into installed skills
 transforms:
-  - skill: sdlc-create-agent
+  - skill: sdlc-develop-agent
     description: Augment newly created agents with Neuroloom MCP tools and transform knowledge-routing references
     target_patterns:
       - ".claude/agents/*.md"
@@ -69,9 +69,9 @@ transforms:
       - transform_knowledge_context
       - transform_communication_protocol
 
-  - skill: sdlc-create-agent
+  - skill: sdlc-develop-agent
     mode: ENRICH
-    description: Re-apply Neuroloom transforms after agent enrichment (ENRICH mode of sdlc-create-agent) modifies agent files
+    description: Re-apply Neuroloom transforms after agent enrichment (ENRICH mode of sdlc-develop-agent) modifies agent files
     target_patterns:
       - ".claude/agents/*.md"
     actions:
