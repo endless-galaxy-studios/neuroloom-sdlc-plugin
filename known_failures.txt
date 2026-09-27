@@ -1,0 +1,28 @@
+# Known-failing tests baseline for neuroloom-sdlc-plugin, captured before D176
+# Phase 1 (#3) changes landed. These failures predate this plan and are out of
+# scope for D176 — see docs/current_work/sdlc-lite/d176_search_memory_integrity_fixes_plan.md,
+# Phase 1 Guidance (#3): green gate is "new tests pass AND the remaining
+# failing set is a subset of this baseline," not "zero failures."
+#
+# Captured via: pytest tests/ -q (uv/venv with pyyaml installed)
+tests/test_extract_deliverable_docs.py::TestCollectAllDocsIntegration::test_md_file_count_matches_tree
+tests/test_extract_deliverable_docs.py::TestOutputFileCLI::test_output_file_writes_valid_json
+tests/test_extract_deliverable_docs.py::TestOutputFileCLI::test_output_file_is_flat_array_not_entries_wrapper
+tests/test_extract_deliverable_docs.py::TestOutputFileCLI::test_output_entries_have_required_fields
+tests/test_extract_deliverable_docs.py::TestStdoutCLI::test_stdout_produces_valid_json
+tests/test_extract_deliverable_docs.py::TestStdoutCLI::test_stdout_is_flat_array_not_entries_wrapper
+tests/test_extract_sdlc_knowledge.py::TestCollectAllEntriesIntegration::test_nonzero_entry_count
+tests/test_extract_sdlc_knowledge.py::TestCollectAllEntriesIntegration::test_yaml_file_count_is_positive
+tests/test_extract_sdlc_knowledge.py::TestCollectAllEntriesIntegration::test_discipline_file_count_is_positive
+tests/test_extract_sdlc_knowledge.py::TestCollectAllEntriesIntegration::test_discipline_entries_present
+tests/test_extract_sdlc_knowledge.py::TestExtractYamlEntriesEntriesPattern::test_produces_entries
+tests/test_extract_sdlc_knowledge.py::TestExtractYamlEntriesEntriesPattern::test_no_parse_skips
+tests/test_extract_sdlc_knowledge.py::TestExtractYamlEntriesNeuroloomGotchasFile::test_produces_entries
+tests/test_extract_sdlc_knowledge.py::TestExtractYamlEntriesNeuroloomGotchasFile::test_no_parse_skips
+tests/test_extract_sdlc_knowledge.py::TestGotchasPatternSynthetic::test_gotchas_pattern_skips_item_missing_required_fields
+tests/test_extract_sdlc_knowledge.py::TestRulesPatternSynthetic::test_rules_pattern_skips_item_missing_required_fields
+tests/test_extract_sdlc_knowledge.py::TestExtractDisciplineEntry::test_real_testing_discipline_file
+tests/test_extract_sdlc_knowledge.py::TestExtractDisciplineEntry::test_real_architecture_discipline_file
+tests/test_extract_sdlc_knowledge.py::TestDryRunCLI::test_dry_run_total_entries_nonzero
+tests/test_extract_sdlc_knowledge.py::TestOutputFileCLI::test_output_file_writes_valid_json
+tests/test_extract_sdlc_knowledge.py::TestStdoutCLI::test_stdout_produces_valid_json
