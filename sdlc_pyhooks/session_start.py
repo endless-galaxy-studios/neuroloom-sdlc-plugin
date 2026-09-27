@@ -17,7 +17,6 @@ import urllib.request
 from pathlib import Path
 
 import pyhooks.config  # type: ignore[import-untyped]
-import pyhooks.http  # type: ignore[import-untyped]
 
 
 def _debug(msg: str) -> None:
@@ -100,29 +99,33 @@ def main() -> None:
 
     _debug(f"Latest cc-sdlc version: {latest_version}")
 
-    # Step 3: Search for the sentinel memory that marks workspace initialization.
-    sentinel_url = f"{config.api_base}/api/v1/memories/search"
-    sentinel_payload = json.dumps({"tags": ["sdlc:sentinel"], "limit": 1}).encode("utf-8")
+    # Step 3: List for the sentinel memory that marks workspace initialization.
+    # Uses GET /memories/?tags=... (exact AND-tag semantics, no relevance
+    # gating, no query-embedding call) instead of POST /memories/search,
+    # which requires a non-empty `query` (it never matches on tags alone —
+    # pre-D176-#3, an empty query silently returned zero results; after
+    # D176 #3's API-side fix, a missing/blank query 422s instead).
+    sentinel_url = f"{config.api_base}/api/v1/memories/?tags=sdlc:sentinel&limit=1"
 
     _debug("Checking for workspace sentinel...")
 
-    sentinel_result = pyhooks.http.post_json(sentinel_url, headers, sentinel_payload, timeout=10.0)
+    sentinel_result = _get_json(sentinel_url, headers, timeout=10.0)
     if sentinel_result is None:
         return
     sentinel_status, sentinel_body = sentinel_result
     if sentinel_status != 200:
-        _debug(f"Sentinel search returned {sentinel_status}, skipping")
+        _debug(f"Sentinel list returned {sentinel_status}, skipping")
         return
 
     _debug(f"Sentinel response body: {sentinel_body!r}")
 
     try:
-        sentinel_data: dict[str, object] = json.loads(sentinel_body)
+        results: object = json.loads(sentinel_body)
     except Exception:
         return
 
     # Step 4: If no sentinel memory, the workspace is uninitialised.
-    results = sentinel_data.get("results")
+    # list_memories returns a bare JSON array, not {"results": [...]}.
     if not isinstance(results, list) or len(results) == 0:
         print(
             "Neuroloom SDLC: workspace not initialized."

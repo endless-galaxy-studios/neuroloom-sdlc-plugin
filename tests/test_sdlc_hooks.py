@@ -14,6 +14,8 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 # ---------------------------------------------------------------------------
 # Import path setup — both plugin roots must be importable.
 # ---------------------------------------------------------------------------
@@ -448,11 +450,10 @@ class TestSessionStartSentinelAbsent:
             patch.object(
                 ss,
                 "_get_json",
-                return_value=(200, json.dumps({"version": "v1.0.0"}).encode()),
-            ),
-            patch(
-                "pyhooks.http.post_json",
-                return_value=(200, json.dumps({"results": []}).encode()),
+                side_effect=[
+                    (200, json.dumps({"version": "v1.0.0"}).encode()),
+                    (200, json.dumps([]).encode()),
+                ],
             ),
         ):
             ss.main()
@@ -460,7 +461,8 @@ class TestSessionStartSentinelAbsent:
         captured = capsys.readouterr()
         assert "Run /sdlc-initialize" in captured.out
 
-    def test_missing_results_key_prints_init_prompt(self, capsys: "pytest.CaptureFixture[str]") -> None:  # type: ignore[name-defined]
+    def test_non_list_body_prints_init_prompt(self, capsys: "pytest.CaptureFixture[str]") -> None:  # type: ignore[name-defined]
+        """A malformed (non-list) sentinel response body is treated as absent."""
         import sdlc_pyhooks.session_start as ss
 
         with (
@@ -468,11 +470,10 @@ class TestSessionStartSentinelAbsent:
             patch.object(
                 ss,
                 "_get_json",
-                return_value=(200, json.dumps({"version": "v1.0.0"}).encode()),
-            ),
-            patch(
-                "pyhooks.http.post_json",
-                return_value=(200, json.dumps({}).encode()),
+                side_effect=[
+                    (200, json.dumps({"version": "v1.0.0"}).encode()),
+                    (200, json.dumps({}).encode()),
+                ],
             ),
         ):
             ss.main()
@@ -500,14 +501,10 @@ class TestSessionStartVersionComparison:
             patch.object(
                 ss,
                 "_get_json",
-                return_value=(200, json.dumps({"version": latest}).encode()),
-            ),
-            patch(
-                "pyhooks.http.post_json",
-                return_value=(
-                    200,
-                    json.dumps({"results": sentinel_results}).encode(),
-                ),
+                side_effect=[
+                    (200, json.dumps({"version": latest}).encode()),
+                    (200, json.dumps(sentinel_results).encode()),
+                ],
             ),
         ):
             ss.main()
@@ -612,14 +609,10 @@ class TestSessionStartMissingSeedVersionTag:
             patch.object(
                 ss,
                 "_get_json",
-                return_value=(200, json.dumps({"version": "v1.1.0"}).encode()),
-            ),
-            patch(
-                "pyhooks.http.post_json",
-                return_value=(
-                    200,
-                    json.dumps({"results": sentinel_results}).encode(),
-                ),
+                side_effect=[
+                    (200, json.dumps({"version": "v1.1.0"}).encode()),
+                    (200, json.dumps(sentinel_results).encode()),
+                ],
             ),
         ):
             ss.main()
@@ -627,3 +620,98 @@ class TestSessionStartMissingSeedVersionTag:
         captured = capsys.readouterr()
         # workspace_version="" → no update notice, no init prompt
         assert captured.out == ""
+
+
+# ---------------------------------------------------------------------------
+# Suite 12: SessionStart sentinel check uses GET /memories/?tags=... (D176 #3)
+# ---------------------------------------------------------------------------
+
+
+class TestSessionStartSentinelUsesListEndpoint:
+    """
+    Regression coverage for D176 #3: the sentinel check must use
+    GET /api/v1/memories/?tags=sdlc:sentinel&limit=1 (list_memories, which
+    returns a bare JSON array), not POST /memories/search with an empty
+    query (which always returns zero results, since /search's FTS stage
+    short-circuits on an empty query regardless of other filters).
+    """
+
+    def test_sentinel_present_via_mocked_get_list_reports_initialized(
+        self, capsys: "pytest.CaptureFixture[str]"  # type: ignore[name-defined]
+    ) -> None:
+        """A mocked GET returning a non-empty list is correctly detected as
+        an existing sentinel — no 'not initialized' prompt is printed."""
+        import sdlc_pyhooks.session_start as ss
+
+        sentinel_results = [
+            {"tags": ["sdlc:sentinel", "sdlc:seed-version:v1.0.0"]}
+        ]
+
+        with (
+            patch("pyhooks.config.load", return_value=_make_config()),
+            patch.object(
+                ss,
+                "_get_json",
+                side_effect=[
+                    (200, json.dumps({"version": "v1.0.0"}).encode()),
+                    (200, json.dumps(sentinel_results).encode()),
+                ],
+            ),
+        ):
+            ss.main()
+
+        captured = capsys.readouterr()
+        assert "not initialized" not in captured.out
+
+    def test_sentinel_absent_via_mocked_get_empty_list_reports_not_initialized(
+        self, capsys: "pytest.CaptureFixture[str]"  # type: ignore[name-defined]
+    ) -> None:
+        """A mocked GET returning an empty list is correctly detected as
+        'not initialized'."""
+        import sdlc_pyhooks.session_start as ss
+
+        with (
+            patch("pyhooks.config.load", return_value=_make_config()),
+            patch.object(
+                ss,
+                "_get_json",
+                side_effect=[
+                    (200, json.dumps({"version": "v1.0.0"}).encode()),
+                    (200, json.dumps([]).encode()),
+                ],
+            ),
+        ):
+            ss.main()
+
+        captured = capsys.readouterr()
+        assert "Neuroloom SDLC: workspace not initialized." in captured.out
+        assert "Run /sdlc-initialize" in captured.out
+
+    def test_sentinel_request_uses_get_list_endpoint_not_search(self) -> None:
+        """The sentinel URL must target the list endpoint with tags/limit
+        query params, never POST /memories/search."""
+        import sdlc_pyhooks.session_start as ss
+
+        captured_urls: list[str] = []
+
+        def _fake_get_json(
+            url: str, headers: dict[str, str], timeout: float
+        ) -> tuple[int, bytes] | None:
+            captured_urls.append(url)
+            if "cc-sdlc-version" in url:
+                return (200, json.dumps({"version": "v1.0.0"}).encode())
+            return (200, json.dumps([]).encode())
+
+        with (
+            patch("pyhooks.config.load", return_value=_make_config()),
+            patch.object(ss, "_get_json", side_effect=_fake_get_json),
+        ):
+            ss.main()
+
+        sentinel_urls = [u for u in captured_urls if "memories" in u]
+        assert len(sentinel_urls) == 1
+        sentinel_url = sentinel_urls[0]
+        assert "/api/v1/memories/" in sentinel_url
+        assert "tags=sdlc:sentinel" in sentinel_url
+        assert "limit=1" in sentinel_url
+        assert "/search" not in sentinel_url
