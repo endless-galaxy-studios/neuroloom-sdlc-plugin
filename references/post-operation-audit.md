@@ -71,6 +71,7 @@ The phrasing contract explicitly forbids non-canonical variants that cc-sdlc sou
 **Exceptions for Checks 2 and 2a:**
 - `.claude/sdlc/process/knowledge-routing.md` — this file IS the phrasing contract; it lists canonical AND forbidden phrases as documentation, not instruction
 - `.claude/sdlc/process/sdlc_changelog.md` — changelog entries may quote the phrases as metadata
+- `.claude/sdlc/process/changelog-archive/*.md` — archived changelog entries, same reason (cc-sdlc contract 0017)
 - `.claude/sdlc/knowledge/provenance_log.md` — append-only project-specific record; entries may quote phrases as metadata (treated like `sdlc_changelog.md`)
 - `.claude/agents/sdlc-reviewer.md` — reviewer checklist quotes the canonical phrases as validation criteria
 - `.claude/agents/sdlc-compliance-auditor.md` — auditor validation section quotes phrases as criteria

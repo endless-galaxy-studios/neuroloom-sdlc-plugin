@@ -52,6 +52,7 @@ These files are NEVER transformed. If they appear in your file list, skip them e
 
 - `process/knowledge-routing.md`
 - `process/sdlc_changelog.md`
+- `process/changelog-archive/*.md` (the project's archived changelog entries, cc-sdlc contract 0017)
 - `process/path-mappings.md`
 
 A `mcp_preserved` or `mcp_backfilled` event on an exempt file is a regression — halt immediately.

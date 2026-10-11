@@ -316,7 +316,7 @@ Files with no matching references are not transformation targets — skip them.
   only transform runtime instructions within templates (Knowledge Context, Communication Protocol)
 - `docs/_index.md` — remains filesystem-local
 - Agent or skill files with no matching references
-- Historical changelog entries in `ops/sdlc/process/sdlc_changelog.md` — these are an accurate
+- Historical changelog entries in `ops/sdlc/process/sdlc_changelog.md` and `ops/sdlc/process/changelog-archive/*.md` — these are an accurate
   record of what happened at the time and must not be rewritten
 - `ops/sdlc/knowledge/provenance_log.md` — project-specific append-only record; relocate with
   other files in Stage 4f, do not transform or ingest
@@ -515,7 +515,7 @@ After moving, remap the following path prefixes in all transformed files:
 
 **Exclusions from remapping:**
 - Lines matching `~/src/ops/sdlc/` — upstream cc-sdlc source paths, not local installation
-- Historical entries in `sdlc_changelog.md`
+- Historical entries in `sdlc_changelog.md` and `changelog-archive/*.md`
 
 ### Stage 4g — Remap Agent Memory Files
 
@@ -577,7 +577,7 @@ If the memory is a **historical record** ("the audit on 2026-03-17 found X at op
 it.
 
 **Exclusions from remapping:**
-- `sdlc_changelog.md` historical entries (if referenced)
+- `sdlc_changelog.md` and `changelog-archive/*.md` historical entries (if referenced)
 - `~/src/ops/sdlc/` upstream cc-sdlc source refs
 
 Run without asking for confirmation — this is automatic cleanup, same as Stage 4e and 4f.

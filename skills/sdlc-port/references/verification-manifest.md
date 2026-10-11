@@ -51,7 +51,7 @@ Run these checks after writing the manifest:
 | No stale structural `ops/sdlc/` refs in agent memory | `grep -rn "ops/sdlc/" .claude/agent-memory/` | Zero matches (excluding `~/src/ops/sdlc/` and historical audit records) |
 
 Exclusion rules for grep checks on relocated directories:
-- Exclude `sdlc_changelog.md` historical entries
+- Exclude `sdlc_changelog.md` historical entries, and the archived ones in `process/changelog-archive/*.md`
 - Exclude lines matching `~/src/ops/sdlc/` (upstream cc-sdlc source path)
 
 If any check fails, report the specific failure and its recovery path (see Error Handling below).

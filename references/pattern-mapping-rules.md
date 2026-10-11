@@ -536,7 +536,7 @@ grep -inE '\bknowledge files?\b|\bdiscipline files?\b|\bparking[- ]lot entr|\bkn
 - Inside fenced code blocks (already excluded by Pass 2 scope rules — but verify)
 - Inside Integration sections (`**Uses:**`, `**Depends on:**`, `**Feeds into:**`, etc.)
 - Where the term refers to a YAML file mechanism specifically rather than the live knowledge layer (e.g., `sdlc-ingest`'s "Existing knowledge: 3 YAML files" describes the upstream file structure ingest consumes; `compliance-methodology.md` audit-dimension prose where `agent-context-map.yaml` is named as a config artifact's identity)
-- The exempt files list (`process/knowledge-routing.md`, `process/sdlc_changelog.md`, `process/path-mappings.md`) — these contain the canonical phrases as data
+- The exempt files list (`process/knowledge-routing.md`, `process/sdlc_changelog.md`, `process/changelog-archive/*.md`, `process/path-mappings.md`) — these contain the canonical phrases as data
 - Checklist items (`- [ ] ...`) in `agents/sdlc-reviewer.md` that quote canonical phrasing as validation criteria — these CHECK other files' compliance, they are not operational instructions themselves
 - Project-authored content under `.claude/agent-memory/` (filtered upstream)
 
