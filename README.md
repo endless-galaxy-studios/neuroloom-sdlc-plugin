@@ -62,7 +62,7 @@ cc-sdlc is an open-source process framework for Claude Code. It lives at `.claud
 - **Process rules** — the manager rule (the orchestrator never writes code), the review-fix loop (mandatory multi-agent review after every implementation), finding classification, collaboration model and deliverable lifecycle
 - **Deliverable tracking** — every non-trivial unit of work gets an ID (D1, D2, ... Dnn), a plan, a result doc, and a catalog entry. Specs, plans, and results live in `docs/current_work/` while in progress; completed work moves to `docs/chronicle/`
 
-The framework is sourced from [Inpacchi/cc-sdlc](https://github.com/Inpacchi/cc-sdlc). The plugin fetches from upstream at init and migrate time.
+The framework is sourced from [endless-galaxy-studios/z-sdlc](https://github.com/endless-galaxy-studios/z-sdlc) (formerly `Inpacchi/cc-sdlc`). The plugin fetches from upstream at init and migrate time.
 
 ---
 
@@ -78,7 +78,7 @@ The framework is sourced from [Inpacchi/cc-sdlc](https://github.com/Inpacchi/cc-
 
 This plugin is an **adapter** for cc-sdlc — it transforms cc-sdlc's file-based knowledge references into Neuroloom's `memory_search`/`memory_store` calls at install and migration time. The transformation relies on a phrasing contract that cc-sdlc commits to upholding.
 
-**Source of truth:** [`cc-sdlc/process/knowledge-routing.md` § "Adapter Plugins and the Phrasing Contract"](https://github.com/Inpacchi/cc-sdlc/blob/main/process/knowledge-routing.md)
+**Source of truth:** [`cc-sdlc/process/knowledge-routing.md` § "Adapter Plugins and the Phrasing Contract"](https://github.com/endless-galaxy-studios/z-sdlc/blob/master/process/knowledge-routing.md)
 
 **What the contract means in practice:**
 

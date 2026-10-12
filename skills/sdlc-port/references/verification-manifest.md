@@ -9,7 +9,7 @@ Write `.sdlc-manifest.json` in the project root:
   "neuroloom_backend": true,
   "sdlc_version": "{version from sdlc_get_version, or 'local' if unavailable}",
   "sdlc_root": ".claude/sdlc",
-  "source_repo": "https://github.com/Inpacchi/cc-sdlc",
+  "source_repo": "https://github.com/endless-galaxy-studios/z-sdlc",
   "source_version": "{version from sdlc_get_version, or 'local' if unavailable}",
   "source_version_sha": "{commit SHA of the release tag, if available}",
   "ported_at": "{ISO 8601 timestamp}"
