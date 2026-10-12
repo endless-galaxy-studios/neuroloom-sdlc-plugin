@@ -8,7 +8,7 @@ Whatever you're doing right now is your SDLC. It might be structured or it might
 
 This plugin syncs your development process to [Neuroloom, the memory engine for agentic coding](https://neuroloom.dev). Specs inform future plans. Decisions surface when relevant. The process-layer memory enriches your development workflow by making the knowledge that would normally live in scattered files or an external system available outside the confines of a context window.
 
-*Built on cc-sdlc, an open-source process framework for Claude Code. Use the full structure or just the parts that fit. There's no one right way to run a dev process — this just makes sure yours survives a context clear.*
+*Built on z-sdlc, an open-source process framework for Claude Code. Use the full structure or just the parts that fit. There's no one right way to run a dev process — this just makes sure yours survives a context clear.*
 
 ---
 
@@ -39,7 +39,7 @@ Follow the instructions [here](https://github.com/endless-galaxy-studios/neurolo
 /sdlc-initialize
 ```
 
-**Existing project (cc-sdlc already installed locally):**
+**Existing project (z-sdlc already installed locally):**
 
 ```
 /sdlc-port
@@ -52,9 +52,9 @@ Follow the instructions [here](https://github.com/endless-galaxy-studios/neurolo
 
 ---
 
-## What cc-sdlc is
+## What z-sdlc is
 
-cc-sdlc is an open-source process framework for Claude Code. It lives at `.claude/sdlc/` in your project and provides:
+z-sdlc is an open-source process framework for Claude Code. It lives at `.claude/sdlc/` in your project and provides:
 
 - **Skills** — orchestration commands (`/sdlc-plan`, `/sdlc-execute`, `/sdlc-lite-plan`, `/sdlc-idea`, `/sdlc-review`, etc.) that drive the spec → plan → implement → review lifecycle
 - **Domain agents** — specialized subagents (backend-engineer, frontend-engineer, software-architect, search-engineer, etc.) that do the implementation and review work
@@ -68,37 +68,37 @@ The framework is sourced from [endless-galaxy-studios/z-sdlc](https://github.com
 
 ## What the plugin does
 
-- **Knowledge tracking** — `/sdlc-initialize` fetches the cc-sdlc framework from upstream, parses its knowledge files (YAML entries, rules, gotchas, methodology), and ingests them into Neuroloom as tagged memories. Skills and agents reference this knowledge via semantic search instead of reading flat files — knowledge persists across sessions without loading everything into the context window.
+- **Knowledge tracking** — `/sdlc-initialize` fetches the z-sdlc framework from upstream, parses its knowledge files (YAML entries, rules, gotchas, methodology), and ingests them into Neuroloom as tagged memories. Skills and agents reference this knowledge via semantic search instead of reading flat files — knowledge persists across sessions without loading everything into the context window.
 - **Deliverable sync** — when Claude Code writes or edits a spec, plan, or result doc under `docs/current_work/`, the PostToolUse hook ships the content to Neuroloom in the background. Specs from a previous session are searchable in the next — decisions made during planning surface automatically when related code is touched later.
-- **Framework version tracking** — the SessionStart hook checks whether a cc-sdlc framework update is available and prints a one-line notice when one is. Updates never apply automatically; you control when to run `/sdlc-migrate`.
+- **Framework version tracking** — the SessionStart hook checks whether a z-sdlc framework update is available and prints a one-line notice when one is. Updates never apply automatically; you control when to run `/sdlc-migrate`.
 
 ---
 
-## Contract with cc-sdlc
+## Contract with z-sdlc
 
-This plugin is an **adapter** for cc-sdlc — it transforms cc-sdlc's file-based knowledge references into Neuroloom's `memory_search`/`memory_store` calls at install and migration time. The transformation relies on a phrasing contract that cc-sdlc commits to upholding.
+This plugin is an **adapter** for z-sdlc — it transforms z-sdlc's file-based knowledge references into Neuroloom's `memory_search`/`memory_store` calls at install and migration time. The transformation relies on a phrasing contract that z-sdlc commits to upholding.
 
-**Source of truth:** [`cc-sdlc/process/knowledge-routing.md` § "Adapter Plugins and the Phrasing Contract"](https://github.com/endless-galaxy-studios/z-sdlc/blob/master/process/knowledge-routing.md)
+**Source of truth:** [`z-sdlc/process/knowledge-routing.md` § "Adapter Plugins and the Phrasing Contract"](https://github.com/endless-galaxy-studios/z-sdlc/blob/master/process/knowledge-routing.md)
 
 **What the contract means in practice:**
 
-- cc-sdlc skills use a small set of standard phrases when referencing the knowledge layer (e.g., `consult [sdlc-root]/knowledge/agent-context-map.yaml`). The exact phrases are listed in the contract doc above.
+- z-sdlc skills use a small set of standard phrases when referencing the knowledge layer (e.g., `consult [sdlc-root]/knowledge/agent-context-map.yaml`). The exact phrases are listed in the contract doc above.
 - This plugin's `/sdlc-migrate` skill contains a transformation table that matches those phrases and replaces them with Neuroloom calls.
-- When cc-sdlc introduces a new knowledge-access phrase, it tags the changelog entry with `[contract-change]`. `/sdlc-migrate` scans for these on every upstream pull and flags them for the maintainer before applying the migration.
+- When z-sdlc introduces a new knowledge-access phrase, it tags the changelog entry with `[contract-change]`. `/sdlc-migrate` scans for these on every upstream pull and flags them for the maintainer before applying the migration.
 
-**Keeping the plugin in sync:** Changes to the contract are driven by cc-sdlc upstream. When this plugin is pulling a new cc-sdlc release, `/sdlc-migrate` reports any `[contract-change]` commits in the range being migrated. Resolve those (update the transformation table) before completing the migration.
+**Keeping the plugin in sync:** Changes to the contract are driven by z-sdlc upstream. When this plugin is pulling a new z-sdlc release, `/sdlc-migrate` reports any `[contract-change]` commits in the range being migrated. Resolve those (update the transformation table) before completing the migration.
 
 ### Transformation Scope
 
-This plugin **overrides** only three cc-sdlc skills with Neuroloom-native versions: `/sdlc-initialize`, `/sdlc-migrate`, and `/sdlc-port`. All other cc-sdlc skills (`sdlc-plan`, `sdlc-execute`, `sdlc-tests-create`, etc.) ship from upstream unchanged.
+This plugin **overrides** only three z-sdlc skills with Neuroloom-native versions: `/sdlc-initialize`, `/sdlc-migrate`, and `/sdlc-port`. All other z-sdlc skills (`sdlc-plan`, `sdlc-execute`, `sdlc-tests-create`, etc.) ship from upstream unchanged.
 
 However, those non-override skills contain references to file-based knowledge (e.g., `consult [sdlc-root]/knowledge/agent-context-map.yaml`) that need to become `memory_search` calls in a Neuroloom workspace. The plugin handles this via **content transformation at install/migration time**, not by overriding the skills:
 
 | Lifecycle Moment | What Happens |
 |------------------|--------------|
-| `/sdlc-initialize` | Fetches cc-sdlc from upstream, transforms skill/agent/process files via the Pattern Mapping rules, writes transformed versions to `.claude/` |
-| `/sdlc-migrate` | Pulls newer cc-sdlc, applies Pattern Mapping rules while preserving any `memory_search(` / `memory_store(` calls already present in the project copy |
-| `/sdlc-port` | Converts an existing file-based cc-sdlc install into a Neuroloom workspace, applying Pattern Mapping in bulk |
+| `/sdlc-initialize` | Fetches z-sdlc from upstream, transforms skill/agent/process files via the Pattern Mapping rules, writes transformed versions to `.claude/` |
+| `/sdlc-migrate` | Pulls newer z-sdlc, applies Pattern Mapping rules while preserving any `memory_search(` / `memory_store(` calls already present in the project copy |
+| `/sdlc-port` | Converts an existing file-based z-sdlc install into a Neuroloom workspace, applying Pattern Mapping in bulk |
 
 Which files need transformation is determined at runtime by scanning each upstream file for phrasing-contract anchors (`[sdlc-root]/knowledge/`, `[sdlc-root]/disciplines/`, `consult [sdlc-root]/knowledge/`, `agent-context-map.yaml`). See `skills/sdlc-migrate/SKILL.md` § "Detecting Files That Contain Phrasing-Contract Patterns" for the algorithm and special-case overrides.
 
@@ -107,7 +107,7 @@ Which files need transformation is determined at runtime by scanning each upstre
 Each of the three operations runs a post-operation audit (defined in `references/post-operation-audit.md`) as its final stage. The audit:
 
 - Counts `memory_search(` / `memory_store(` calls across all installed files and verifies the Pattern Mapping targets landed
-- Scans for residual cc-sdlc standard phrases that should have been transformed
+- Scans for residual z-sdlc standard phrases that should have been transformed
 - Scans for inline adapter conditionals that violate the contract
 - Verifies manifest-to-filesystem hash consistency
 - Confirms the Neuroloom sentinel is present and version-tagged
@@ -143,7 +143,7 @@ When the base plugin's `.venv` exists, hooks run inside it. When it does not exi
 
 If `neuroloom-codeweaver` is installed via the base plugin's `--user` fallback path, it lands in `~/.local/lib/...` on POSIX or `%APPDATA%\Python\` on Windows — in the system Python's user site-packages, not isolated to the plugin venv. This package is visible to any code running under the same interpreter.
 
-**SessionStart** — calls the Neuroloom version proxy to fetch the latest cc-sdlc release version, then searches for the workspace's sentinel memory to determine initialization state.
+**SessionStart** — calls the Neuroloom version proxy to fetch the latest z-sdlc release version, then searches for the workspace's sentinel memory to determine initialization state.
 
 - If no sentinel exists: prompts you to run `/sdlc-initialize`
 - If the sentinel's `sdlc:seed-version:` tag differs from the latest release: prints a one-line update notice with the `/sdlc-migrate` command

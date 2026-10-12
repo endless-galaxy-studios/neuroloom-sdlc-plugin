@@ -33,9 +33,9 @@ For Neuroloom projects (`neuroloom_backend: true` in manifest), the installed fi
 - `/sdlc-migrate` — expect `>= MCP_COUNT_PRE_MIGRATION` (from transaction log)
 - `/sdlc-port` — expect non-zero (port applies Pattern Mapping in bulk)
 
-### Check 2 — No residual cc-sdlc standard phrases
+### Check 2 — No residual z-sdlc standard phrases
 
-For Neuroloom projects, canonical phrases from cc-sdlc's phrasing contract should have been transformed by the installer. Their continued presence in installed files indicates the transformation was skipped.
+For Neuroloom projects, canonical phrases from z-sdlc's phrasing contract should have been transformed by the installer. Their continued presence in installed files indicates the transformation was skipped.
 
 **Canonical phrases (all should return zero hits in `.claude/sdlc/` and `.claude/agents/`):**
 - `consult [sdlc-root]/knowledge/agent-context-map.yaml`
@@ -53,7 +53,7 @@ For Neuroloom projects, canonical phrases from cc-sdlc's phrasing contract shoul
 
 ### Check 2a — No forbidden pre-contract phrasings
 
-The phrasing contract explicitly forbids non-canonical variants that cc-sdlc source may have used before standardization (pre-2026-04-22). Upstream cc-sdlc should have rewritten these, but scan the installed copy as a safety net — if a forbidden form shows up, it means cc-sdlc regressed OR the plugin was pulling from a pre-standardization version.
+The phrasing contract explicitly forbids non-canonical variants that z-sdlc source may have used before standardization (pre-2026-04-22). Upstream z-sdlc should have rewritten these, but scan the installed copy as a safety net — if a forbidden form shows up, it means z-sdlc regressed OR the plugin was pulling from a pre-standardization version.
 
 **Forbidden patterns (all should return zero hits):**
 - `Read [sdlc-root]/knowledge/agent-context-map.yaml` (as instruction — distinguishable from canonical `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml`)
@@ -66,12 +66,12 @@ The phrasing contract explicitly forbids non-canonical variants that cc-sdlc sou
 - `go to your SDLC knowledge store ([sdlc-root]/knowledge/<domain>/)` — canonical uses `append to [sdlc-root]/knowledge/<domain>/`
 - `(see [sdlc-root]/knowledge/<file>)` parenthetical asides — canonical extracts into a separate sentence using `Read [sdlc-root]/knowledge/<file>`
 
-**Action on hit:** **REGRESSION** — report which file + line + forbidden pattern. Two possibilities: (1) cc-sdlc source regressed (file a bug upstream, tag `[contract-change]`), or (2) plugin pulled from a release predating the 2026-04-22 standardization. Recovery: halt, update plugin to latest cc-sdlc, re-run.
+**Action on hit:** **REGRESSION** — report which file + line + forbidden pattern. Two possibilities: (1) z-sdlc source regressed (file a bug upstream, tag `[contract-change]`), or (2) plugin pulled from a release predating the 2026-04-22 standardization. Recovery: halt, update plugin to latest z-sdlc, re-run.
 
 **Exceptions for Checks 2 and 2a:**
 - `.claude/sdlc/process/knowledge-routing.md` — this file IS the phrasing contract; it lists canonical AND forbidden phrases as documentation, not instruction
 - `.claude/sdlc/process/sdlc_changelog.md` — changelog entries may quote the phrases as metadata
-- `.claude/sdlc/process/changelog-archive/*.md` — archived changelog entries, same reason (cc-sdlc contract 0017)
+- `.claude/sdlc/process/changelog-archive/*.md` — archived changelog entries, same reason (z-sdlc contract 0017)
 - `.claude/sdlc/knowledge/provenance_log.md` — append-only project-specific record; entries may quote phrases as metadata (treated like `sdlc_changelog.md`)
 - `.claude/agents/sdlc-reviewer.md` — reviewer checklist quotes the canonical phrases as validation criteria
 - `.claude/agents/sdlc-compliance-auditor.md` — auditor validation section quotes phrases as criteria
@@ -79,7 +79,7 @@ The phrasing contract explicitly forbids non-canonical variants that cc-sdlc sou
 
 ### Check 3 — No inline adapter conditionals
 
-The phrasing contract forbids inline conditionals like `(Neuroloom projects: use memory_search instead)` in cc-sdlc source files. After transformation, these should never appear in installed files.
+The phrasing contract forbids inline conditionals like `(Neuroloom projects: use memory_search instead)` in z-sdlc source files. After transformation, these should never appear in installed files.
 
 **Search patterns (all should return zero hits):**
 - `(Neuroloom projects:`
@@ -122,7 +122,7 @@ Neuroloom projects should NOT have `.claude/sdlc/knowledge/agent-context-map.yam
 1. If `.claude/sdlc/knowledge/agent-context-map.yaml` exists, flag it
 2. Check for any remaining references to it as a runtime lookup (vs. a historical mention in the changelog)
 
-**Action on failure:** **REGRESSION** — a port/init/migrate left behind the cc-sdlc file-based config.
+**Action on failure:** **REGRESSION** — a port/init/migrate left behind the z-sdlc file-based config.
 
 ---
 
@@ -149,7 +149,7 @@ After the shared checks, additionally verify:
 
 After the shared checks, additionally verify:
 
-- **Bulk transformation applied** — `/sdlc-port` converts a file-based cc-sdlc install to Neuroloom. Verify the transformation touched the expected file set:
+- **Bulk transformation applied** — `/sdlc-port` converts a file-based z-sdlc install to Neuroloom. Verify the transformation touched the expected file set:
   - All files flagged by the phrasing-contract runtime scan (see `sdlc-migrate/SKILL.md` § "Detecting Files That Contain Phrasing-Contract Patterns")
   - All project-tailored agents in `.claude/agents/` (Knowledge Context, Communication Protocol sections)
   - Process docs: `discipline_capture.md`, `overview.md`, `incident_response.md`, etc.

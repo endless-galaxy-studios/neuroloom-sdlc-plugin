@@ -118,7 +118,7 @@ Recovery: git checkout -- {path} to restore; then re-run /sdlc-migrate.
 
 **This check is MANDATORY — it catches the failure mode that silently broke the 2026-04-22 migration.**
 
-A drop in MCP count is not automatically a bug. Upstream may legitimately remove a section that had MCP calls (e.g., cc-sdlc retired the `knowledge_feedback` reference in agent-template.md). The audit must distinguish **regression** (merge bug lost MCP content whose enclosing section still exists upstream) from **legitimate removal** (upstream deleted the enclosing section entirely, or refactored it into a non-MCP form).
+A drop in MCP count is not automatically a bug. Upstream may legitimately remove a section that had MCP calls (e.g., z-sdlc retired the `knowledge_feedback` reference in agent-template.md). The audit must distinguish **regression** (merge bug lost MCP content whose enclosing section still exists upstream) from **legitimate removal** (upstream deleted the enclosing section entirely, or refactored it into a non-MCP form).
 
 For every file written in Stage 4.2:
 
@@ -215,13 +215,13 @@ If all drops are legitimate, the audit passes and the Stage 5 report surfaces th
 
 **This check is MANDATORY — it catches the failure mode that silently broke `migrate-6f4217` (sleeved 2026-04-26) at `team-communication-protocol.md`, `sdlc-debug-incident.md`, `sdlc-plan.md`, and ~10 other framework files where agent-name examples don't resolve to the project's actual `.claude/agents/` roster.**
 
-cc-sdlc framework content names canonical agents in examples and dispatch maps — `security-engineer`, `data-architect`, `ml-engineer`, `devops-engineer`, etc. Projects often have a different roster (sleeved has `infosec-engineer` instead of `security-engineer`, `firebase-architect` instead of `data-architect`). When the migration writes upstream framework content verbatim, those canonical names land on disk pointing at agents the project never adopted. Result: skills dispatch agents that don't exist, message envelopes reference unknown reviewers, debug-incident routing tables misroute. The bugs are silent at write time; they surface as runtime dispatch failures days or weeks later.
+z-sdlc framework content names canonical agents in examples and dispatch maps — `security-engineer`, `data-architect`, `ml-engineer`, `devops-engineer`, etc. Projects often have a different roster (sleeved has `infosec-engineer` instead of `security-engineer`, `firebase-architect` instead of `data-architect`). When the migration writes upstream framework content verbatim, those canonical names land on disk pointing at agents the project never adopted. Result: skills dispatch agents that don't exist, message envelopes reference unknown reviewers, debug-incident routing tables misroute. The bugs are silent at write time; they surface as runtime dispatch failures days or weeks later.
 
 **Procedure (runs after all stage 4.2 file writes complete, before §4.3):**
 
 1. **Build the project agent roster:** scan `<target>/.claude/agents/` for `*.md` files; strip `.md` to get the roster set (e.g., `{accessibility-auditor, ai-engineer, backend-developer, infosec-engineer, ...}`).
 
-2. **Read project-side rename declarations** from `<target>/.sdlc-manifest.json` → `agent_renames` (a new optional field; absent = empty map). The schema is `{"<canonical-name>": "<project-name>", ...}` — e.g., `{"security-engineer": "infosec-engineer", "data-architect": "firebase-architect"}`. These declarations let projects map cc-sdlc canonical names to their renamed equivalents without touching framework content.
+2. **Read project-side rename declarations** from `<target>/.sdlc-manifest.json` → `agent_renames` (a new optional field; absent = empty map). The schema is `{"<canonical-name>": "<project-name>", ...}` — e.g., `{"security-engineer": "infosec-engineer", "data-architect": "firebase-architect"}`. These declarations let projects map z-sdlc canonical names to their renamed equivalents without touching framework content.
 
 3. **Scan every file written in stage 4.2** (skills, process docs, templates — exclude exempt files and project-specific files that aren't framework content). Use these patterns to extract candidate agent references:
 
@@ -241,7 +241,7 @@ cc-sdlc framework content names canonical agents in examples and dispatch maps �
    - Substitution applies only to whole-token matches (`security-engineer` doesn't match `security-engineer-2` or `security-engineering`)
    - Substitution preserves the surrounding prefix (`reviewer-security-engineer` → `reviewer-infosec-engineer`)
    - Substitution does NOT cross the exempt-file boundary — files on the verbatim list (`process/knowledge-routing.md` etc.) are scanned for warnings but never rewritten
-   - Substitution does NOT apply inside fenced code blocks marked as upstream-cc-sdlc-canonical examples (a future fence annotation `<!-- canonical-example -->` will signal "leave verbatim regardless of project roster"; until that lands, fenced YAML blocks default to substituted)
+   - Substitution does NOT apply inside fenced code blocks marked as upstream-z-sdlc-canonical examples (a future fence annotation `<!-- canonical-example -->` will signal "leave verbatim regardless of project roster"; until that lands, fenced YAML blocks default to substituted)
 
 **Halt and report (dispatch-position case):**
 
@@ -303,13 +303,13 @@ Recovery: git checkout -- .claude/  (migration is uncommitted)
 - `warn_class > 0` should be surfaced in the §5.4 final report so CD can decide whether to declare additional renames
 - `resolved_via_renames` events provide audit trail for any substitution applied — CD can verify the rename was intentional
 
-**Why hard-gated:** sleeved's `migrate-6f4217` produced ~11 stale agent references in framework content (`security-engineer`, `data-architect`, `ml-engineer`, `db-engineer`, `devops-engineer`, `frontend-engineer`, `data-pipeline-engineer`, `database-architect`, `ml-architect`, `security-auditor`, `systems-engineer`). The user discovered them by manually diffing `team-communication-protocol.md` weeks after the migration completed. The plugin's existing guarded-rename rules (§4.3, restricted to `contract_changes.yaml`-driven renames in CLAUDE.md only) didn't fire because there was no contract change driving these — they were project-roster drift, not cc-sdlc renames. This new gate covers the proactive case: every reference, every file, every migration.
+**Why hard-gated:** sleeved's `migrate-6f4217` produced ~11 stale agent references in framework content (`security-engineer`, `data-architect`, `ml-engineer`, `db-engineer`, `devops-engineer`, `frontend-engineer`, `data-pipeline-engineer`, `database-architect`, `ml-architect`, `security-auditor`, `systems-engineer`). The user discovered them by manually diffing `team-communication-protocol.md` weeks after the migration completed. The plugin's existing guarded-rename rules (§4.3, restricted to `contract_changes.yaml`-driven renames in CLAUDE.md only) didn't fire because there was no contract change driving these — they were project-roster drift, not z-sdlc renames. This new gate covers the proactive case: every reference, every file, every migration.
 
 **Schema migration for `agent_renames`:** Plugin 0.4.7+ recognizes the field. Older manifests (no field) default to empty. Adding the field is non-breaking — projects that don't declare any renames get the same behavior as before, except the audit now halts on dispatch-class stale refs. Projects that need to substitute should declare the renames before running migrate; the audit's halt message points them at the field.
 
 #### Mandatory: Contract Residue Audit
 
-**This check is MANDATORY — it catches the failure mode where a file is written with untransformed cc-sdlc canonical phrasing despite being a Neuroloom-backend installation. Specifically targets the `mcp_new_file` install path where there's no pre-existing project version to merge against and Pattern Mapping silently bypasses.**
+**This check is MANDATORY — it catches the failure mode where a file is written with untransformed z-sdlc canonical phrasing despite being a Neuroloom-backend installation. Specifically targets the `mcp_new_file` install path where there's no pre-existing project version to merge against and Pattern Mapping silently bypasses.**
 
 The plugin spec says (SKILL.md §4.2.0 step 2): *"This step runs for every file in a Neuroloom project, whether or not the project already had MCP calls. New files and previously-untransformed files get transformed here."* In practice, sleeved `migrate-6f4217` wrote `incident-runbook-template.md` (a new-file install introduced upstream after sleeved's previous migration) with untransformed `[sdlc-root]/knowledge/architecture/debugging-methodology.yaml` and `[sdlc-root]/knowledge/architecture/error-cascade-methodology.yaml` references. Pattern Mapping never fired for that file. The existing post-write regression scans (orphan debris, double-paren, malformed verbs) all passed because the upstream content was clean — it just hadn't been transformed.
 
@@ -375,7 +375,7 @@ Context: <one-line surrounding text>
 Subtype: <mcp_new_file | mcp_backfilled | mcp_preserved>
 
 This file was written for a Neuroloom-backend project but contains
-untransformed cc-sdlc canonical phrasing. Likely cause:
+untransformed z-sdlc canonical phrasing. Likely cause:
 
 - mcp_new_file path: Pattern Mapping silently bypassed for the new
   file. Spec §4.2.0 step 2 requires the transformer to run for every
@@ -406,7 +406,7 @@ The Contract Residue Audit closes the gap between "transformer fired and produce
 
 1. **Skill customization preservation** — spot-check 1 enhanced skill (e.g., `sdlc-audit`):
    - Neuroloom-specific sections (API call patterns, MCP tool references) are intact
-   - Framework sections were updated (compare against cc-sdlc source)
+   - Framework sections were updated (compare against z-sdlc source)
 
 2. **Agent integrity** — spot-check 1 agent:
    - Framework-derived sections (Knowledge Context, Communication Protocol) retain their MCP calls if the project-side version had them

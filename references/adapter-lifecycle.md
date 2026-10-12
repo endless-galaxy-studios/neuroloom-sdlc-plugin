@@ -1,12 +1,12 @@
 # Adapter Lifecycle Handlers — Neuroloom SDLC Plugin
 
-Phase handler instructions for the cc-sdlc adapter lifecycle protocol. Upstream's `sdlc-initialize` and `sdlc-migrate` read this file and execute the relevant H2 section at each phase.
+Phase handler instructions for the z-sdlc adapter lifecycle protocol. Upstream's `sdlc-initialize` and `sdlc-migrate` read this file and execute the relevant H2 section at each phase.
 
 **Required reading before any phase:** `${CLAUDE_PLUGIN_ROOT}/references/pattern-mapping-rules.md` must be read from disk before executing `post-file-write`. Do NOT reconstruct transformation rules from memory.
 
 **Pre-flight dependency:** Before any lifecycle phase fires, the adapter's pre-flight protocol (`${CLAUDE_PLUGIN_ROOT}/references/preflight.md`) must have passed. This validates Neuroloom API reachability, MCP tool availability (`document_ingest_batch`, `memory_search`, `memory_store`, `sdlc_get_version`), GitHub API access, and disk space. Pre-flight is the adapter's own gate — it runs before upstream's skill begins its Phase 1.
 
-**Contract change version gate:** Upstream reads `adapter.json → supported_ccsdlc_version` during pre-flight. If any `[contract-change]` entry in the migration range has a version above the adapter's declared support, upstream halts with a message identifying the uncovered entries. The adapter maintainer must update `adapter.json` after verifying handler coverage before migration can proceed.
+**Contract change version gate:** Upstream reads `adapter.json → supported_zsdlc_version` during pre-flight. `adapter.json` also keeps the pre-rename keys `ccsdlc_adapter` and `supported_ccsdlc_version`, with the same values, so projects whose installed skills predate the rename (v1.9.0 and earlier) still detect this adapter; drop them once every project has migrated past the rename. If any `[contract-change]` entry in the migration range has a version above the adapter's declared support, upstream halts with a message identifying the uncovered entries. The adapter maintainer must update `adapter.json` after verifying handler coverage before migration can proceed.
 
 ---
 
@@ -35,7 +35,7 @@ Upstream presents this in its Phase 4 confirmation gate alongside its own summar
 
 ### Procedure
 
-1. **Resolve version.** Call `sdlc_get_version` MCP tool to retrieve the latest cc-sdlc release tag. Store as `SDLC_VERSION`. This tag is embedded in all seeded entries as `sdlc:seed-version:{SDLC_VERSION}`.
+1. **Resolve version.** Call `sdlc_get_version` MCP tool to retrieve the latest z-sdlc release tag. Store as `SDLC_VERSION`. This tag is embedded in all seeded entries as `sdlc:seed-version:{SDLC_VERSION}`.
 
 2. **Filter knowledge files.** From the set of knowledge YAMLs upstream provides, exclude:
    - `knowledge/agent-context-map.yaml` — configuration file, not knowledge content
@@ -277,7 +277,7 @@ Execute the checks documented in `${CLAUDE_PLUGIN_ROOT}/references/post-operatio
 
 1. **MCP integration health** — count `memory_search(` + `memory_store(` across `[sdlc-root]/` and `.claude/agents/`. Verify minimum-MCP files each have at least one call. If any listed file has zero → REGRESSION.
 
-2. **No residual cc-sdlc standard phrases** — grep for canonical phrasing-contract anchors (`consult [sdlc-root]/knowledge/agent-context-map.yaml`, etc.) outside the exemption list. Any hit → REGRESSION.
+2. **No residual z-sdlc standard phrases** — grep for canonical phrasing-contract anchors (`consult [sdlc-root]/knowledge/agent-context-map.yaml`, etc.) outside the exemption list. Any hit → REGRESSION.
 
 3. **No forbidden pre-contract phrasings** — grep for non-canonical variants (`Look up ... in`, `via [sdlc-root]/knowledge/`, etc.). Any hit → REGRESSION.
 

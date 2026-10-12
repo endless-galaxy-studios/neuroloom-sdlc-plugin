@@ -4,7 +4,7 @@
 
 | Failure | Recovery |
 |---------|----------|
-| `ops/sdlc/` absent | Stop. Output: "No cc-sdlc installation found. Run /sdlc-initialize instead." |
+| `ops/sdlc/` absent | Stop. Output: "No z-sdlc installation found. Run /sdlc-initialize instead." |
 | API auth failure | Stop. Output auth error with link to API key settings. Do not proceed. |
 | API network failure | Stop. Output network error. Check connectivity and retry. |
 | Manifest unreadable (malformed JSON) | Treat as no manifest — proceed as fresh port. Log the parse error. |

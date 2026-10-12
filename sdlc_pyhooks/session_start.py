@@ -1,7 +1,7 @@
 """
 SDLC session-start hook (Python port of hooks/session-start.sh).
 
-Checks the cc-sdlc framework version against the workspace's seeded version
+Checks the z-sdlc framework version against the workspace's seeded version
 and prints a notification if an update is available, or if the workspace has
 not yet been initialized.
 
@@ -74,9 +74,9 @@ def main() -> None:
 
     headers: dict[str, str] = {"Authorization": f"Token {config.api_key}"}
 
-    # Step 2: Get latest cc-sdlc version from the Neuroloom version proxy.
+    # Step 2: Get latest z-sdlc version from the Neuroloom version proxy.
     version_url = f"{config.api_base}/api/v1/sdlc/cc-sdlc-version"
-    _debug(f"Checking cc-sdlc version via proxy: {version_url}")
+    _debug(f"Checking z-sdlc version via proxy: {version_url}")
 
     version_result = _get_json(version_url, headers, timeout=10.0)
     if version_result is None:
@@ -97,7 +97,7 @@ def main() -> None:
     if not latest_version or not isinstance(latest_version, str):
         return
 
-    _debug(f"Latest cc-sdlc version: {latest_version}")
+    _debug(f"Latest z-sdlc version: {latest_version}")
 
     # Step 3: List for the sentinel memory that marks workspace initialization.
     # Uses GET /memories/?tags=... (exact AND-tag semantics, no relevance

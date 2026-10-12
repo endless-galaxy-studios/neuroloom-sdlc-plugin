@@ -6,7 +6,7 @@ This document is the single reference for how knowledge routing works in the Neu
 
 ## Overview
 
-In a file-based cc-sdlc installation, agents look up knowledge by reading YAML files at known paths — `ops/sdlc/knowledge/architecture/technology-patterns.yaml` being a typical example. The Neuroloom backend replaces that model entirely. Instead of reading files, agents call `memory_search()` with a natural-language query and domain tags, and Neuroloom returns the most relevant entries ranked by semantic similarity.
+In a file-based z-sdlc installation, agents look up knowledge by reading YAML files at known paths — `ops/sdlc/knowledge/architecture/technology-patterns.yaml` being a typical example. The Neuroloom backend replaces that model entirely. Instead of reading files, agents call `memory_search()` with a natural-language query and domain tags, and Neuroloom returns the most relevant entries ranked by semantic similarity.
 
 This matters for two reasons. First, relevance: a file read returns everything in the file regardless of how much of it applies to the current task. A search returns the entries closest in meaning to the query, so agents get fewer tokens of noise and more signal. Second, cross-domain discovery: a single search can surface entries that span multiple knowledge domains when the query meaning cuts across them — something a file path lookup cannot do at all.
 
@@ -51,14 +51,14 @@ Every entry seeded by `sdlc-initialize` carries the following tags. The first fi
 |-----|----------------|--------------|
 | `sdlc:knowledge` | Yes | Constant — marks this as a knowledge layer entry |
 | `sdlc:seed` | Yes | Constant — marks it as seeded content (vs. discipline parking lot) |
-| `sdlc:seed-version:{version}` | Yes | The cc-sdlc version resolved at initialization time |
+| `sdlc:seed-version:{version}` | Yes | The z-sdlc version resolved at initialization time |
 | `sdlc:pattern:{pattern}` | Yes | From the YAML field — one of `entries`, `gotchas`, `rules`, `methodology` |
 | `sdlc:domain:{domain}` | Yes | From the YAML domain field — see valid values below |
 | `sdlc:type:{type}` | When present | From the YAML type field if the entry defines one |
 
 ### Valid Domain Values
 
-These map directly to the subdirectories under `ops/sdlc/knowledge/` in the cc-sdlc source:
+These map directly to the subdirectories under `ops/sdlc/knowledge/` in the z-sdlc source:
 
 - `architecture`
 - `business-analysis`
@@ -85,7 +85,7 @@ One entry with multiple domain tags — not duplicated entries with one tag each
 
 ### Before vs. After: File Path to `memory_search()`
 
-The following table shows the cc-sdlc generic file-path pattern and its Neuroloom equivalent, drawn from the Pattern Mapping table in `sdlc-migrate/SKILL.md`:
+The following table shows the z-sdlc generic file-path pattern and its Neuroloom equivalent, drawn from the Pattern Mapping table in `sdlc-migrate/SKILL.md`:
 
 | Generic (file-based) instruction | Neuroloom equivalent |
 |----------------------------------|---------------------|
@@ -172,7 +172,7 @@ Read the returned entries before proceeding.
 
 Knowledge is **not** pushed to agents automatically. There is no pre-session hook that reads all knowledge and injects it into context.
 
-The `SessionStart` hook does run at the start of every session, but its job is narrow: check whether the sentinel exists and whether the workspace is at the current cc-sdlc version. If the sentinel is missing, it routes to `sdlc-initialize`. If the version is stale, it prompts to run `sdlc-migrate`. If everything is healthy, it does nothing to the knowledge layer.
+The `SessionStart` hook does run at the start of every session, but its job is narrow: check whether the sentinel exists and whether the workspace is at the current z-sdlc version. If the sentinel is missing, it routes to `sdlc-initialize`. If the version is stale, it prompts to run `sdlc-migrate`. If everything is healthy, it does nothing to the knowledge layer.
 
 The actual knowledge retrieval happens at dispatch time, triggered by the agent's own `## Knowledge Context` instruction. When an agent is dispatched, its first action is to call `memory_search()` as instructed in its system prompt. This is an **explicit pull**, not an automatic push.
 
@@ -204,7 +204,7 @@ Read it with:
 memory_search(query="SDLC workspace sentinel", tags=["sdlc:sentinel"])
 ```
 
-The sentinel carries one critical tag: `sdlc:seed-version:{version}`. The `SessionStart` hook reads this tag to compare the workspace's seeded version against the latest cc-sdlc release. If they differ, the hook prompts for `sdlc-migrate`.
+The sentinel carries one critical tag: `sdlc:seed-version:{version}`. The `SessionStart` hook reads this tag to compare the workspace's seeded version against the latest z-sdlc release. If they differ, the hook prompts for `sdlc-migrate`.
 
 What the sentinel is **not**: it is not a mapping of agents to domains. It does not contain routing configuration. It is a health check anchor and a version anchor. The routing mechanism lives entirely in the `sdlc:domain:{domain}` tags on individual knowledge entries.
 
@@ -268,7 +268,7 @@ One search call always requires a query string. Tags alone are not sufficient �
 | Agent Role | Domain Tag | Example Query | Expected Entry Types |
 |-----------|-----------|---------------|---------------------|
 | `software-architect` | `sdlc:domain:architecture` | `"FastAPI routing patterns and SQLAlchemy async session configuration"` | Technology patterns, pipeline design, deployment patterns, API design methodology |
-| `backend-engineer` | `sdlc:domain:architecture` (backend implementation patterns — FastAPI, SQLAlchemy, ARQ — live under the `architecture` domain in the cc-sdlc knowledge structure) | `"pgvector HNSW index configuration and ARQ job conventions"` | FastAPI patterns, SQLAlchemy patterns, pgvector patterns, ARQ job patterns |
+| `backend-engineer` | `sdlc:domain:architecture` (backend implementation patterns — FastAPI, SQLAlchemy, ARQ — live under the `architecture` domain in the z-sdlc knowledge structure) | `"pgvector HNSW index configuration and ARQ job conventions"` | FastAPI patterns, SQLAlchemy patterns, pgvector patterns, ARQ job patterns |
 | `sdet` | `sdlc:domain:testing` | `"pytest async fixtures and pgvector test cleanup gotchas"` | Testing paradigm, gotchas, tool patterns, timing defaults, advanced test patterns |
 | `search-engineer` | `sdlc:domain:search` | `"hybrid retrieval scoring strategies and ingestion pipeline chunking"` | Retrieval strategy patterns, ingestion pipeline patterns, vector index tuning, score transform catalog |
 | `dx-engineer` | `sdlc:domain:dx` | `"SDK method naming conventions and OpenAPI spec enrichment patterns"` | SDK design patterns, developer documentation patterns, agentic engine optimization |

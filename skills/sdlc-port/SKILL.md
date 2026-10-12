@@ -1,25 +1,25 @@
 ---
 name: sdlc-port
 description: >
-  Migrates an existing local cc-sdlc installation to use Neuroloom as the backend. Reads local
+  Migrates an existing local z-sdlc installation to use Neuroloom as the backend. Reads local
   knowledge stores, discipline files, and deliverable docs; ingests them into Neuroloom via batch
   ingestion; then transforms agent and skill files to use semantic search instead of local file reads.
   Triggers on "port sdlc to neuroloom", "migrate local sdlc", "move sdlc to backend",
   "port my knowledge to neuroloom", "migrate my existing sdlc to neuroloom".
-  Do NOT use for fresh installation without an existing local cc-sdlc — use sdlc-initialize instead.
-  Do NOT use for updating an already-ported Neuroloom workspace to a newer cc-sdlc version — use sdlc-migrate.
+  Do NOT use for fresh installation without an existing local z-sdlc — use sdlc-initialize instead.
+  Do NOT use for updating an already-ported Neuroloom workspace to a newer z-sdlc version — use sdlc-migrate.
 ---
 
 # SDLC Port
 
-Port an existing local cc-sdlc installation to use Neuroloom as the backend. This skill reads all
+Port an existing local z-sdlc installation to use Neuroloom as the backend. This skill reads all
 local knowledge stores, discipline files, and deliverable docs, ingests them into Neuroloom via
 batch ingestion, transforms agent and skill files to replace local file-read patterns with
 `memory_search` calls, and writes a manifest marking the workspace as ported.
 
-Run this once on a project that already has cc-sdlc installed locally (`ops/sdlc/` present). For a
-project that has never had cc-sdlc, run `/sdlc-initialize` instead. For updating an already-ported
-workspace to a newer cc-sdlc release, run `/sdlc-migrate` instead.
+Run this once on a project that already has z-sdlc installed locally (`ops/sdlc/` present). For a
+project that has never had z-sdlc, run `/sdlc-initialize` instead. For updating an already-ported
+workspace to a newer z-sdlc release, run `/sdlc-migrate` instead.
 
 ---
 
@@ -48,12 +48,12 @@ confirmation gate — the user already confirmed once.
 
 ## Stage 1 — Pre-flight and Inventory
 
-### Gate 1: Local cc-sdlc installation exists
+### Gate 1: Local z-sdlc installation exists
 
 Check whether `ops/sdlc/` is present in the project root. If absent, stop and output:
 
 ```
-No cc-sdlc installation found. Run /sdlc-initialize instead.
+No z-sdlc installation found. Run /sdlc-initialize instead.
 ```
 
 Do not proceed.
@@ -125,7 +125,7 @@ For deliverable docs and agent/skill files, glob and count files:
 Present the inventory summary. Do not begin any writes until the user confirms.
 
 ```
-cc-sdlc installation found. Ready to port to Neuroloom.
+z-sdlc installation found. Ready to port to Neuroloom.
 
   Knowledge files:    {N} files, {M} entries
   Discipline files:   {N} files, {M} entries
@@ -441,10 +441,10 @@ git checkout .claude/skills/{specific_skill}/SKILL.md
 List specific file paths — do NOT run `git checkout .claude/` as that restores all files including
 user-created agents that were never touched.
 
-### Stage 4e — Remove cc-sdlc Originals for Plugin-Owned Skills
+### Stage 4e — Remove z-sdlc Originals for Plugin-Owned Skills
 
 The Neuroloom SDLC plugin provides its own versions of `sdlc-initialize` and
-`sdlc-migrate`. The cc-sdlc originals placed by framework installation in
+`sdlc-migrate`. The z-sdlc originals placed by framework installation in
 `.claude/skills/sdlc-initialize/` and `.claude/skills/sdlc-migrate/` must be
 removed to prevent skill resolution conflicts.
 
@@ -458,7 +458,7 @@ Do NOT ask whether to remove these directories — this is automatic cleanup, no
 Do NOT remove skill directories from `neuroloom-sdlc-plugin/skills/` — those are the plugin's own skill definitions and are never touched by this skill.
 
 **Do NOT remove** any other skill directories from `.claude/skills/`. All other
-cc-sdlc skills remain active and are not replaced by the plugin.
+z-sdlc skills remain active and are not replaced by the plugin.
 
 ### Stage 4f — Relocate Operational SDLC Directories
 
@@ -514,7 +514,7 @@ After moving, remap the following path prefixes in all transformed files:
 | `ops/sdlc/improvement-ideas/` | `.claude/sdlc/improvement-ideas/` |
 
 **Exclusions from remapping:**
-- Lines matching `~/src/ops/sdlc/` — upstream cc-sdlc source paths, not local installation
+- Lines matching `~/src/ops/sdlc/` — upstream z-sdlc source paths, not local installation
 - Historical entries in `sdlc_changelog.md` and `changelog-archive/*.md`
 
 ### Stage 4g — Remap Agent Memory Files
@@ -578,7 +578,7 @@ it.
 
 **Exclusions from remapping:**
 - `sdlc_changelog.md` and `changelog-archive/*.md` historical entries (if referenced)
-- `~/src/ops/sdlc/` upstream cc-sdlc source refs
+- `~/src/ops/sdlc/` upstream z-sdlc source refs
 
 Run without asking for confirmation — this is automatic cleanup, same as Stage 4e and 4f.
 
@@ -611,13 +611,13 @@ Common anti-patterns and corrections (11 entries covering re-porting safety, tra
 - Sentinel memory (managed server-side by `seed()` — not written by this skill)
 
 **After port:**
-- `sdlc-migrate` can update the workspace to newer cc-sdlc releases without re-porting
+- `sdlc-migrate` can update the workspace to newer z-sdlc releases without re-porting
 - The SessionStart hook (`hooks/session-start.sh`) begins checking versions against the manifest
 - Agent files now retrieve knowledge via `memory_search` instead of local file reads
 
 **Sibling skills:**
-- `sdlc-initialize` — fresh install when no local cc-sdlc exists; handles Neuroloom seeding from scratch
-- `sdlc-migrate` — updates an already-ported workspace to a newer cc-sdlc version; does not re-port
+- `sdlc-initialize` — fresh install when no local z-sdlc exists; handles Neuroloom seeding from scratch
+- `sdlc-migrate` — updates an already-ported workspace to a newer z-sdlc version; does not re-port
 
 ---
 

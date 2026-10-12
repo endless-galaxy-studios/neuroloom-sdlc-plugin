@@ -207,7 +207,7 @@ def _parse_gotchas_pattern(
 
         # Support two gotcha schemas:
         # Schema A (Neuroloom): severity, symptom, cause, resolution
-        # Schema B (cc-sdlc): pattern, example, risk, correct_approach
+        # Schema B (z-sdlc): pattern, example, risk, correct_approach
         content_lines: list[str] = []
         if "symptom" in item:
             if severity:

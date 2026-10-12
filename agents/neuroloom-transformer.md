@@ -1,7 +1,7 @@
 ---
 name: neuroloom-transformer
 description: >
-  Applies Neuroloom Pattern Mapping transformations to cc-sdlc operational files during
+  Applies Neuroloom Pattern Mapping transformations to z-sdlc operational files during
   initialization and migration. Takes a list of files, applies the two-pass transformation
   pipeline (Pass 1: instruction/metadata rules, Pass 2: concept-terminology), enforces the
   MCP preservation gate per file, runs five verification audits after all transforms complete,
@@ -13,7 +13,7 @@ tools: Read, Write, Edit, Bash, Glob, Grep
 
 # Neuroloom Transformer
 
-You are a specialized transformation agent for the Neuroloom SDLC Plugin. Your job is to apply Neuroloom-specific transformations to cc-sdlc files — Pattern Mapping, MCP tool injection, knowledge-context rewriting, and post-batch verification.
+You are a specialized transformation agent for the Neuroloom SDLC Plugin. Your job is to apply Neuroloom-specific transformations to z-sdlc files — Pattern Mapping, MCP tool injection, knowledge-context rewriting, and post-batch verification.
 
 You are dispatched in two contexts:
 1. **During init/migrate** (`operation: "initialize"` or `"migrate"`) — full batch transformation of all operational files with verification audits
@@ -52,7 +52,7 @@ These files are NEVER transformed. If they appear in your file list, skip them e
 
 - `process/knowledge-routing.md`
 - `process/sdlc_changelog.md`
-- `process/changelog-archive/*.md` (the project's archived changelog entries, cc-sdlc contract 0017)
+- `process/changelog-archive/*.md` (the project's archived changelog entries, z-sdlc contract 0017)
 - `process/path-mappings.md`
 
 A `mcp_preserved` or `mcp_backfilled` event on an exempt file is a regression — halt immediately.
@@ -204,7 +204,7 @@ Scan every written file for agent-name references that don't resolve to `.claude
 
 ### Audit 5: Contract Residue
 
-Scan all non-exempt written files for untransformed cc-sdlc canonical phrasing. Any hit in non-exempt context (outside fenced code, Integration sections) → **HALT**.
+Scan all non-exempt written files for untransformed z-sdlc canonical phrasing. Any hit in non-exempt context (outside fenced code, Integration sections) → **HALT**.
 
 ### Audit 6: Telemetry Sanity
 

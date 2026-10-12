@@ -18,7 +18,7 @@ Write `.sdlc-manifest.json` in the project root:
 
 Note: `sdlc_version` is the canonical key read by `sdlc-migrate` to detect the operational layer version. It must always be present.
 
-Call `sdlc_get_version` to get the current cc-sdlc release tag. If the call fails or returns no
+Call `sdlc_get_version` to get the current z-sdlc release tag. If the call fails or returns no
 version, use `"local"`.
 
 Do NOT create or update the sentinel — the sentinel is managed server-side by `seed()`.
@@ -52,7 +52,7 @@ Run these checks after writing the manifest:
 
 Exclusion rules for grep checks on relocated directories:
 - Exclude `sdlc_changelog.md` historical entries, and the archived ones in `process/changelog-archive/*.md`
-- Exclude lines matching `~/src/ops/sdlc/` (upstream cc-sdlc source path)
+- Exclude lines matching `~/src/ops/sdlc/` (upstream z-sdlc source path)
 
 If any check fails, report the specific failure and its recovery path (see Error Handling below).
 
@@ -80,7 +80,7 @@ Do not mark the port complete if a material discrepancy cannot be explained.
 
 The audit verifies the bulk transformation landed correctly — every file-based reference that should have become a `memory_search`/`memory_store` call actually did, across all targeted files. The port touches a much larger surface than a typical migration (it converts an entire file-based install), so aggregate checks are essential:
 - Every file flagged by the phrasing-contract runtime scan (see `sdlc-migrate` § "Detecting Files That Contain Phrasing-Contract Patterns") contains at least one MCP call
-- No residual cc-sdlc standard phrases (they should all be transformed)
+- No residual z-sdlc standard phrases (they should all be transformed)
 - No inline adapter conditionals (contract violations)
 - Knowledge YAMLs fully ingested with correct domain tags
 - Original file-based knowledge files removed or marked (no drift risk)
@@ -131,14 +131,14 @@ Output a completion summary:
 ```
 Neuroloom SDLC Port Complete — {N} knowledge + {M} discipline entries seeded, {J} files transformed
 
-Ported local cc-sdlc installation to Neuroloom backend. {N} knowledge entries and {M} discipline entries are now searchable via memory_search; {K} deliverable docs synced; {J} agent/skill files transformed from file-path to MCP references.
+Ported local z-sdlc installation to Neuroloom backend. {N} knowledge entries and {M} discipline entries are now searchable via memory_search; {K} deliverable docs synced; {J} agent/skill files transformed from file-path to MCP references.
 
   Knowledge entries seeded:  {N}
   Discipline entries seeded: {M}
   Deliverable docs synced:   {K}
   Agent/skill files updated: {J}
 
-Next step: Run /sdlc-migrate to check for upstream cc-sdlc updates.
+Next step: Run /sdlc-migrate to check for upstream z-sdlc updates.
 ```
 
 ---

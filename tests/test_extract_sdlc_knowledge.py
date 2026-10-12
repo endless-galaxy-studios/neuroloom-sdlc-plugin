@@ -55,7 +55,7 @@ _extract_yaml_entries = _script._extract_yaml_entries
 _extract_discipline_entry = _script._extract_discipline_entry
 
 # Integration tests run against a project's ops/sdlc/ tree. The tests expect
-# to be run from a project root that has cc-sdlc installed (e.g., neuroloom).
+# to be run from a project root that has z-sdlc installed (e.g., neuroloom).
 _PROJECT_ROOT = Path.cwd()
 _REAL_KNOWLEDGE_DIR = _PROJECT_ROOT / "ops" / "sdlc" / "knowledge"
 _REAL_DISCIPLINES_DIR = _PROJECT_ROOT / "ops" / "sdlc" / "disciplines"

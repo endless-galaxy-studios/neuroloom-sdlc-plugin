@@ -1,6 +1,6 @@
 ### Pattern Mapping
 
-> **How coverage actually works:** This table lists 5 explicit phrase-to-call mappings, but they cover only a fraction of real-world transformation sites. The vast majority of cc-sdlc files with knowledge references (skills, agents, process docs) are handled via the **section-level preservation rule** documented in "Content-Merge Rules for Neuroloom" below — scan each file for `memory_search(` / `memory_store(` presence and preserve those sections verbatim during merge. The explicit patterns below are what the transformer SEEKS during fresh installation (`/sdlc-initialize`) and during migration when a file has no prior MCP patterns. Once a file contains MCP calls, section-level preservation takes over.
+> **How coverage actually works:** This table lists 5 explicit phrase-to-call mappings, but they cover only a fraction of real-world transformation sites. The vast majority of z-sdlc files with knowledge references (skills, agents, process docs) are handled via the **section-level preservation rule** documented in "Content-Merge Rules for Neuroloom" below — scan each file for `memory_search(` / `memory_store(` presence and preserve those sections verbatim during merge. The explicit patterns below are what the transformer SEEKS during fresh installation (`/sdlc-initialize`) and during migration when a file has no prior MCP patterns. Once a file contains MCP calls, section-level preservation takes over.
 
 **Match rules:**
 1. **Case-insensitive on the leading verb, regardless of sentence position.** A rule `Read [sdlc-root]/disciplines/*.md and find [X]` matches both sentence-start `Read [sdlc-root]/disciplines/*.md and find...` and mid-sentence `..., read [sdlc-root]/disciplines/*.md and find...`. The verb (`Read`/`Consult`/`Append`/`Update`/`Look up`/etc.) is the anchor, not the sentence start. When substituting, preserve the original case of the verb only if the substitution keeps a verb at that position; otherwise the replacement's casing wins.
@@ -52,7 +52,7 @@
     **Wrong:** 4-step conditional (check tags → fallback → filter → always-include) → collapsed to 3-step unconditional
     **Correct:** each step's `memory_search()` syntax is transformed but the branching structure and step count are preserved
 
-| cc-sdlc Generic Pattern | Neuroloom Pattern (preserve if present) |
+| z-sdlc Generic Pattern | Neuroloom Pattern (preserve if present) |
 |-------------------------|----------------------------------------|
 | `consult [sdlc-root]/knowledge/agent-context-map.yaml` | `memory_search(query="[agent-name] domain-specific patterns", tags=["sdlc:knowledge"])` |
 | `Consult [sdlc-root]/knowledge/agent-context-map.yaml for the [agent-name] entry and include relevant knowledge files in the dispatch prompt` | `memory_search(query="[agent-name] domain patterns for cross-domain dispatch", tags=["sdlc:knowledge"]) and include results in the dispatch prompt` |
@@ -93,7 +93,7 @@ For idea and design-consult entries, use `sdlc:context:` instead of `sdlc:delive
 
 **Wildcard rules (apply to any matching path not already covered by a specific rule above):**
 
-| cc-sdlc Wildcard Pattern | Neuroloom Replacement |
+| z-sdlc Wildcard Pattern | Neuroloom Replacement |
 |--------------------------|------------------------|
 | `Read [sdlc-root]/knowledge/<domain>/<file>.yaml` | `memory_search(query="<file-name-as-topic>", tags=["sdlc:knowledge", "sdlc:domain:<domain>"])` |
 | `Read [sdlc-root]/knowledge/<domain>/<file>.yaml and <verb> [rest]` | `memory_search(query="<file-name-as-topic>", tags=["sdlc:knowledge", "sdlc:domain:<domain>"]) and <verb> [rest]` |
@@ -111,7 +111,7 @@ For idea and design-consult entries, use `sdlc:context:` instead of `sdlc:delive
 
 **Audit-description metadata (prose references in audit dimensions, compliance criteria, analysis descriptions):**
 
-| cc-sdlc Audit-Description Pattern | Neuroloom Replacement |
+| z-sdlc Audit-Description Pattern | Neuroloom Replacement |
 |-----------------------------------|-----------------------|
 | `Any YAML file in [sdlc-root]/knowledge/` | `Any memory entry tagged sdlc:knowledge` |
 | `files in [sdlc-root]/knowledge/` | `memory entries tagged sdlc:knowledge` |
@@ -125,11 +125,11 @@ For idea and design-consult entries, use `sdlc:context:` instead of `sdlc:delive
 
 **Knowledge-layer concept terminology (prose describing the knowledge layer's shape, not its paths):**
 
-Audit-description metadata (table above) handles path-reference prose. This new class handles the **shape-describing terminology** — prose that talks about the knowledge layer using file-based vocabulary ("parking lot entries", "Knowledge YAML files", "agent-context-map.yaml" as a live thing) where no `[sdlc-root]/` path appears. These terms describe *what* knowledge lives in cc-sdlc by reference to its storage medium (files). In a Neuroloom install the storage medium is the memory graph, so the vocabulary must be translated even though no path is visible.
+Audit-description metadata (table above) handles path-reference prose. This new class handles the **shape-describing terminology** — prose that talks about the knowledge layer using file-based vocabulary ("parking lot entries", "Knowledge YAML files", "agent-context-map.yaml" as a live thing) where no `[sdlc-root]/` path appears. These terms describe *what* knowledge lives in z-sdlc by reference to its storage medium (files). In a Neuroloom install the storage medium is the memory graph, so the vocabulary must be translated even though no path is visible.
 
 Added post-`migrate-fa70ef` audit: the previous audit-description rules fired on `[sdlc-root]/knowledge/<domain>/ directory` and similar path-bearing prose but left untouched pure file-speak like "parking lot entries" that doesn't contain a path. The translation is still needed because these terms leak the file-based architecture into the Neuroloom documentation.
 
-| cc-sdlc Concept Terminology | Neuroloom Replacement |
+| z-sdlc Concept Terminology | Neuroloom Replacement |
 |-----------------------------|------------------------|
 | `parking lot entries` (used as a live concept, not describing a procedure specific to file-based mode) | `discipline memory entries` |
 | `parking lot entries tagged with <X>` | `discipline memory entries tagged sdlc:discipline:* and <X>` |
@@ -178,7 +178,7 @@ The first-pass rules catch explicit terms (`knowledge stores`, `knowledge files`
 
 **Scope restriction (CRITICAL — prevents false positives):** These rules fire ONLY within sections that deal with knowledge or discipline content. A section qualifies if its nearest enclosing heading (any `#` level) contains any of: `Knowledge`, `Discipline`, `Parking Lot`, `Agent Knowledge`, `Contradiction`, `Staleness`, `Knowledge Layer`, `Knowledge Wiring`, `Knowledge Store`. This avoids false positives in sections discussing actual on-disk files (process docs, agent files, skill files, source code).
 
-| cc-sdlc Contextual Pattern | Neuroloom Replacement | Context |
+| z-sdlc Contextual Pattern | Neuroloom Replacement | Context |
 |-----------------------------|------------------------|---------|
 | `mapped files` (agent dispatch context — "the agent's mapped files") | `mapped entries` | Knowledge wiring sections |
 | `spec-relevant files` | `spec-relevant entries` | Spec filtering in sdlc-plan |
@@ -196,7 +196,7 @@ The first-pass rules catch explicit terms (`knowledge stores`, `knowledge files`
 
 **Bare path fragments in example tables (not instruction contexts):**
 
-| cc-sdlc Example-Table Pattern | Neuroloom Replacement |
+| z-sdlc Example-Table Pattern | Neuroloom Replacement |
 |-------------------------------|------------------------|
 | `knowledge/architecture/` (in example table cells, not instructions) | `knowledge memory (sdlc:domain:architecture)` |
 | `knowledge/<domain>/` (in example table cells) | `knowledge memory (sdlc:domain:<domain>)` |
@@ -221,7 +221,7 @@ Upstream prose sometimes uses a verb followed by a prepositional phrase referrin
 
 **Match scope:** verb-of-path rules apply in PROSE contexts only — not inside fenced code blocks, Integration sections, or YAML/JSON structured data. Same exclusions as other Pass 2 rules.
 
-**Bug this prevents:** sleeved `migrate-0957db` left `analysis-methodology.md:66` with `- Explicit reads of [sdlc-root]/knowledge/ files` — the only known instance of the verb-of-path class at the time. The cc-sdlc upstream line has been rephrased to canonical form (`Explicit \`Read [sdlc-root]/knowledge/<file>.yaml\` calls`) so the existing Pass 1 wildcard rule fires; this Pass 2 class catches any future verb-of-path constructions that slip through.
+**Bug this prevents:** sleeved `migrate-0957db` left `analysis-methodology.md:66` with `- Explicit reads of [sdlc-root]/knowledge/ files` — the only known instance of the verb-of-path class at the time. The z-sdlc upstream line has been rephrased to canonical form (`Explicit \`Read [sdlc-root]/knowledge/<file>.yaml\` calls`) so the existing Pass 1 wildcard rule fires; this Pass 2 class catches any future verb-of-path constructions that slip through.
 | `knowledge files` (bare plural, used as a concept) | `knowledge memory entries` |
 | `YAML rule file` / `rule YAML file` / `rule file` (knowledge-layer context) | `knowledge memory entry` |
 | `Knowledge Stores` (heading label) | `Knowledge Memory` (heading label) — paired with body-text update per heading rule |
@@ -248,7 +248,7 @@ When a metadata-transformation parenthetical rule fires (e.g., `([sdlc-root]/dis
 
 - These rules apply in PROSE contexts that describe the knowledge layer's **shape** rather than its **paths**. They're distinguished from audit-description rules by the absence of `[sdlc-root]/` in the matched text.
 - **Do NOT apply inside:** fenced code blocks, changelog entries, the phrasing contract doc itself. **Integration sections ARE eligible** for concept-terminology (Pass 2) — only Pass 1 path transforms are excluded from Integration sections. Headings that are the literal title of a framework-defined procedure (e.g., `### 9a. Scan Related Parking Lot Entries` as a defined section of the archive skill) are a different case — see below.
-- **Headings are a special case.** An H3/H4 heading like `### 9a. Scan Related Parking Lot Entries` names a procedure that cc-sdlc defines. In Neuroloom the procedure still exists but operates on memory entries, so rename the heading to `### 9a. Scan Related Discipline Memory Entries` AND adjust the body's procedure text to match. Do NOT transform the heading without transforming the body — that produces a mismatch where the heading says "memory entries" and the body says "files".
+- **Headings are a special case.** An H3/H4 heading like `### 9a. Scan Related Parking Lot Entries` names a procedure that z-sdlc defines. In Neuroloom the procedure still exists but operates on memory entries, so rename the heading to `### 9a. Scan Related Discipline Memory Entries` AND adjust the body's procedure text to match. Do NOT transform the heading without transforming the body — that produces a mismatch where the heading says "memory entries" and the body says "files".
 - **Procedure-specific steps are a special case.** Content like "Write new YAML files or append to existing ones" is a file-mode procedure. In Neuroloom, the procedure is "call `memory_store(content=..., tags=[...])`" — a completely different mechanism. When you see a numbered step that's a file-mode procedure, the replacement must be the Neuroloom procedure equivalent, not a word-for-word term swap. When no clean equivalent exists (e.g., "update the README.md structure listing"), emit `TRANSFORMATION_WARNING` and consider dropping the step since it's file-mode-only work the adapter doesn't need.
 - **Fragments match independently within sentences,** same rule as audit-description. A sentence with multiple concept-terms must have each term transformed separately.
 
@@ -269,7 +269,7 @@ When a metadata-transformation parenthetical rule fires (e.g., `([sdlc-root]/dis
 
 #### Metadata transformation (parenthetical and table-cell path refs)
 
-Parenthetical paths and table-cell paths in cc-sdlc source describe WHERE something lives in filesystem mode. In Neuroloom, those paths don't exist — the content is in the memory graph. Transform these metadata refs to their Neuroloom-native equivalent so Neuroloom users aren't pointed at non-existent files.
+Parenthetical paths and table-cell paths in z-sdlc source describe WHERE something lives in filesystem mode. In Neuroloom, those paths don't exist — the content is in the memory graph. Transform these metadata refs to their Neuroloom-native equivalent so Neuroloom users aren't pointed at non-existent files.
 
 Apply these rules to: parenthetical paths `(...)`, table cells containing paths (any column, not just first/last), bullet-point labels with paths (both `Label: path` and `Label (path)` forms). Do NOT apply inside fenced code blocks or when the path is in a canonical instruction already handled above.
 
@@ -448,7 +448,7 @@ The full guard set is now bidirectional:
 
 If a sentence's verb belongs to one column, replacements from the other column are forbidden. Symmetric handling closes the write-of-read loophole that `migrate-6f4217` exposed.
 
-| cc-sdlc Metadata Pattern | Neuroloom Metadata Replacement |
+| z-sdlc Metadata Pattern | Neuroloom Metadata Replacement |
 |--------------------------|--------------------------------|
 | `([sdlc-root]/knowledge/agent-context-map.yaml)` | `(domain-scoped memory search, sdlc:domain:* tags)` |
 | `([sdlc-root]/knowledge/**/*.yaml)` | `(memory graph, entries tagged sdlc:knowledge)` |
@@ -542,9 +542,9 @@ grep -inE '\bknowledge files?\b|\bdiscipline files?\b|\bparking[- ]lot entr|\bkn
 
 **Halt condition:** if non-retention hits exist after Pass 2 wrote a file, EITHER (a) Pass 2 didn't actually run on this file (telemetry assertion will catch this independently) OR (b) the Pass 2 rules have a coverage gap. In both cases the file is in a hybrid-mode state — partial-Neuroloom, partial-file-mode prose — which is the worst output state because it's harder to detect than uniform regression. Halt before declaring `concept_terminology_applied: PASS` for that file; emit `transformation_warning` with the specific phrase, line number, and surrounding context.
 
-**The bug this prevents:** sleeved's `process/deliverable_lifecycle.md:76` post-`migrate-6f4217` had `- Testing knowledge files updated` written to disk despite the Pass 2 rule `knowledge files` → `knowledge memory entries` existing in the table above. Pass 2 didn't fire on this file (along with ~37 sibling sites across sleeved). The user found it manually after the outside-the-run audit also missed it — the audit's path-bearing-residue grep doesn't catch bare forms. This residue scan halts the write before silent regression reaches disk; the audit skill's Scan 3b (cc-sdlc `ccsdlc-audit-adapter-installation`) catches anything that still slips through.
+**The bug this prevents:** sleeved's `process/deliverable_lifecycle.md:76` post-`migrate-6f4217` had `- Testing knowledge files updated` written to disk despite the Pass 2 rule `knowledge files` → `knowledge memory entries` existing in the table above. Pass 2 didn't fire on this file (along with ~37 sibling sites across sleeved). The user found it manually after the outside-the-run audit also missed it — the audit's path-bearing-residue grep doesn't catch bare forms. This residue scan halts the write before silent regression reaches disk; the audit skill's Scan 3b (z-sdlc `ccsdlc-audit-adapter-installation`) catches anything that still slips through.
 
-**Fenced code blocks containing file-mode demos — deferred to 0.5.0:** Pass 2 intentionally does not modify fenced-block contents, even when those contents are file-mode demos (e.g., a ` ```yaml ` block demonstrating `mappings: ui-ux-designer: [paths]` in an adapter-unreachable format). Surrounding prose is transformed by Pass 2; the demo itself is preserved as cc-sdlc's original file-mode reference. Future work (0.5.0) may add an optional pre-fence annotation (e.g., *"In Neuroloom mode, the equivalent operation is `memory_store(..., tags=[...])`."*) as a demonstration-mapping rule class. Until then, fenced-block file-mode demos remain a project-specific customization zone — if your installation wants to replace the demo, wrap the whole fenced block in `PROJECT-SECTION` markers.
+**Fenced code blocks containing file-mode demos — deferred to 0.5.0:** Pass 2 intentionally does not modify fenced-block contents, even when those contents are file-mode demos (e.g., a ` ```yaml ` block demonstrating `mappings: ui-ux-designer: [paths]` in an adapter-unreachable format). Surrounding prose is transformed by Pass 2; the demo itself is preserved as z-sdlc's original file-mode reference. Future work (0.5.0) may add an optional pre-fence annotation (e.g., *"In Neuroloom mode, the equivalent operation is `memory_store(..., tags=[...])`."*) as a demonstration-mapping rule class. Until then, fenced-block file-mode demos remain a project-specific customization zone — if your installation wants to replace the demo, wrap the whole fenced block in `PROJECT-SECTION` markers.
 
 **EXCEPTION — Agent template code blocks (added post-v1.5.4 audit):**
 
