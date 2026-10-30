@@ -431,7 +431,7 @@ class TestProvenanceRecords:
         assert ('memory_get_index(tags=["sdlc:provenance", "sdlc:source-type:reference-doc", '
                 '"sdlc:prov-status:approved-for-ingest"], limit=500)') in rules
         assert "`memory_get_detail` is called on those rows only" in rules
-        assert ("memory_update(memory_id=<id>, tags=[<the record's full tag list, status tag swapped>], "
+        assert ("memory_update(id=<id>, tags=[<the record's full tag list, status tag swapped>], "
                 "narrative=<the whole record, status line updated>)") in rules
         assert "`memory_update` REPLACES `tags`" in rules and "Always send every tag and every field." in rules
         assert "A sweep record has no status" in rules
@@ -567,6 +567,59 @@ class TestProvenanceRecords:
         readme = (_ROOT / "README.md").read_text()
         for tag in ("`sdlc:provenance`", "`sdlc:source-type:{type}`", "`sdlc:prov:{id}`", "`sdlc:prov-status:{status}`"):
             assert tag in readme, tag
+
+
+# The old name of memory_update's identifier parameter. The MCP server renamed it to `id` (neuroloom-mcp 0.2.0),
+# matching memory_get_detail, memory_get_related, memory_rate and memory_delete.
+# The schema requires `id`, so the MCP SDK rejects a `memory_id` call at validation, before the handler runs
+# (isError: "Input validation error: 'id' is a required property"). A rule that still emits the old name
+# produces a call that fails. The pattern is a regex, not a literal, so this file does not match its own scan.
+# It matches `memory_id` as ANY keyword argument inside the call's parentheses (one level of nested parens
+# allowed), including a backtick-quoted name and a call split over lines.
+_MEMORY_UPDATE_OLD_ID_RE = re.compile(r"memory_update\((?:[^()]|\([^()]*\))*?`?\bmemory_id\b`?\s*=")
+
+
+class TestMemoryUpdateIdParameter:
+    """`memory_update` takes the memory's identifier as `id`; no rule document may tell an agent otherwise."""
+
+    def test_no_rule_document_emits_the_old_parameter_name(self) -> None:
+        hits = []
+        for path in _rule_documents():
+            text = path.read_text()
+            for m in _MEMORY_UPDATE_OLD_ID_RE.finditer(text):
+                n = text.count("\n", 0, m.start()) + 1
+                hits.append(f"{path.relative_to(_ROOT)}:{n}")
+        assert not hits, "memory_update called with the old identifier parameter (it takes `id`):\n" + "\n".join(hits)
+
+    def test_the_guard_pattern_catches_the_spellings_it_exists_for(self) -> None:
+        for bad in (
+            "memory_update(memory_id=<id>, tags=[])",
+            "memory_update(memory_id='a1b2')",
+            "memory_update( memory_id=x)",
+            "memory_update(\n    memory_id=x,\n    tags=[])",
+            "memory_update(tags=[], memory_id=x)",
+            "memory_update(`memory_id`=x)",
+        ):
+            assert _MEMORY_UPDATE_OLD_ID_RE.search(bad), bad
+        for good in (
+            "memory_update(id=<id>, tags=[])",
+            "memory_update(narrative=<n>, id=<id>)",
+            "memory_get_detail(id=<id>)",
+            "memory_delete_batch(memory_ids=[<id>])",
+            "`memory_update` takes `narrative=`",
+        ):
+            assert not _MEMORY_UPDATE_OLD_ID_RE.search(good), good
+
+    def test_every_status_and_renumber_call_names_the_memory_with_id(self) -> None:
+        rules = _rules()
+        status = rules.split("**Status change**", 1)[1].split("\n", 1)[0]
+        consume = next(ln for ln in rules.splitlines() if ln.startswith("| `update that entry's status to"))
+        approve = next(ln for ln in rules.splitlines() if ln.startswith("| `the user approves them to"))
+        renumber = next(ln for ln in rules.splitlines() if ln.startswith("| `Append one entry (or entries) to [sdlc-root]/knowledge/provenance_log.md`"))
+        assert "memory_update(id=<id>, tags=[" in status
+        assert "memory_update(id=<the record's id>, tags=[" in consume
+        assert "memory_update(id=<id>, tags=[" in approve
+        assert "memory_update(id=<its id>, title=" in renumber
 
 
 # ---------------------------------------------------------------------------
