@@ -871,3 +871,297 @@ class TestUpstreamCoverageInventory:
             assert old.replace("`", "\\`") in rules, old  # the table cell escapes the inner backticks
         assert "Agent self-lookup at session start uses \\`memory_search(" in rules
         assert "Parking lot captures use \\`memory_store(tags=" in rules
+
+
+def _agent() -> str:
+    return (_ROOT / "agents" / "neuroloom-transformer.md").read_text()
+
+
+def _row_cells(row: str) -> list[str]:
+    """Cells of a Markdown table row, splitting only on unescaped pipes."""
+    parts = re.split(r"(?<!\\)\|", row.strip())
+    return [c.strip() for c in parts[1:-1]]
+
+
+def _first_grep_regex(text: str, flags: str) -> str:
+    """The single-quoted regex of the first `grep <flags> '…'` command in `text`."""
+    m = re.search(r"grep " + re.escape(flags) + r" (?:--include='\*\.md' )?'([^']+)'", text)
+    assert m, f"no `grep {flags}` command found"
+    return m.group(1)
+
+
+class TestConceptTerminologyScan:
+    """Pass 2 vocabulary has no path in it, so it needs its own entry scan and its own exit scan."""
+
+    def test_step_1_runs_both_the_path_scan_and_the_concept_scan(self) -> None:
+        step1 = _agent().split("### Step 1: Runtime Scan", 1)[1].split("### Step 2.0", 1)[0]
+        assert "Run BOTH scans" in step1 and "if EITHER finds a match" in step1
+        assert "A file with concept terms and no path anchor is NOT `no_patterns`" in step1
+        assert "If BOTH scans find nothing" in step1
+        assert "a relative link target such as `knowledge/agent-context-map.yaml` included" in step1
+        assert "exactly `knowledge/` or `disciplines/`" in step1
+
+    def test_the_entry_scan_the_exit_scan_and_the_post_op_scan_use_one_regex(self) -> None:
+        step1 = _agent().split("### Step 1: Runtime Scan", 1)[1].split("### Step 2.0", 1)[0]
+        audit7 = _agent().split("### Audit 7", 1)[1]
+        check2b = _audit().split("### Check 2b", 1)[1].split("### Check 3", 1)[0]
+        a, b = _first_grep_regex(step1, "-inE"), _first_grep_regex(audit7, "-inE")
+        c = _first_grep_regex(check2b, "-rinE")
+        assert a == b == c, "the three concept scans must be character-for-character identical"
+        assert r"\bknowledge stores?\b" in a and r"\bdiscipline parking[- ]lots?\b" in a
+
+    def test_post_operation_check_2b_exists_and_names_the_gap(self) -> None:
+        audit = _audit()
+        assert "### Check 2b — Concept-terminology residue (WARN; REGRESSION in one case)" in audit
+        assert "the transformer's Step 1 scan used path anchors only" in audit
+        assert "each file was logged `no_patterns` and Pass 2 never ran on it" in audit
+        assert 'subtype: "no_patterns"' in audit and "Step 1 skipped Pass 2 on a file that needed it" in audit
+        assert "[✓] Concept-terminology residue" in audit
+        assert "Check 2b adds the concept-terminology scan" in (_ROOT / "references" / "adapter-lifecycle.md").read_text()
+
+    def test_rows_for_the_phrasings_the_audit_found(self) -> None:
+        rules = _rules()
+        assert "a markdown link whose target is the map" in rules
+        assert "Domain tags (\\`sdlc:domain:<name>\\`) route the knowledge memory entries each agent role should read" in rules
+        assert "an install-layout table cell that is exactly `knowledge/` or `disciplines/`" in rules
+        assert "memory entries tagged \\`sdlc:knowledge\\` \\| Structured knowledge memory entries" in rules
+
+    @pytest.mark.skipif(not _upstream_is_v2_2_0(), reason="needs ~/Projects/cc-sdlc checked out at the v2.2.0 tag")
+    def test_upstream_has_files_with_concept_terms_and_no_path_anchor(self) -> None:
+        """The case Step 1 used to skip. If upstream had none, the extra scan would be dead weight."""
+        concept = re.compile(_first_grep_regex(_agent().split("### Step 1: Runtime Scan", 1)[1], "-inE"), re.I)
+        only_concept = []
+        for top in ("skills", "process", "templates", "agents"):
+            for f in sorted((_UPSTREAM / top).rglob("*.md")):
+                rel = str(f.relative_to(_UPSTREAM))
+                if rel.startswith(_EXEMPT_FILES):
+                    continue
+                text = f.read_text()
+                if concept.search(text) and not _PATH.search(text) and "agent-context-map" not in text:
+                    only_concept.append(rel)
+        assert {"process/commands.md", "process/guardrail-lifecycle.md"} <= set(only_concept), only_concept
+
+    @pytest.mark.skipif(not _upstream_is_v2_2_0(), reason="needs ~/Projects/cc-sdlc checked out at the v2.2.0 tag")
+    def test_every_concept_term_upstream_uses_has_a_concept_row(self) -> None:
+        concept = re.compile(_first_grep_regex(_agent().split("### Step 1: Runtime Scan", 1)[1], "-inE"), re.I)
+        # Only the left (input) cell of a table row counts: a term that appears only in a replacement cell,
+        # a note or a worked example is not a rule for matching it.
+        inputs = "\n".join(
+            cells[0].lower()
+            for cells in (_row_cells(ln) for ln in _rules().splitlines() if ln.startswith("|"))
+            if len(cells) >= 2
+        )
+        missing: dict[str, str] = {}
+        for top in ("skills", "process", "templates", "agents"):
+            for f in sorted((_UPSTREAM / top).rglob("*.md")):
+                rel = str(f.relative_to(_UPSTREAM))
+                if rel.startswith(_EXEMPT_FILES) or rel.startswith("skills/sdlc-migrate/"):
+                    continue
+                for n, ln in enumerate(f.read_text().split("\n"), start=1):
+                    for m in concept.finditer(ln):
+                        term = m.group(0).lower()
+                        stem = term.rstrip("s")  # a row may list the singular only
+                        if term not in inputs and stem not in inputs:
+                            missing.setdefault(term, f"{rel}:{n}")
+        assert not missing, f"concept terms upstream uses that no concept-terminology row names: {missing}"
+
+
+class TestEscapeSequences:
+    """`\n` inside a quoted string or a fence is two characters, never a line break."""
+
+    def test_match_rule_13_and_its_worked_examples(self) -> None:
+        rules = _rules()
+        assert "13. **Escape sequences are literal text.**" in rules
+        assert "does not expand `\\n` into a real newline" in rules
+        assert '"0. Identify test targets\\nand verify services" [shape=box];' in rules
+        assert "File: src/components/GalleryCarousel.tsx:42\\nCategory: correctness" in rules
+
+    def test_the_post_write_assertion_names_a_baseline_per_region(self) -> None:
+        rule13 = _rules().split("13. **Escape sequences are literal text.**", 1)[1].split("\n| ", 1)[0]
+        assert "**Post-write assertion:** count the two-character sequence backslash-`n`" in rule13
+        assert "the upstream file at the version being installed" in rule13  # outside project blocks
+        assert "the project's merged (pre-transform) version of that block or section" in rule13  # inside them
+        assert "Upstream is the wrong baseline inside a region" in rule13
+        assert "The merged version is the wrong baseline outside a region" in rule13
+
+    def test_step_2b_preserved_sections_are_merged_baseline_regions_like_project_blocks(self) -> None:
+        rule13 = _rules().split("13. **Escape sequences are literal text.**", 1)[1].split("\n| ", 1)[0]
+        assert "A **preserved region** is either a `PROJECT-SECTION` / `BUNDLE-SECTION` block or a section the Step 2b MCP preservation gate kept" in rule13
+        assert "The baseline for the INSIDE of each preserved region is the project's merged (pre-transform) version of that block or section" in rule13
+        assert "is paired with its upstream namesake only by a heading match" in rule13
+        assert "silently overwrite content the preservation gate deliberately kept" in rule13
+        assert "Put the lines back from the region's baseline" in rule13
+        assert "restores the lines from its baseline" in _agent() and "a section the Step 2b MCP preservation gate kept" in _agent()
+
+    def test_the_step_2b_gate_the_rule_points_at_still_matches_sections_by_heading(self) -> None:
+        gate = _agent().split("**2b. MCP preservation gate:**", 1)[1].split("**Heading fuzzy-match", 1)[0]
+        assert "Extract sections containing those calls (delimited by `##`/`###` headings)" in gate
+        assert "merge preserved MCP sections back using heading fuzzy-match" in gate
+
+    def test_a_drop_is_restored_and_logged_not_halted_and_the_audit_reports_it(self) -> None:
+        rule13 = _rules().split("13. **Escape sequences are literal text.**", 1)[1].split("\n| ", 1)[0]
+        assert "**Action on a drop: restore, do not halt.**" in rule13
+        assert 'category: "escape_restored"' in rule13 and "halting would stop every remaining file" in rule13
+        assert "Halt on a drop" not in rule13  # one action only
+        assert "restores the lines from its baseline" in _agent() and "it does not halt" in _agent()
+        audit = _audit()
+        assert "### Check 2c — Escape preservation (WARN)" in audit and 'category: "escape_restored"' in audit
+        assert "[✓] Escape preservation:" in audit
+
+    def test_the_transformer_carries_the_constraint(self) -> None:
+        assert "Never change a backslash-n (or any other escape sequence) inside a quoted string or a fenced block" in _agent()
+
+    def test_no_replacement_row_emits_a_backslash_n(self) -> None:
+        """The assertion is only sound if no row writes one; the rule prose and its examples are the only places."""
+        rules = _rules()
+        table_rows = [ln for ln in rules.splitlines() if ln.startswith("|")]
+        offenders = [ln[:90] for ln in table_rows if "\\n" in ln.replace("\\n\\", "")]
+        assert not offenders, offenders
+
+    @pytest.mark.skipif(not _upstream_is_v2_2_0(), reason="needs ~/Projects/cc-sdlc checked out at the v2.2.0 tag")
+    def test_upstream_really_has_escapes_inside_fences_and_quoted_strings(self) -> None:
+        """The two files the audit found are real examples, so the rule is not a hypothetical."""
+        tests_run = (_UPSTREAM / "skills" / "sdlc-tests-run" / "SKILL.md").read_text()
+        protocol = (_UPSTREAM / "process" / "team-communication-protocol.md").read_text()
+        assert '"0. Identify test targets\\nand verify services"' in tests_run
+        assert "GalleryCarousel.tsx:42\\nCategory: correctness" in protocol
+
+
+class TestAuthorityStatement:
+    def test_readme_and_lifecycle_say_the_adapter_wins(self) -> None:
+        for path in (_ROOT / "README.md", _ROOT / "references" / "adapter-lifecycle.md"):
+            text = path.read_text()
+            assert "Authority in a Neuroloom-backed project: the adapter wins." in text, path.name
+            assert "`process/knowledge-routing.md` is this plugin's Neuroloom variant" in text
+            assert "`agents/sdlc-reviewer.md` has its phrasing-contract checklist rewritten" in text
+            assert "Integration `Uses:`" in text and "are rewritten, not preserved" in text
+            assert "not at drift" in text
+
+class TestQuotedTriggerPhrasesInDescriptions:
+    """A skill description is prose for Pass 2, except the words a user types: trigger lists and `user:` lines."""
+
+    @staticmethod
+    def _scope() -> str:
+        return _rules().split("**Pass 2 scope — what counts as \"prose\":**", 1)[1].split("Examples of text Pass 2 CAN transform", 1)[0]
+
+    def test_pass_2_scope_keeps_trigger_lists_and_user_lines_byte_identical(self) -> None:
+        scope = self._scope()
+        assert "**Exception to the exception: the user's own words.**" in scope
+        assert "(a) a quoted phrase in an explicit trigger list" in scope and "`Triggers on`" in scope
+        assert '`"verify the knowledge store"`' in scope and "folded/literal-block" in scope
+        assert "(b) the quoted text of a `user:" in scope and "line in an `<example>` block" in scope
+        assert "outer quotes of a double-quoted YAML value are delimiters, not a phrase" in scope
+        assert "The prose around the preserved quotes in the same description is still transformed." in scope
+
+    def test_the_exception_is_not_wider_than_trigger_lists_and_user_lines(self) -> None:
+        scope = self._scope()
+        assert "Every other quoted span in a description is prose and IS transformed" in scope
+        assert "`assistant:" in scope and "the text inside `<commentary>`" in scope
+        # the earlier wording covered every escaped quote, user: and assistant: alike
+        assert "the escaped quotes of a double-quoted YAML value" in scope  # allowed ONLY inside (a)
+        assert "double-quoted trigger phrases" not in scope
+        assert "including the `user:" not in scope
+
+    def test_the_must_not_list_and_the_residue_retention_list_agree(self) -> None:
+        rules = _rules()
+        must_not = rules.split("Examples of text Pass 2 MUST NOT transform:", 1)[1].split("**Pass 2 rules:**", 1)[0]
+        assert "A quoted trigger phrase or a `user:` line in a `description:` value" in must_not
+        assert "after `Triggers on`" in must_not and "An `assistant:" in must_not and "is prose and is transformed" in must_not
+        assert "`already-promoted knowledge-store entries` becomes `already-promoted knowledge memory entries`" in must_not
+        retention = rules.split("**Legitimate-retention contexts", 1)[1].split("**Halt condition:**", 1)[0]
+        assert "A quoted phrase in a trigger list, or the text of a `user:" in retention
+        assert "`assistant:` lines and `<commentary>` are NOT retained" in retention
+
+    def test_post_operation_check_2b_reports_assistant_lines(self) -> None:
+        check = _audit().split("### Check 2b", 1)[1].split("### Check 2c", 1)[0]
+        assert "a quoted phrase of a trigger list or a `user:" in check
+        assert "an `assistant:` line or `<commentary>` text is prose and IS reported" in check
+
+    def test_the_transformer_step_4_says_so(self) -> None:
+        step4 = _agent().split("### Step 4: Pass 2", 1)[1].split("Apply concept-terminology rules:", 1)[0]
+        assert 'EXCEPT inside a quoted phrase in an explicit trigger list (`Triggers on "verify the knowledge store", …`)' in step4
+        assert "or the text of a `user:" in step4 and "stay byte-identical" in step4
+        assert "Every other quoted span" in step4 and "is prose and is transformed" in step4
+
+    @pytest.mark.skipif(not _upstream_is_v2_2_0(), reason="needs ~/Projects/cc-sdlc checked out at the v2.2.0 tag")
+    def test_upstream_has_a_trigger_list_so_the_rule_is_not_hypothetical(self) -> None:
+        frontmatter = (_UPSTREAM / "skills" / "sdlc-audit" / "SKILL.md").read_text().split("---", 2)[1]
+        assert 'Triggers on "sdlc audit"' in frontmatter and '"verify the knowledge store"' in frontmatter
+        assert re.search(r"knowledge-store entries", frontmatter)  # unquoted prose in the same value
+
+    @pytest.mark.skipif(not _upstream_is_v2_2_0(), reason="needs ~/Projects/cc-sdlc checked out at the v2.2.0 tag")
+    def test_upstream_agent_descriptions_carry_user_and_assistant_lines_so_the_split_is_real(self) -> None:
+        description = (_UPSTREAM / "agents" / "sdlc-reviewer.md").read_text().split("\n")[2]
+        assert 'user: \\"' in description and 'assistant: \\"' in description
+
+
+class TestCheck2bOwnOutputIsNotAWarn:
+    """The replacement strings the plugin writes must not trip the plugin's own residue scan."""
+
+    @staticmethod
+    def _hits(line: str) -> list[re.Match[str]]:
+        return list(re.compile(_first_grep_regex(_audit().split("### Check 2b", 1)[1], "-rinE"), re.I).finditer(line))
+
+    @staticmethod
+    def _followed_by_memory_parenthetical(line: str, m: re.Match[str]) -> bool:
+        return re.match(r"\s*\(memory\b", line[m.end():]) is not None
+
+    def test_check_2b_documents_the_memory_parenthetical_exemption(self) -> None:
+        check = _audit().split("### Check 2b", 1)[1].split("### Check 2c", 1)[0]
+        assert "a hit directly followed by a `(memory …` parenthetical" in check
+        assert "Update the knowledge index (memory entries tagged sdlc:knowledge + sdlc:knowledge-index)" in check
+        assert "Discipline Parking Lots (memory graph, entries tagged sdlc:discipline:<name>)" in check
+        assert "A hit directly followed by a `(memory …` parenthetical" in _rules().split("**Legitimate-retention contexts", 1)[1]
+
+    def test_the_two_strings_the_review_found_match_the_regex_and_are_exempt(self) -> None:
+        for line in (
+            "Update the knowledge index (memory entries tagged sdlc:knowledge + sdlc:knowledge-index) to list new entries",
+            "### 6a. Discipline Parking Lots (memory graph, entries tagged sdlc:discipline:<name>)",
+        ):
+            hits = self._hits(line)
+            assert hits, f"the regex no longer matches {line!r}: the exemption is dead text"
+            assert all(self._followed_by_memory_parenthetical(line, m) for m in hits), line
+
+    def test_the_exemption_does_not_swallow_a_real_residue_hit(self) -> None:
+        for line in (
+            "Update the knowledge index (see the README) to list new entries",
+            "Read the discipline parking lots, then (memory notes) follow",
+            "Add it to the knowledge store",
+        ):
+            hits = self._hits(line)
+            assert hits and not any(self._followed_by_memory_parenthetical(line, m) for m in hits), line
+
+    def test_both_strings_are_still_in_the_rule_table_they_were_taken_from(self) -> None:
+        rules = _rules()
+        assert "`Update the knowledge index (memory entries tagged sdlc:knowledge + sdlc:knowledge-index) to list new entries`" in rules
+        assert "`### 6a. Discipline Parking Lots (memory graph, entries tagged sdlc:discipline:<name>)`" in rules
+
+
+class TestDeadRelativeLinks:
+    """Links with no `[sdlc-root]/` prefix and no concept term are invisible to Check 2 and Check 2b."""
+
+    def test_step_1_scans_for_relative_link_targets(self) -> None:
+        step1 = _agent().split("### Step 1: Runtime Scan", 1)[1].split("### Step 2.0", 1)[0]
+        assert "a relative markdown link target under `knowledge/`, `disciplines/` or `bundles/`" in step1
+        assert "`](disciplines/README.md)`" in step1 and "`](bundles/README.md)`" in step1 and "`test -d`" in step1
+
+    def test_rows_for_both_links_the_audit_found(self) -> None:
+        rules = _rules()
+        assert "a markdown link whose target is a relative `disciplines/…` or `knowledge/…` path" in rules
+        assert "(see the discipline memory entries tagged \\`sdlc:discipline:<name>\\`)" in rules
+        assert "a markdown link or table cell pointing at `bundles/README.md` when the installed tree has no `bundles/` directory" in rules
+        assert "The bundle sources are not installed in this project; see \\`bundles/README.md\\` in the upstream z-sdlc repository" in rules
+        assert "leave the links alone when `bundles/` is installed" in rules
+
+    def test_check_2d_exists_resolves_targets_and_is_in_the_report(self) -> None:
+        audit = _audit()
+        check = audit.split("### Check 2d", 1)[1].split("### Check 3", 1)[0]
+        assert "(knowledge|disciplines|bundles)/" in check and "`test -e`" in check
+        assert "A target that exists is a pass" in check and "**REGRESSION**" in check
+        assert "[✓] No dead relative links:" in audit
+
+    @pytest.mark.skipif(not _upstream_is_v2_2_0(), reason="needs ~/Projects/cc-sdlc checked out at the v2.2.0 tag")
+    def test_upstream_readme_really_carries_these_links(self) -> None:
+        readme = (_UPSTREAM / "README.md").read_text()
+        for target in ("](knowledge/agent-context-map.yaml)", "](disciplines/README.md)", "](bundles/README.md)"):
+            assert target in readme, target

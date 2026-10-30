@@ -88,6 +88,8 @@ This plugin is an **adapter** for z-sdlc — it transforms z-sdlc's file-based k
 
 **Keeping the plugin in sync:** Changes to the contract are driven by z-sdlc upstream. When this plugin is pulling a new z-sdlc release, `/sdlc-migrate` reports any `[contract-change]` commits in the range being migrated. Resolve those (update the transformation table) before completing the migration.
 
+**Authority in a Neuroloom-backed project: the adapter wins.** CD decided (2026-10-29) that in a project with `neuroloom_backend: true` the adapter's transforms are authoritative where they differ from z-sdlc's verbatim or exempt treatment. Three cases: (1) `process/knowledge-routing.md` is this plugin's Neuroloom variant (`docs/knowledge-routing.md`), not z-sdlc's phrasing contract; (2) `agents/sdlc-reviewer.md` has its phrasing-contract checklist rewritten to the Neuroloom canonical forms, because the reviewer must check files that use those forms (only the quoted span of a `- [ ] No` anti-residue item stays verbatim); (3) knowledge-layer paths in Integration `Uses:`, `Depends on:`, `Feeds into:`, `DRY notes:` and `Knowledge routing:` lines are rewritten, not preserved. An audit that finds these files differing from z-sdlc is looking at the adapter's design, not at drift. One consequence: the project holds no copy of z-sdlc's phrasing contract, so a z-sdlc phrasing change shows up at migration time (the `[contract-change]` entries), not by reading the installed files.
+
 ### Transformation Scope
 
 This plugin **overrides** only three z-sdlc skills with Neuroloom-native versions: `/sdlc-initialize`, `/sdlc-migrate`, and `/sdlc-port`. All other z-sdlc skills (`sdlc-plan`, `sdlc-execute`, `sdlc-tests-create`, etc.) ship from upstream unchanged.

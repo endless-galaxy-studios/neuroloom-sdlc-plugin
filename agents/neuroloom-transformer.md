@@ -67,13 +67,25 @@ For each file in the list (excluding hard exclusions):
 
 ### Step 1: Runtime Scan
 
-Grep the file for phrasing-contract anchors (case-insensitive):
+Run BOTH scans on the file (case-insensitive). The file needs transformation if EITHER finds a match.
+
+**Path anchors (Pass 1):**
 - `[sdlc-root]/knowledge/`
 - `[sdlc-root]/disciplines/`
 - `consult [sdlc-root]/knowledge/`
-- `agent-context-map.yaml` (outside Integration sections and fenced code blocks)
+- `agent-context-map.yaml` in any form, a relative link target such as `knowledge/agent-context-map.yaml` included (outside fenced code blocks, and outside Integration sections)
+- a table cell or link target that is exactly `knowledge/` or `disciplines/` (an install-layout table)
+- a relative markdown link target under `knowledge/`, `disciplines/` or `bundles/` with no `[sdlc-root]/` prefix, such as `](disciplines/README.md)` or `](bundles/README.md)` (outside fenced code blocks); the first two never exist in a Neuroloom project, and `bundles/` exists only if the project installed it (`test -d`)
 
-If zero matches → no transformation needed. Log `file_merged` with `subtype: "no_patterns"`, `rules_fired: []`. Move to next file.
+**Concept-terminology terms (Pass 2):** the same regex Audit 7 runs at the end, character for character, so the entry scan and the exit scan cannot disagree:
+
+```bash
+grep -inE '\bknowledge stores?\b|\bknowledge files?\b|\bdiscipline files?\b|\bparking[- ]lot entr|\bknowledge-store entr|\bdiscipline parking[- ]lots?\b|\bknowledge YAMLs?\b|\bYAML knowledge files?\b|\bknowledge index\b|\bknowledge store gaps?\b' <file>
+```
+
+If BOTH scans find nothing → no transformation needed. Log `file_merged` with `subtype: "no_patterns"`, `rules_fired: []`. Move to next file.
+
+A file with concept terms and no path anchor is NOT `no_patterns`: it goes to Pass 2. **Why this is spelled out:** the first version of this step scanned path anchors only, so a file that says "discipline parking lots" or "knowledge store" without naming a path was logged `no_patterns` and Pass 2 never ran on it. sleeved's migration to z-sdlc 2.2.0 left Pass 2 residue in `process/commands.md`, `process/guardrail-lifecycle.md` and `skills/sdlc-playbook-generate/SKILL.md` that way, and in `sdlc/README.md` through the relative link form; the z-sdlc adapter audit found all four a day later.
 
 ### Step 2.0: Legacy repair sweep (migrate only; runs once before the per-file loop)
 
@@ -129,7 +141,7 @@ Write the transformed content to the file.
 
 ### Step 4: Pass 2 — Concept-Terminology
 
-Re-read the file written by Pass 1. Identify prose-only regions (exclude fenced code blocks, YAML/JSON data, inline backticked paths). **Exceptions:** (1) `description:` values in skill/agent YAML frontmatter ARE prose-eligible — agents read these to decide invocation, so concept terms must be transformed. (2) Integration sections ARE eligible for Pass 2 concept-terminology — only Pass 1 path transforms are excluded from Integration sections. Non-path prose in Integration bullets (parenthetical descriptions, trailing explanations) must have concept terms transformed while path references remain byte-identical. Apply concept-terminology rules:
+Re-read the file written by Pass 1. Identify prose-only regions (exclude fenced code blocks, YAML/JSON data, inline backticked paths). **Exceptions:** (1) `description:` values in skill/agent YAML frontmatter ARE prose-eligible — agents read these to decide invocation, so concept terms must be transformed — EXCEPT inside a quoted phrase in an explicit trigger list (`Triggers on "verify the knowledge store", …`) or the text of a `user: \"…\"` line in an `<example>` block: those are the user's own words, and rewriting them stops the skill matching them, so they stay byte-identical. Every other quoted span (`assistant: \"…\"` lines, `<commentary>`, other quoted examples) is prose and is transformed (full definition in `pattern-mapping-rules.md` § Pass 2 scope). (2) Integration sections ARE eligible for Pass 2 concept-terminology — only Pass 1 path transforms are excluded from Integration sections. Non-path prose in Integration bullets (parenthetical descriptions, trailing explanations) must have concept terms transformed while path references remain byte-identical. Apply concept-terminology rules:
 - "parking lot entries" → "discipline memory entries"
 - "Knowledge YAML files" → "memory entries tagged sdlc:knowledge"
 - "agent-context-map.yaml" (as live config) → "domain-scoped memory search (agents query by sdlc:domain:<name> tags)"
@@ -219,7 +231,7 @@ Scan all non-exempt written files, including `.claude/skills/*/references/*.md`,
 
 ### Audit 7: Concept-Terminology Residue
 
-After all files are processed, grep ALL non-exempt written files for surviving flat-file concept terms:
+After all files are processed, grep ALL non-exempt written files for surviving flat-file concept terms (the first regex below is also Step 1's concept scan; keep the two identical):
 
 ```bash
 # Pass 1 terms (explicit)
@@ -316,4 +328,5 @@ For `dispatch_mode: path_pairs` actions (`sync_archive_status`), report per pair
 - Never batch transaction log events. Emit per-file, immediately after write.
 - Never transform content inside fenced code blocks or Integration sections.
 - Never transform files on the hard-exclusion list.
+- Never change a backslash-n (or any other escape sequence) inside a quoted string or a fenced block into a real newline, and never unescape or re-wrap a string: match rule 13 in `pattern-mapping-rules.md`. The post-write escape-preservation assertion restores the lines from its baseline (upstream outside preserved regions; the merged version inside them, a preserved region being a PROJECT-SECTION / BUNDLE-SECTION block or a section the Step 2b MCP preservation gate kept) on a drop in the count, and logs an `escape_restored` warning; it does not halt.
 - If you encounter a pattern that looks like it should match a rule but doesn't exactly match — do NOT guess. Leave the text unchanged and emit a `transformation_warning` event. A false negative (missed transformation) is recoverable; a false positive (wrong transformation) corrupts the file.

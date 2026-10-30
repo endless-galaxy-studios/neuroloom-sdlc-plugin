@@ -86,6 +86,40 @@ Zero hits expected. Any hit is a **HALT**: the call it names does not do what it
 - **A `tags` list of two or more tags is an OR unless `tags_match="all"` is on the same call.** Detect candidates with `grep -rnE --include='*.md' 'tags=\[[^]]*"[^"]*"[^]]*,' .claude/skills .claude/agents .claude/sdlc`. Every hit on a search spec (not a `memory_store` / `document_ingest*` / `memory_get_index` call, not a list with a `<placeholder>`) must carry `tags_match="all"` or be a deliberate OR that the report lists; the form to expect for knowledge + domain is `tags=["sdlc:knowledge", "sdlc:domain:<d>"], tags_match="all"`.
 - **No prefix on `sdlc:knowledge`, and no colon on the discipline family.** `grep -rnE --include='*.md' 'tag_prefixes=\["sdlc:knowledge|tag_prefixes=\["sdlc:discipline:"' …` must return nothing: a `sdlc:knowledge` prefix also matches `sdlc:knowledge-id:…`, and `sdlc:discipline:` misses the bare `sdlc:discipline` tag.
 
+### Check 2b — Concept-terminology residue (WARN; REGRESSION in one case)
+
+Check 2 finds paths. Pass 2 translates bare flat-file vocabulary that names no path ("discipline parking lots", "knowledge store", "Knowledge files"), which a path grep cannot see. sleeved carried such wording in four files through a migration to z-sdlc 2.2.0 (`sdlc/README.md`, `process/commands.md`, `process/guardrail-lifecycle.md`, `skills/sdlc-playbook-generate/SKILL.md`) for two reasons the audit now closes: no post-operation check looked for it, and the transformer's Step 1 scan used path anchors only, so each file was logged `no_patterns` and Pass 2 never ran on it.
+
+**Scan** (the regex is Audit 7's, and Step 1's concept scan uses the same one):
+
+```bash
+grep -rinE --include='*.md' '\bknowledge stores?\b|\bknowledge files?\b|\bdiscipline files?\b|\bparking[- ]lot entr|\bknowledge-store entr|\bdiscipline parking[- ]lots?\b|\bknowledge YAMLs?\b|\bYAML knowledge files?\b|\bknowledge index\b|\bknowledge store gaps?\b' .claude/skills .claude/agents .claude/sdlc
+```
+
+**Not reported** (legitimate retention): everything under `.claude/skills/sdlc-migrate/` (it describes the framework's file layout); `.claude/sdlc/process/knowledge-routing.md`, `project-section-markers.md`, `path-mappings.md`, `adapter-lifecycle-protocol.md`; `sdlc_changelog.md` and `changelog-archive/*.md`; hits inside fenced blocks; hits inside a quoted phrase of a trigger list or a `user: \"…\"` line in a skill or agent description (`"verify the knowledge store"`); an `assistant:` line or `<commentary>` text is prose and IS reported; hits inside an MCP `query="…"` string; the Neuroloom replacement strings themselves (`Neuroloom knowledge store`); a hit directly followed by a `(memory …` parenthetical, which is the shape of the replacement's own output (`Update the knowledge index (memory entries tagged sdlc:knowledge + sdlc:knowledge-index)`, `Discipline Parking Lots (memory graph, entries tagged sdlc:discipline:<name>)`); and the quoted span of a `- [ ] No` checklist item.
+
+**Action on hit:** every other hit is a **WARN**: report file, line and the text, so CD can fix it or accept it. A hit in a file whose `file_merged` event for this run says `subtype: "no_patterns"` is a **REGRESSION**: Step 1 skipped Pass 2 on a file that needed it.
+
+### Check 2c — Escape preservation (WARN)
+
+Match rule 13 (`pattern-mapping-rules.md`) has the transformer restore any line whose backslash-`n` count fell below its baseline, and log it. This check makes those repairs visible.
+
+**Procedure:** count `warning` events with `category: "escape_restored"` for this run in `.sdlc-transaction-log`.
+
+**Action:** zero is a pass. Each one is a **WARN**: list the file and line range, because the transformer expanded a string and a rule or prompt is letting that happen. A pass still means the file on disk has the escapes intact.
+
+### Check 2d — Dead relative links into layers the project does not carry
+
+Check 2 and Check 2b cannot see a markdown link such as `](disciplines/README.md)`: it has no `[sdlc-root]/` prefix and no concept term. sleeved kept three of them through the 2.2.0 migration (`sdlc/README.md:80, :131, :185`).
+
+**Scan:**
+
+```bash
+grep -rnoE --include='*.md' '\]\((\./|\.\./)*(knowledge|disciplines|bundles)/[^)#[:space:]]*' .claude/skills .claude/agents .claude/sdlc
+```
+
+**Action:** resolve each target against the file that links it (`test -e`). A target that exists is a pass (a project that installed `bundles/` keeps its links). A target that does not exist is a **REGRESSION**, except in `sdlc_changelog.md` and `changelog-archive/*.md`, which quote history. The rows that fix them are in `pattern-mapping-rules.md` § "Audit-description metadata" (the two relative-link rows after the install-layout row).
+
 ### Check 3 — No inline adapter conditionals
 
 The phrasing contract forbids inline conditionals like `(Neuroloom projects: use memory_search instead)` in z-sdlc source files. After transformation, these should never appear in installed files.
@@ -181,6 +215,9 @@ SHARED CHECKS
 [✓] MCP integration health:       {N} MCP calls across {M} files
 [✓] No residual knowledge-layer paths: 0 hits outside the exemption list (3 trees)
 [✓] No wildcard in tag arguments: 0 hits
+[✓] Concept-terminology residue: 0 unexplained hits (WARN-class; every hit listed)
+[✓] Escape preservation:          0 `escape_restored` warnings (else {N} files, each listed with its line range)
+[✓] No dead relative links:       0 targets missing (knowledge/, disciplines/, bundles/)
 [✓] No inline adapter conditionals: 0 hits
 [✓] Manifest integrity:           valid JSON, all required fields, hashes match
 [✓] Knowledge layer reachable:    sentinel found, version tag current
