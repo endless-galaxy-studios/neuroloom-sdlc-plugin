@@ -313,21 +313,15 @@ class TestLauncherCiDiscovery:
             assert root is None and err
 
 
-def _interpreters() -> list[str]:
-    """The running interpreter plus any other CPython found (3.10 floor, newest)."""
-    found: dict[str, str] = {}
-    for cand in [sys.executable, "/usr/local/bin/python3.10", "/usr/local/bin/python3.12",
-                 "/opt/homebrew/bin/python3.14", "/opt/homebrew/bin/python3.13"]:
-        if cand and os.path.exists(cand):
-            found.setdefault(os.path.realpath(cand), cand)
-    return list(found.values())
+# Suite interpreter plus python3.10 (NEUROLOOM_TEST_PY310 or PATH); a missing 3.10 is a visible SKIP.
+_INTERPRETERS = ci_support.interpreter_params()
 
 
 class TestLauncherCurrentDirectoryShadowing:
     """The checkout is the working directory and is attacker-controllable. Nothing in it
     may be imported by the launched hook, whatever the interpreter version."""
 
-    @pytest.mark.parametrize("python", _interpreters())
+    @pytest.mark.parametrize("python", _INTERPRETERS)
     def test_planted_modules_in_cwd_are_never_imported(self, layout: Layout, python: str) -> None:
         # Hook stand-in: imports pyhooks (base), json (stdlib), and runs under __main__.
         (layout.sdlc / "sdlc_pyhooks" / "probe.py").write_text(

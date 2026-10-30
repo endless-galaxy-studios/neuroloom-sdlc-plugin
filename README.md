@@ -137,7 +137,7 @@ Version selection from the glob uses integer tuple sorting (`0.10.0` correctly r
 
 CI mode is for **headless** runs: Claude Code started by a script, such as `claude -p` in a GitHub Actions job, with nobody at the keyboard. The base plugin defines the switch and most of the behaviour; read its [CI mode section](https://github.com/endless-galaxy-studios/neuroloom-claude-plugin#ci-mode) first. This section covers what is different in the SDLC plugin.
 
-`NEUROLOOM_MODE=ci` turns CI mode on (unset or blank is normal mode, and **any other non-empty value, including `off`, `0` and `false`, also means CI**; to turn it off, unset the variable). That is **fail closed**: if the plugin cannot tell what you meant, it takes the mode that does less. The SDLC launcher and hooks carry their own copy of the same parse rule.
+`NEUROLOOM_MODE=ci` turns CI mode on (unset or blank is normal mode, and **any other non-empty value, including `off`, `0` and `false`, also means CI**; to turn it off, unset the variable). That is **fail closed**: if the plugin cannot tell what you meant, it takes the mode that does less. Four copies of the same parse rule exist (the base plugin's `config.py`, the base launcher, this plugin's launcher and `sdlc_pyhooks`), because the launchers run before any plugin code can be imported; a test keeps them in agreement.
 
 **Finding the base plugin.** The launcher in CI mode reads only `NEUROLOOM_CLAUDE_PLUGIN_ROOT`. It never searches `~/.claude/plugins/cache` and never falls back to the sibling directory, because a file planted under `$HOME` could otherwise decide which code runs. The variable must be:
 
@@ -159,7 +159,7 @@ The check confirms the directory looks like the base plugin. It is a sanity chec
 
 | Hook | CI-mode behaviour |
 |---|---|
-| SessionStart | Makes the same two reads as always, each with a 10 s timeout, so the worst case is 20 s: `GET /api/v1/sdlc/cc-sdlc-version`, then `GET /api/v1/memories/?tags=sdlc:sentinel&limit=1`. An unreachable API or a non-200 answer ends the hook silently. Up to date is silent. Otherwise it prints one of the two lines below. The messages that tell a person to run `/sdlc-initialize` or `/sdlc-migrate` are not printed, so an unattended agent is not nudged into running a skill that writes tracked files. |
+| SessionStart | Makes the same two reads as always, each with a 10 s timeout, so the worst case is 20 s: `GET /api/v1/sdlc/cc-sdlc-version`, then `GET /api/v1/memories/?tags=sdlc:sentinel&limit=1`. An unreachable API or a non-200 answer ends the hook silently. Up to date is silent, and so is a sentinel that carries no `sdlc:seed-version:` tag. Otherwise it prints one of the two lines below. The messages that tell a person to run `/sdlc-initialize` or `/sdlc-migrate` are not printed, so an unattended agent is not nudged into running a skill that writes tracked files. |
 | PostToolUse (deliverable sync) | Returns before it reads the file, opens a database or starts a thread. Nothing is sent and nothing is recorded. |
 
 The two SessionStart lines, which are a contract (a wording change is a breaking change and is announced in the [changelog](CHANGELOG.md)):
@@ -173,7 +173,11 @@ The two SessionStart lines, which are a contract (a wording change is a breaking
 
 **Version skew.** The SDLC hooks decide the mode from the environment first, then check that the base plugin can report CI mode (its `Config` has a `ci_mode` field). If `NEUROLOOM_MODE` says CI but the base plugin is too old to report it, or cannot be imported, the state is **skew** and the SDLC hooks do nothing: they read no database and call no API. Reading only the base plugin's answer would be wrong here, because an old base plugin has no answer and would fall back to normal mode.
 
-**Pin both plugins together, by commit.** The skew rule protects a new SDLC plugin on an old base plugin. It does not protect the other pairing: an **old SDLC plugin on a new base plugin fails open**. The old `post_tool_use` knows nothing about CI mode and still ingests deliverable documents to the API. Install both plugins at commits that include D178d (check each plugin's [changelog](CHANGELOG.md) for the entry), and move them together.
+**Pin both plugins together, by commit.** The skew rule protects a new SDLC plugin on an old base plugin. It does not protect the other pairing: an **old SDLC plugin on a new base plugin fails open**. The old `post_tool_use` knows nothing about CI mode and still ingests deliverable documents to the API. Install both plugins at versions that list CI mode in their changelog (see each plugin's changelog), and move them together.
+
+**Key and plugin root.** The SDLC hooks read the key through the base plugin's `config.load()`, so the key must already be in `<project root>/.neuroloom.db`, put there by the **base** plugin's `scripts/seed_project_key.py` (see its CI mode section). This plugin has no seed step of its own. Keep the plugin root (`NEUROLOOM_CLAUDE_PLUGIN_ROOT`) outside the checkout the agent works in, and give the key to the seed step's environment only, never to the agent step.
+
+**Platforms.** Developed and checked on macOS with Claude Code 2.1.314; the z-sdlc smoke job in GitHub Actions has not run yet, and Windows is untested.
 
 ### Degradation signal
 
@@ -195,7 +199,7 @@ If `neuroloom-codeweaver` is installed via the base plugin's `--user` fallback p
 
 In [CI mode](#ci-mode) the two notices are replaced by neutral lines that tell nobody to run anything.
 
-**PostToolUse (deliverable sync)** — fires after Write and Edit on files matching `docs/current_work/**/*.md`. Reads the file, extracts the deliverable ID (`d42_foo_spec.md` → `42`) and doc type (`_spec.md` → `spec`, `_plan.md` → `plan`, `_result.md` → `result`, `_COMPLETE.md` → `chronicle`) from the filename, tags the payload with `sdlc:deliverable:{id}` and `sdlc:doc:{type}`, and ships it to the Neuroloom documents ingest endpoint in a background thread. Exits in under 100ms — the sync thread continues after the hook returns (`daemon=False` with a 90ms join). If the API is unreachable or returns a non-2xx status, the payload is buffered in the local SQLite `event_buffer` table for automatic replay on the next session start.
+**PostToolUse (deliverable sync)** — fires after Write, Edit and NotebookEdit on files matching `docs/current_work/**/*.md`. Reads the file, extracts the deliverable ID (`d42_foo_spec.md` → `42`) and doc type (`_spec.md` → `spec`, `_plan.md` → `plan`, `_result.md` → `result`, `_COMPLETE.md` → `chronicle`) from the filename, tags the payload with `sdlc:deliverable:{id}` and `sdlc:doc:{type}`, and ships it to the Neuroloom documents ingest endpoint in a background thread. Exits in under 100ms — the sync thread continues after the hook returns (`daemon=False` with a 90ms join). If the API is unreachable or returns a non-2xx status, the payload is buffered in the local SQLite `event_buffer` table for automatic replay on the next session start.
 
 In [CI mode](#ci-mode) this hook does nothing: it neither reads the file nor sends or buffers anything.
 

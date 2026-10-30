@@ -63,7 +63,7 @@ def _debug(msg: str) -> None:
 
 def main() -> None:
     # Step 0: CI mode (and version skew) is a no-op: no document read, no db,
-    # no thread, nothing sent (FR-E2, FR-A3, FR-D6). Decided before load().
+    # no thread, nothing sent. Decided before load(), so an old base plugin that cannot report CI mode also stops here.
     if mode_state() != "normal":
         return
 
@@ -177,7 +177,7 @@ def main() -> None:
                     conn.commit()
                 except sqlite3.OperationalError as exc:
                     # Benign version-skew no-op: the installed base plugin predates
-                    # Phase 6's payload_type column. Distinguish this from a genuine
+                    # the payload_type column. Distinguish this from a genuine
                     # buffer-write failure (disk full, corrupted DB) in trace output.
                     trace.write(conn, _SCRIPT, "buffer_insert_failed", detail=str(exc))
         except Exception:

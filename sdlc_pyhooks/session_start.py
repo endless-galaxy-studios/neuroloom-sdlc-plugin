@@ -97,7 +97,7 @@ def _get_json(
 
 def main() -> None:
     # Step 0: decide the mode before load(). Skew (CI requested, base cannot
-    # report it) does nothing at all: no db, no API (FR-A3).
+    # report it) does nothing at all: no db, no API.
     state = mode_state()
     if state == "skew":
         return

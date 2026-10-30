@@ -1,8 +1,8 @@
 """
-SDLC plugin hook package: CI-mode state helper (D178d FR-A3).
+SDLC plugin hook package: CI-mode state helper.
 
-``NEUROLOOM_MODE`` has one parse rule and three call sites (base ``pyhooks.config``,
-the two launchers). This module holds the SDLC plugin's own copy of the parser. It
+``NEUROLOOM_MODE`` has one parse rule and four copies (base ``pyhooks.config``, the base
+launcher, this plugin's launcher, and this module). This module holds the SDLC plugin's hook-side copy of the parser. It
 cannot import the base parser: an old base plugin lacks it, and that is exactly the
 version-skew case this helper must detect.
 
@@ -24,7 +24,7 @@ class ModeParse(NamedTuple):
 
 
 def parse_mode(raw: str | None) -> ModeParse:
-    """Parse a NEUROLOOM_MODE value (spec section 6.2).
+    """Parse a NEUROLOOM_MODE value (same table as the base plugin).
 
     Unset, empty or blank: normal mode. ``ci`` (case-insensitive, trimmed): CI mode.
     Any other value is unrecognised and fails closed into CI mode.

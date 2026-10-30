@@ -151,7 +151,7 @@ def _resolve_python(base_root: Path) -> tuple[Path, bool]:
     yet; the venv_py.exists() check handles this by falling through to the next tier.
     """
     if _ci_mode():
-        return Path(sys.executable), False  # D-10: no venv lookup in CI mode
+        return Path(sys.executable), False  # CI mode never looks for a venv: a planted .venv must not pick the interpreter
 
     suffix = ".venv/Scripts/python.exe" if sys.platform == "win32" else ".venv/bin/python"
 
