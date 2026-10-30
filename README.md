@@ -124,14 +124,56 @@ All hooks are Python modules in `sdlc_pyhooks/`, launched via `run_hook.py`. The
 
 ### Base plugin resolution
 
-The SDLC launcher locates the base plugin using a four-step priority chain:
+Outside CI mode, the SDLC launcher locates the base plugin using a four-step priority chain. (In [CI mode](#ci-mode) there is no chain: `NEUROLOOM_CLAUDE_PLUGIN_ROOT` is required and is the only thing consulted.)
 
-1. **`NEUROLOOM_CLAUDE_PLUGIN_ROOT` env var** — if set to a non-empty value, that path is used directly. Set this only when using a fork, an alternate org, or a non-standard install layout. Leave it unset for standard marketplace installs.
+1. **`NEUROLOOM_CLAUDE_PLUGIN_ROOT` env var** — if set to a non-empty value, that path is used directly. For an attended session, set this only when using a fork, an alternate org, or a non-standard install layout, and leave it unset for standard marketplace installs. **In CI mode, always set it** (see below).
 2. **Marketplace cache** — scans `~/.claude/plugins/cache/endless-galaxy-studios/neuroloom/*/` and selects the highest semver version. The org `endless-galaxy-studios` is hardcoded; the launcher does not auto-discover forks.
 3. **Dev sibling** — `../neuroloom-claude-plugin` relative to the SDLC plugin root. Covers side-by-side development checkouts.
 4. **Not found** — a diagnostic message is written to stderr and the hook exits cleanly.
 
 Version selection from the glob uses integer tuple sorting (`0.10.0` correctly ranks above `0.7.0`), not lexicographic string sort.
+
+### CI mode
+
+CI mode is for **headless** runs: Claude Code started by a script, such as `claude -p` in a GitHub Actions job, with nobody at the keyboard. The base plugin defines the switch and most of the behaviour; read its [CI mode section](https://github.com/endless-galaxy-studios/neuroloom-claude-plugin#ci-mode) first. This section covers what is different in the SDLC plugin.
+
+`NEUROLOOM_MODE=ci` turns CI mode on (unset or blank is normal mode, and **any other non-empty value, including `off`, `0` and `false`, also means CI**; to turn it off, unset the variable). That is **fail closed**: if the plugin cannot tell what you meant, it takes the mode that does less. The SDLC launcher and hooks carry their own copy of the same parse rule.
+
+**Finding the base plugin.** The launcher in CI mode reads only `NEUROLOOM_CLAUDE_PLUGIN_ROOT`. It never searches `~/.claude/plugins/cache` and never falls back to the sibling directory, because a file planted under `$HOME` could otherwise decide which code runs. The variable must be:
+
+1. set and non-empty;
+2. an **absolute** path;
+3. an existing directory that contains a `pyhooks/` package directory with both `__init__.py` and `config.py` in it.
+
+If any check fails, the launcher writes one line to stderr and exits 0, so the hooks do nothing and the session carries on:
+
+```
+[neuroloom-sdlc] CI mode: NEUROLOOM_CLAUDE_PLUGIN_ROOT must name an absolute path to a base plugin directory containing pyhooks/ with config.py; hooks do nothing
+```
+
+The check confirms the directory looks like the base plugin. It is a sanity check, not a security control: it does not verify that the files are the genuine plugin.
+
+**Interpreter and isolation.** In CI mode the launcher runs every hook with `sys.executable` (the `python3` that started `run_hook.py`; there is no venv lookup and no degraded-venv line). It starts the hook as `python -I -c <bootstrap>` instead of `python -m`. `-I` is Python's **isolated mode**: it keeps the working directory, the `PYTHON*` environment variables and the user site directory off the import path. In CI the working directory is the checkout, and `python -m` would put it first on the path, so a planted `pyhooks/`, `sdlc_pyhooks/`, `json.py` or `runpy.py` there would run. The bootstrap then adds exactly two directories, this plugin's root and the base plugin root, and runs the module as `__main__`. It needs `python3` 3.10 or later. If the base plugin cannot be imported, the hook writes `[neuroloom-sdlc] CI mode: base plugin import failed (<ExceptionTypeName>); hooks do nothing` to stderr (the exception's type, never its message) and exits 0.
+
+**What each hook does.**
+
+| Hook | CI-mode behaviour |
+|---|---|
+| SessionStart | Makes the same two reads as always, each with a 10 s timeout, so the worst case is 20 s: `GET /api/v1/sdlc/cc-sdlc-version`, then `GET /api/v1/memories/?tags=sdlc:sentinel&limit=1`. An unreachable API or a non-200 answer ends the hook silently. Up to date is silent. Otherwise it prints one of the two lines below. The messages that tell a person to run `/sdlc-initialize` or `/sdlc-migrate` are not printed, so an unattended agent is not nudged into running a skill that writes tracked files. |
+| PostToolUse (deliverable sync) | Returns before it reads the file, opens a database or starts a thread. Nothing is sent and nothing is recorded. |
+
+The two SessionStart lines, which are a contract (a wording change is a breaking change and is announced in the [changelog](CHANGELOG.md)):
+
+```
+[Neuroloom SDLC] This workspace has no SDLC knowledge seeded. No action is taken in CI mode.
+[Neuroloom SDLC] Workspace SDLC knowledge is at {workspace_version}; latest is {latest_version}. No action is taken in CI mode.
+```
+
+`{workspace_version}` and `{latest_version}` come from API responses. Control characters are escaped (a newline prints as the two characters `\n`) and each version is cut to 64 characters, so the line always stays one line. Neither line names a path, a slash command or the key.
+
+**Version skew.** The SDLC hooks decide the mode from the environment first, then check that the base plugin can report CI mode (its `Config` has a `ci_mode` field). If `NEUROLOOM_MODE` says CI but the base plugin is too old to report it, or cannot be imported, the state is **skew** and the SDLC hooks do nothing: they read no database and call no API. Reading only the base plugin's answer would be wrong here, because an old base plugin has no answer and would fall back to normal mode.
+
+**Pin both plugins together, by commit.** The skew rule protects a new SDLC plugin on an old base plugin. It does not protect the other pairing: an **old SDLC plugin on a new base plugin fails open**. The old `post_tool_use` knows nothing about CI mode and still ingests deliverable documents to the API. Install both plugins at commits that include D178d (check each plugin's [changelog](CHANGELOG.md) for the entry), and move them together.
 
 ### Degradation signal
 
@@ -151,7 +193,11 @@ If `neuroloom-codeweaver` is installed via the base plugin's `--user` fallback p
 - If the sentinel's `sdlc:seed-version:` tag differs from the latest release: prints a one-line update notice with the `/sdlc-migrate` command
 - On any network error: silent exit — never blocks session startup
 
+In [CI mode](#ci-mode) the two notices are replaced by neutral lines that tell nobody to run anything.
+
 **PostToolUse (deliverable sync)** — fires after Write and Edit on files matching `docs/current_work/**/*.md`. Reads the file, extracts the deliverable ID (`d42_foo_spec.md` → `42`) and doc type (`_spec.md` → `spec`, `_plan.md` → `plan`, `_result.md` → `result`, `_COMPLETE.md` → `chronicle`) from the filename, tags the payload with `sdlc:deliverable:{id}` and `sdlc:doc:{type}`, and ships it to the Neuroloom documents ingest endpoint in a background thread. Exits in under 100ms — the sync thread continues after the hook returns (`daemon=False` with a 90ms join). If the API is unreachable or returns a non-2xx status, the payload is buffered in the local SQLite `event_buffer` table for automatic replay on the next session start.
+
+In [CI mode](#ci-mode) this hook does nothing: it neither reads the file nor sends or buffers anything.
 
 ---
 
@@ -202,7 +248,7 @@ The plugin communicates with these Neuroloom API endpoints:
 | `POST` | `/api/v1/documents/ingest/batch` | `/sdlc-initialize`, `/sdlc-migrate`, `/sdlc-port` |
 | `GET` | `/api/v1/sdlc/cc-sdlc-version` | SessionStart hook |
 | `DELETE` | `/api/v1/sdlc/cc-sdlc-version/cache` | `/sdlc-migrate` |
-| `POST` | `/api/v1/memories/search` | SessionStart hook (sentinel lookup) |
+| `GET` | `/api/v1/memories/?tags=sdlc:sentinel&limit=1` | SessionStart hook (sentinel lookup) |
 
 All endpoints require `Authorization: Token <api_key>`. Workspace is resolved server-side from the API key.
 
