@@ -16,7 +16,17 @@ PYTHONPATH difference from the base plugin:
     when present. When the base plugin venv is absent, sys.executable is used
     as a fallback so all stdlib-only hooks continue to run.
 
-Base plugin root resolution order:
+CI mode (NEUROLOOM_MODE parses as CI, same rule as pyhooks.config):
+    The base plugin is found ONLY through NEUROLOOM_CLAUDE_PLUGIN_ROOT, which
+    must be an absolute path to an existing directory containing a pyhooks/
+    package directory (with __init__.py and config.py). The marketplace cache and the
+    dev sibling are never consulted. Otherwise one diagnostic goes to stderr and
+    the launcher exits 0 (the hooks do nothing). The hook runs under
+    sys.executable and no degraded-venv line is printed. This launcher keeps its
+    own tiny parser copy and imports nothing from its own package, so a broken
+    package can never break it.
+
+Base plugin root resolution order (outside CI mode):
     1. NEUROLOOM_CLAUDE_PLUGIN_ROOT environment variable (override)
     2. Marketplace cache: ~/.claude/plugins/cache/endless-galaxy-studios/neuroloom/*/
        (hardcoded to the endless-galaxy-studios org per DECISION-A — forks or
@@ -45,6 +55,20 @@ _CLAUDE_PLUGIN_CACHE_GLOB = "endless-galaxy-studios/neuroloom/*/"
 _SESSION_START_MODULE = "sdlc_pyhooks.session_start"
 
 
+# Runs under `python -I -c`: sys.argv[0] is '-c' and sys.argv[1:] is
+# [sdlc_root, base_root, module, *hook_args].
+# -I makes the child ignore PYTHON* variables (PYTHONPATH included), so the
+# PYTHONPATH set below is inert there; the sys.path insert in this bootstrap is
+# the real control.
+_CI_BOOTSTRAP = (
+    "import sys, runpy\n"
+    "sdlc, base, mod = sys.argv[1:4]\n"
+    "sys.path[:0] = [sdlc, base]\n"
+    "sys.argv = [mod] + sys.argv[4:]\n"
+    "runpy.run_module(mod, run_name='__main__', alter_sys=True)\n"
+)
+
+
 def _version_key(p: Path) -> tuple[int, ...]:
     """Return a tuple-of-ints sort key for a semver-named directory."""
     parts = p.name.split(".")
@@ -54,8 +78,34 @@ def _version_key(p: Path) -> tuple[int, ...]:
         return (0,)  # unparseable versions sort last
 
 
+def _ci_mode() -> bool:
+    """True when NEUROLOOM_MODE parses as CI (unset/blank: normal; "ci": CI;
+    any other value fails closed into CI). Tiny copy of the shared parse rule."""
+    return (os.environ.get("NEUROLOOM_MODE") or "").strip().lower() != ""
+
+
 def _resolve_base_root() -> tuple[Path | None, str]:
     """Locate the neuroloom-claude-plugin installation directory."""
+    if _ci_mode():
+        env_val = os.environ.get("NEUROLOOM_CLAUDE_PLUGIN_ROOT")
+        diag = (
+            "[neuroloom-sdlc] CI mode: NEUROLOOM_CLAUDE_PLUGIN_ROOT must name an "
+            "absolute path to a base plugin directory containing pyhooks/ with "
+            "config.py; hooks do nothing"
+        )
+        if not env_val or not os.path.isabs(env_val):
+            return None, diag
+        p = Path(env_val).resolve()
+        pkg = p / "pyhooks"
+        if (
+            p.is_dir()
+            and pkg.is_dir()
+            and (pkg / "__init__.py").is_file()
+            and (pkg / "config.py").is_file()
+        ):
+            return p, ""
+        return None, diag
+
     # 1. Env override
     env_val = os.environ.get("NEUROLOOM_CLAUDE_PLUGIN_ROOT")
     if env_val:
@@ -100,6 +150,9 @@ def _resolve_python(base_root: Path) -> tuple[Path, bool]:
     Note: on first install, CLAUDE_PLUGIN_DATA exists but .venv has not been created
     yet; the venv_py.exists() check handles this by falling through to the next tier.
     """
+    if _ci_mode():
+        return Path(sys.executable), False  # D-10: no venv lookup in CI mode
+
     suffix = ".venv/Scripts/python.exe" if sys.platform == "win32" else ".venv/bin/python"
 
     data_dir = os.environ.get("CLAUDE_PLUGIN_DATA")
@@ -137,15 +190,23 @@ if __name__ == "__main__":
             file=sys.stderr,
         )
 
-    args = [str(py), "-m", module] + sys.argv[2:]
-
     env = os.environ.copy()
-    existing = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = (
-        str(SDLC_ROOT)
-        + os.pathsep + str(base_root)
-        + (os.pathsep + existing if existing else "")
-    )
+    if _ci_mode():
+        # `python -m` would put the working directory (the checkout, which may be
+        # attacker-controlled) first on sys.path. `-I` (3.4+, so fine on the 3.10
+        # floor) leaves cwd and PYTHONPATH off sys.path; the bootstrap then sets it
+        # to exactly the two roots and runs the module as __main__.
+        args = [str(py), "-I", "-c", _CI_BOOTSTRAP, str(SDLC_ROOT), str(base_root), module]
+        args += sys.argv[2:]
+        env["PYTHONPATH"] = str(SDLC_ROOT) + os.pathsep + str(base_root)
+    else:
+        args = [str(py), "-m", module] + sys.argv[2:]
+        existing = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = (
+            str(SDLC_ROOT)
+            + os.pathsep + str(base_root)
+            + (os.pathsep + existing if existing else "")
+        )
 
     if sys.platform == "win32":
         import subprocess

@@ -31,10 +31,26 @@ import threading
 import time
 from pathlib import Path
 
-import pyhooks.config  # type: ignore[import-untyped]
-import pyhooks.http  # type: ignore[import-untyped]
-import pyhooks.trace as trace  # type: ignore[import-untyped]
-from pyhooks.db import open_db  # type: ignore[import-untyped]
+try:
+    import pyhooks.config  # type: ignore[import-untyped]
+    import pyhooks.http  # type: ignore[import-untyped]
+    import pyhooks.trace as trace  # type: ignore[import-untyped]
+    from pyhooks.db import open_db  # type: ignore[import-untyped]
+except Exception as _exc:
+    # A broken or empty base plugin must not surface a traceback under CI mode.
+    from sdlc_pyhooks import parse_mode
+
+    if not parse_mode(os.environ.get("NEUROLOOM_MODE")).ci:
+        raise
+    # Exception TYPE only: the message may carry paths or attacker-influenced text.
+    print(
+        f"[neuroloom-sdlc] CI mode: base plugin import failed "
+        f"({type(_exc).__name__}); hooks do nothing",
+        file=sys.stderr,
+    )
+    raise SystemExit(0) from None
+
+from sdlc_pyhooks import mode_state
 
 _SCRIPT = "sdlc_pyhooks.post_tool_use"
 
@@ -46,6 +62,11 @@ def _debug(msg: str) -> None:
 
 
 def main() -> None:
+    # Step 0: CI mode (and version skew) is a no-op: no document read, no db,
+    # no thread, nothing sent (FR-E2, FR-A3, FR-D6). Decided before load().
+    if mode_state() != "normal":
+        return
+
     # Step 1: Read and parse the tool event from stdin.
     try:
         raw = sys.stdin.read()

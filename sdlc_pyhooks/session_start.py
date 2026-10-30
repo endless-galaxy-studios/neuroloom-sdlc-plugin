@@ -16,7 +16,38 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-import pyhooks.config  # type: ignore[import-untyped]
+try:
+    import pyhooks.config  # type: ignore[import-untyped]
+except Exception as _exc:
+    # A broken or empty base plugin must not surface a traceback under CI mode.
+    from sdlc_pyhooks import parse_mode
+
+    if not parse_mode(os.environ.get("NEUROLOOM_MODE")).ci:
+        raise
+    # Exception TYPE only: the message may carry paths or attacker-influenced text.
+    print(
+        f"[neuroloom-sdlc] CI mode: base plugin import failed "
+        f"({type(_exc).__name__}); hooks do nothing",
+        file=sys.stderr,
+    )
+    raise SystemExit(0) from None
+
+from sdlc_pyhooks import mode_state
+
+_CI_VERSION_CAP = 64
+
+_CI_NOT_SEEDED = (
+    "[Neuroloom SDLC] This workspace has no SDLC knowledge seeded. "
+    "No action is taken in CI mode."
+)
+
+
+def _ci_safe_version(value: str) -> str:
+    """Escape control characters and cap the length so the line stays one line.
+
+    Versions come from API responses and reach the agent's context under CI mode.
+    """
+    return json.dumps(value)[1:-1][:_CI_VERSION_CAP]
 
 
 def _debug(msg: str) -> None:
@@ -65,10 +96,20 @@ def _get_json(
 
 
 def main() -> None:
+    # Step 0: decide the mode before load(). Skew (CI requested, base cannot
+    # report it) does nothing at all: no db, no API (FR-A3).
+    state = mode_state()
+    if state == "skew":
+        return
+
     # Step 1: Load config. Empty api_key means unconfigured — silent exit.
     config = pyhooks.config.load()
     if not config.api_key:
         return
+
+    ci = state == "ci"
+    if ci and not getattr(config, "ci_mode", False):
+        return  # the loaded Config disagrees with the environment: skew
 
     _debug(f"Config loaded. api_base={config.api_base}")
 
@@ -127,6 +168,9 @@ def main() -> None:
     # Step 4: If no sentinel memory, the workspace is uninitialised.
     # list_memories returns a bare JSON array, not {"results": [...]}.
     if not isinstance(results, list) or len(results) == 0:
+        if ci:
+            print(_CI_NOT_SEEDED)
+            return
         print(
             "Neuroloom SDLC: workspace not initialized."
             " Run /sdlc-initialize to seed SDLC knowledge."
@@ -151,6 +195,14 @@ def main() -> None:
 
     # Step 6: Notify if there is a newer version available.
     if workspace_version and workspace_version != latest_version:
+        if ci:
+            print(
+                "[Neuroloom SDLC] Workspace SDLC knowledge is at "
+                f"{_ci_safe_version(workspace_version)}; "
+                f"latest is {_ci_safe_version(latest_version)}. "
+                "No action is taken in CI mode."
+            )
+            return
         print(
             f"Neuroloom SDLC: update available"
             f" ({workspace_version} -> {latest_version})."
