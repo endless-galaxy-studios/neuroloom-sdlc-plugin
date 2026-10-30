@@ -90,7 +90,7 @@ The following table shows the z-sdlc generic file-path pattern and its Neuroloom
 | Generic (file-based) instruction | Neuroloom equivalent |
 |----------------------------------|---------------------|
 | `consult [sdlc-root]/knowledge/agent-context-map.yaml` (agent self-lookup at session start) | `memory_search(query="[agent-name] domain-specific patterns and conventions", tags=["sdlc:knowledge"])` |
-| `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml` | `memory_search(query="agent communication protocol handoff format progress updates", tags=["sdlc:knowledge", "sdlc:domain:architecture"])` |
+| `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml` | `memory_search(query="agent communication protocol handoff format progress updates", tags=["sdlc:knowledge", "sdlc:domain:architecture"], tags_match="all")` |
 | `Append to [sdlc-root]/disciplines/*.md` | `memory_store(tags=["sdlc:discipline:{name}", "sdlc:parking-lot"])` |
 | `knowledge stores ([sdlc-root]/knowledge/)` | Neuroloom knowledge store, accessed via `memory_search()` |
 
@@ -157,7 +157,7 @@ When a new agent is created after initialization, the agent author is responsibl
 
 Before starting substantive work, call:
 
-memory_search(query="[agent-name] [primary domain] patterns, conventions, and gotchas", tags=["sdlc:knowledge", "sdlc:domain:{domain}"])
+memory_search(query="[agent-name] [primary domain] patterns, conventions, and gotchas", tags=["sdlc:knowledge", "sdlc:domain:{domain}"], tags_match="all")
 
 Read the returned entries before proceeding.
 ```

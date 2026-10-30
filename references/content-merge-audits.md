@@ -317,7 +317,7 @@ This audit is the catch-all for Pattern Mapping bypass: *if upstream has canonic
 
 **Procedure (runs after all stage 4.2 file writes complete, including Pass 2):**
 
-For every file written in stage 4.2 with `subtype != exempt_verbatim`, scan output for two residue classes:
+For every file written in stage 4.2 with `subtype != exempt_verbatim` (this includes `.claude/skills/*/references/*.md`), scan output for three residue classes:
 
 1. **Path-bearing residue (Pass 1 territory):**
    ```bash
@@ -335,11 +335,15 @@ For every file written in stage 4.2 with `subtype != exempt_verbatim`, scan outp
    - `-i` (case-insensitive) catches title-cased headings — `Knowledge Stores`, `Discipline Parking Lots`, `Knowledge YAML addition` from sleeved Flag 9 lines 60, 90, 484, 491. Without `-i`, lowercase-only patterns miss heading body text.
    - `knowledge area` / `suggested knowledge area` catches the `Suggested knowledge area: [sdlc-root]/knowledge/architecture/` template prose pattern from sleeved Flag 10 line 298. The path-residue grep would catch the path on the same line, but the audit's defect detail benefits from naming the specific concept-terminology rule that should have fired.
 
-For each hit, classify:
+3. **Wildcard-in-tag-argument residue (a Pass 1 output defect):**
+   ```bash
+   grep -nE 'tag(s|_prefixes)=\[[^]]*\*' <written-file>
+   ```
+   `tags` and `tag_prefixes` match literally, so a `*` inside either list makes the call return nothing. Any hit is a **defect**, never exempt (the only files that may quote the old form are the changelog and its archive, which are hard-excluded and never scanned).
 
-- **Exempt — fenced code block:** the hit is between matching ```` ``` ```` fences. Pass 2 doesn't transform fences; Pass 1 hard-excludes them. Legitimate retention.
-- **Exempt — Integration section:** the hit is inside a region opened by `^\*\*(Uses|Depends on|Updates|Feeds into|Complements|Downstream|Does NOT replace|DRY notes):\*\*` and continuing until the next blank line, next `^\*\*[A-Z]`, or next heading. Integration sections are hard-excluded by both passes.
-- **Exempt — known data-context file:** the hit is in `process/path-mappings.md` (path-mapping table is data; on the exempt list).
+For each path-bearing or concept-terminology hit, classify:
+
+- **Exempt, and not exempt — exactly the rows of the table in `post-operation-audit.md` Check 2** (the `sdlc-migrate` path-mapping lines, the backtick-quoted span of `- [ ] No` checklist items, the four process docs, the changelog and its archive, `provenance_log.md`, and fenced format/command demos). That table is the single list for every path-bearing hit; this audit does not keep a second one. Three consequences it spells out, repeated here because this audit used to get them the other way round: (1) an Integration-section `[sdlc-root]/knowledge/` or `[sdlc-root]/disciplines/` path is a **defect**, not exempt (the Pass 1 carve-out rewrites it; sleeved's migration to z-sdlc 2.2.0 carried seven such lines because this class used to be exempt); (2) a ```` ```markdown ```` or untagged fence holding a prompt sent to a dispatched agent is a **defect** (`pattern-mapping-rules.md` § "Dispatch-prompt template blocks"); (3) a ```` ```yaml ````/```` ```json ````/```` ```bash ```` fence, or a ```` ```markdown ```` fence that demonstrates an entry format, is exempt (row 6).
 - **Warn-class — YAML mechanism context:** the hit is in `sdlc-ingest/SKILL.md` and the surrounding sentence describes the file-mode YAML format that ingest consumes (e.g., "Existing knowledge: [count] YAML files"). Distinguishing signal: the sentence's subject is the upstream file format, not a Neuroloom-mode operation. Surface as warning, do not halt — CD reviews and either accepts or migrates the language.
 - **Defect — Pattern Mapping bypass:** the hit is in operational prose describing Neuroloom-mode operation. The transformer either didn't fire on this file or has a coverage gap. **Halt.**
 
@@ -354,6 +358,7 @@ For each hit, classify:
   "files_scanned": <int>,
   "path_residue_hits": <int>,
   "concept_residue_hits": <int>,
+  "tag_wildcard_hits": <int>,
   "exempt_hits": <int>,
   "warn_hits": <int>,
   "defect_hits": <int>,

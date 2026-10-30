@@ -420,6 +420,113 @@ class TestMethodologyPatternSynthetic:
 
 
 # ===========================================================================
+# Unit tests — sdlc:domain:<subdir> tag (ported projects need it for domain lookups)
+# ===========================================================================
+
+
+def _yaml_in_subdir(content: str, *subdirs: str) -> tuple[Path, Path]:
+    """Write YAML to <tmp>/<subdirs...>/test-file.yaml; return (file_path, knowledge_dir)."""
+    root = Path(tempfile.mkdtemp())
+    target = root.joinpath(*subdirs)
+    target.mkdir(parents=True, exist_ok=True)
+    f = target / "test-file.yaml"
+    f.write_text(textwrap.dedent(content), encoding="utf-8")
+    return f, root
+
+
+_ENTRIES_YAML = """
+    entries:
+      - topic: "T"
+        guidance: "G"
+"""
+_GOTCHAS_YAML = """
+    gotchas:
+      - id: "g-1"
+        severity: high
+        title: "Breaks"
+        symptom: "S"
+        cause: "C"
+        resolution: "R"
+"""
+_RULES_YAML = """
+    rules:
+      - rule_id: "r-1"
+        title: "Rule"
+        description: "D"
+"""
+_METHODOLOGY_YAML = """
+    approach: "Do things this way."
+"""
+
+
+class TestDomainTag:
+    """``knowledge/<domain>/x.yaml`` -> ``sdlc:domain:<domain>`` on every entry.
+
+    Without it a ported entry is invisible to ``tags=["sdlc:knowledge", "sdlc:domain:<d>"],
+    tags_match="all"``, the lookup every migrated skill and agent uses.
+    """
+
+    @pytest.mark.parametrize(
+        "body",
+        [_ENTRIES_YAML, _GOTCHAS_YAML, _RULES_YAML, _METHODOLOGY_YAML],
+        ids=["entries", "gotchas", "rules", "methodology"],
+    )
+    def test_every_pattern_gets_the_subdirectory_domain_tag(self, body: str) -> None:
+        f, root = _yaml_in_subdir(body, "architecture")
+        entries, skipped = _extract_yaml_entries(f, root)
+        assert skipped == 0 and entries
+        for entry in entries:
+            assert "sdlc:domain:architecture" in entry["tags"]
+            assert "sdlc:knowledge" in entry["tags"]
+
+    def test_a_file_directly_under_knowledge_has_no_domain(self) -> None:
+        f, root = _yaml_tmp(_ENTRIES_YAML)
+        entries, _ = _extract_yaml_entries(f, root)
+        assert entries
+        assert not any(t.startswith("sdlc:domain:") for t in entries[0]["tags"])
+
+    def test_nested_subdirectories_use_the_first_level(self) -> None:
+        f, root = _yaml_in_subdir(_ENTRIES_YAML, "testing", "deep", "er")
+        entries, _ = _extract_yaml_entries(f, root)
+        assert "sdlc:domain:testing" in entries[0]["tags"]
+        assert not any(t == "sdlc:domain:deep" for t in entries[0]["tags"])
+
+    def test_an_explicit_domain_tag_in_the_yaml_is_kept_and_not_doubled(self) -> None:
+        f, root = _yaml_in_subdir(
+            """
+            entries:
+              - topic: "T"
+                guidance: "G"
+                tags: ["sdlc:knowledge", "sdlc:domain:custom"]
+            """,
+            "architecture",
+        )
+        entries, _ = _extract_yaml_entries(f, root)
+        domains = [t for t in entries[0]["tags"] if t.startswith("sdlc:domain:")]
+        assert domains == ["sdlc:domain:custom"]
+
+    def test_the_tag_is_not_duplicated_and_other_tags_survive(self) -> None:
+        f, root = _yaml_in_subdir(_RULES_YAML, "coding")
+        entries, _ = _extract_yaml_entries(f, root)
+        tags = entries[0]["tags"]
+        assert tags.count("sdlc:domain:coding") == 1
+        assert "sdlc:pattern:rules" in tags and "sdlc:type:rule" in tags
+
+    def test_the_domain_and_lookup_matches_a_ported_entry(self) -> None:
+        """The AND the migrated skills run: every listed tag must be on the entry."""
+        f, root = _yaml_in_subdir(_ENTRIES_YAML, "design")
+        entries, _ = _extract_yaml_entries(f, root)
+        wanted = {"sdlc:knowledge", "sdlc:domain:design"}
+        assert wanted <= set(entries[0]["tags"])
+
+    def test_discipline_entries_are_unchanged(self, tmp_path: Path) -> None:
+        d = tmp_path / "architecture.md"
+        d.write_text("# Architecture\n\nbody\n", encoding="utf-8")
+        entry = _extract_discipline_entry(d, tmp_path)
+        assert entry is not None and entry["tags"] == ["sdlc:discipline"]
+
+
+# ===========================================================================
 # Unit tests — edge cases for _extract_yaml_entries
 # ===========================================================================
 

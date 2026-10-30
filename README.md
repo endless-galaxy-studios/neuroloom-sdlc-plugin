@@ -107,7 +107,7 @@ Which files need transformation is determined at runtime by scanning each upstre
 Each of the three operations runs a post-operation audit (defined in `references/post-operation-audit.md`) as its final stage. The audit:
 
 - Counts `memory_search(` / `memory_store(` calls across all installed files and verifies the Pattern Mapping targets landed
-- Scans for residual z-sdlc standard phrases that should have been transformed
+- Scans `.claude/skills/` (including each skill's `references/`), `.claude/agents/` and `.claude/sdlc/` for any remaining `[sdlc-root]/knowledge/` or `[sdlc-root]/disciplines/` path outside a closed exemption list, and for a `*` inside a `tags=[...]` / `tag_prefixes=[...]` argument (the API matches tags literally, so a wildcard returns nothing)
 - Scans for inline adapter conditionals that violate the contract
 - Verifies manifest-to-filesystem hash consistency
 - Confirms the Neuroloom sentinel is present and version-tagged
@@ -181,6 +181,7 @@ All process-layer data in Neuroloom is organized via tags with the `sdlc:` prefi
 | `sdlc:context:{type}:{slug}` | Links a discipline entry to a non-deliverable context (e.g., `sdlc:context:idea:caching`) | Discipline capture |
 | `sdlc:doc:{type}` | Document type: `spec`, `plan`, `result`, `chronicle` | PostToolUse hook |
 | `sdlc:pattern:{name}` | YAML pattern type: `entries`, `gotchas`, `rules`, `methodology` | YAML parsers |
+| `sdlc:domain:{domain}` | Knowledge domain, from the file's subdirectory (`knowledge/<domain>/x.yaml`). Domain lookups AND it with `sdlc:knowledge` (`tags=[…], tags_match="all"`); a project ported before 0.5.7 lacks it and needs re-seeding | YAML parsers (`/sdlc-port`), `seed()` |
 | `sdlc:triage:{marker}` | Discipline parking lot triage state | Discipline parser |
 | `sdlc:project-context` | Workspace project profile (tech stack, conventions) | `/sdlc-initialize` |
 

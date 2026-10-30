@@ -33,49 +33,51 @@ For Neuroloom projects (`neuroloom_backend: true` in manifest), the installed fi
 - `/sdlc-migrate` — expect `>= MCP_COUNT_PRE_MIGRATION` (from transaction log)
 - `/sdlc-port` — expect non-zero (port applies Pattern Mapping in bulk)
 
-### Check 2 — No residual z-sdlc standard phrases
+### Check 2 — No residual knowledge-layer references
 
-For Neuroloom projects, canonical phrases from z-sdlc's phrasing contract should have been transformed by the installer. Their continued presence in installed files indicates the transformation was skipped.
+For Neuroloom projects, no installed file should still point at a file in the z-sdlc knowledge or discipline layer. Those files do not exist in a Neuroloom project (the content lives in the memory graph), so a reference to one is a dead pointer that a reader, or a dispatched subagent, will try to open.
 
-**Canonical phrases (all should return zero hits in `.claude/sdlc/` and `.claude/agents/`):**
-- `consult [sdlc-root]/knowledge/agent-context-map.yaml`
-- `Consult [sdlc-root]/knowledge/agent-context-map.yaml for`
-- `update [sdlc-root]/knowledge/agent-context-map.yaml`
-- `Update [sdlc-root]/knowledge/agent-context-map.yaml`
-- `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml`
-- `look up the agent's mapped files from [sdlc-root]/knowledge/agent-context-map.yaml`
-- `Before starting substantive work, consult [sdlc-root]/knowledge/agent-context-map.yaml`
-- `Append to [sdlc-root]/disciplines/*.md`
-- `Append each insight or GAP entry to the relevant [sdlc-root]/disciplines/*.md`
-- `knowledge stores ([sdlc-root]/knowledge/)`
+This check is a **generic scan**, not a phrase list. A fixed list of canonical phrases cannot see a backtick-wrapped instance, an Integration `Uses:` line, a path inside a dispatch prompt, or a phrasing its author did not anticipate. The list this check replaces missed all of those in sleeved (z-sdlc 2.2.0 migration, 2026-10-29), and it searched only `.claude/sdlc/` and `.claude/agents/`, so it never looked at `.claude/skills/`, where most of the residue was.
 
-**Action on hit:** **REGRESSION** (outside the exception list) — the transformation didn't apply to this file/section. The Pattern Mapping table has a rule for each of these; a hit means the rule didn't fire (likely due to file-level merge without §4.2.0 gate running, or a prior install bug).
+**Scan** (all three trees; `.claude/skills/` includes each skill's `references/`; Markdown only, because Markdown is the transform scope and `process/agent-selection.yaml` legitimately names paths):
 
-### Check 2a — No forbidden pre-contract phrasings
+```bash
+grep -rnE --include='*.md' '\[sdlc-root\]/(knowledge|disciplines)/' .claude/skills .claude/agents .claude/sdlc
+```
 
-The phrasing contract explicitly forbids non-canonical variants that z-sdlc source may have used before standardization (pre-2026-04-22). Upstream z-sdlc should have rewritten these, but scan the installed copy as a safety net — if a forbidden form shows up, it means z-sdlc regressed OR the plugin was pulling from a pre-standardization version.
+The scan is deliberately not fence-aware and not Integration-aware: a hit inside a fenced dispatch prompt or on an Integration `Uses:` / `Depends on:` / `DRY notes:` line is a regression, because the transformer rewrites both (see `pattern-mapping-rules.md` § "Integration sections" and § "Dispatch-prompt template blocks"). Classify every hit against the exemption list below; row 6 is the only place fences are consulted. A hit that matches no exemption is a **REGRESSION**.
 
-**Forbidden patterns (all should return zero hits):**
-- `Read [sdlc-root]/knowledge/agent-context-map.yaml` (as instruction — distinguishable from canonical `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml`)
-- `Look up ... in [sdlc-root]/knowledge/agent-context-map.yaml` (the `in` form — canonical uses `from` or `Consult ... for`)
-- `via [sdlc-root]/knowledge/agent-context-map.yaml` (as instruction — e.g., `Connect ... via ...`)
-- `directing them to [sdlc-root]/knowledge/agent-context-map.yaml`
-- `Connect [any text] via [sdlc-root]/knowledge/agent-context-map.yaml`
-- `Read and follow the full methodology at [sdlc-root]/knowledge/<file>` — canonical uses `Read [sdlc-root]/knowledge/<file> for the full methodology`
-- `Apply the [X] paradigm from [sdlc-root]/knowledge/<file>` — canonical uses `Read [sdlc-root]/knowledge/<file> and apply the [X] paradigm`
-- `go to your SDLC knowledge store ([sdlc-root]/knowledge/<domain>/)` — canonical uses `append to [sdlc-root]/knowledge/<domain>/`
-- `(see [sdlc-root]/knowledge/<file>)` parenthetical asides — canonical extracts into a separate sentence using `Read [sdlc-root]/knowledge/<file>`
+**Exemptions.** These are the legitimate, by-design references. The list is closed: to exempt something else, add a row here with its reason, so the next reader can see why.
 
-**Action on hit:** **REGRESSION** — report which file + line + forbidden pattern. Two possibilities: (1) z-sdlc source regressed (file a bug upstream, tag `[contract-change]`), or (2) plugin pulled from a release predating the 2026-04-22 standardization. Recovery: halt, update plugin to latest z-sdlc, re-run.
+| # | Exempt hits | Why it is legitimate |
+|---|-------------|----------------------|
+| 1 | In `.claude/skills/sdlc-migrate/`, lines that map an upstream path to its install path or list the project-specific files. Shape: a bare upstream path (`knowledge/`, `knowledge/README.md`) beside `→` or `(to` + an install path, e.g. SKILL.md "Source-to-project path mappings" and the file-copy list | Framework mechanics: they describe where the framework puts files in file mode. Exempt LINE BY LINE, not by tree: every other hit in `sdlc-migrate` is a live read (a check on the project's own disciplines or knowledge: "read … and verify", "Read each … parking lot", "Verify … references …", the post-migration review table, "new knowledge lands in …") and the transformer rewrites it, so it is a regression here. |
+| 2 | On `.claude/agents/sdlc-reviewer.md` and `.claude/agents/sdlc-compliance-auditor.md` lines that start `` - [ ] No ` `` (anti-residue items), the backtick-quoted span right after `No` | The span quotes the phrase the item forbids (`No \`consult [sdlc-root]/knowledge/agent-context-map.yaml\``). Only the span is exempt; the rest of the line is checked like any other. **Positive checklist items are not exempt**: `- [ ] Lookups use \`consult [sdlc-root]/knowledge/agent-context-map.yaml\`` names the canonical form the reviewer enforces, and a project whose reviewer still says the file-mode form flags every correctly transformed agent. A backticked bare path (`Extract to \`[sdlc-root]/knowledge/\``) is not a quoted phrase either. |
+| 3 | `.claude/sdlc/process/knowledge-routing.md`, `project-section-markers.md`, `path-mappings.md`, `adapter-lifecycle-protocol.md` | Documentation and data that name the paths: the phrasing contract (lists canonical AND forbidden phrases), the file-ownership table, the path-mapping table, the lifecycle protocol. |
+| 4 | `.claude/sdlc/process/sdlc_changelog.md` and `.claude/sdlc/process/changelog-archive/*.md` | History. Entries quote phrases as an accurate record of what happened (z-sdlc contract 0017). |
+| 5 | Hits whose path is `[sdlc-root]/knowledge/provenance_log.md`, and the log file `.claude/sdlc/knowledge/provenance_log.md` itself | An on-disk, append-only, project-specific file. The Pattern Mapping rows for it are under review; keep this exemption until they are decided, then revisit it. |
+| 6 | Hits inside a fenced block that shows a file format or a command and is NOT a dispatch-prompt template block, an agent template block or an output-template block (identification criteria: `pattern-mapping-rules.md` § "Dispatch-prompt template blocks" and § "Output-template blocks"). Upstream examples: `sdlc-ingest/SKILL.md` and `sdlc-develop-agent/SKILL.md` ` ```yaml ` demos of an `agent-context-map.yaml` entry, `process/discipline_capture.md`'s ` ```markdown ` "Promoted entry format", and a ` ```bash ` command | A format or command demo illustrates upstream's file layout; rewriting it removes the example's value and can break its syntax. A ` ```markdown ` or untagged fence holding a prompt sent to a dispatched agent is NOT exempt: a subagent acts on it literally. |
 
-**Exceptions for Checks 2 and 2a:**
-- `.claude/sdlc/process/knowledge-routing.md` — this file IS the phrasing contract; it lists canonical AND forbidden phrases as documentation, not instruction
-- `.claude/sdlc/process/sdlc_changelog.md` — changelog entries may quote the phrases as metadata
-- `.claude/sdlc/process/changelog-archive/*.md` — archived changelog entries, same reason (z-sdlc contract 0017)
-- `.claude/sdlc/knowledge/provenance_log.md` — append-only project-specific record; entries may quote phrases as metadata (treated like `sdlc_changelog.md`)
-- `.claude/agents/sdlc-reviewer.md` — reviewer checklist quotes the canonical phrases as validation criteria
-- `.claude/agents/sdlc-compliance-auditor.md` — auditor validation section quotes phrases as criteria
-- Inline code blocks (``` fenced ``` or `` `backticked` ``) within these exempt files — the phrasing contract explicitly distinguishes documentation from instruction
+**Action on hit:** **REGRESSION**, naming file, line and the matched text. Possible causes, in order of likelihood: (1) the file was not in the transformer's input list (check `.claude/skills/*/references/*.md`); (2) the phrasing has no Pattern Mapping row (add one); (3) the hit sits in a context a hard exclusion wrongly covered (fence, Integration section). Pre-contract phrasings that z-sdlc standardized away in 2026-04 (`Read [sdlc-root]/knowledge/agent-context-map.yaml`, `Look up … in …`, `via [sdlc-root]/knowledge/…`, `directing them to …`, `Read and follow the full methodology at …`, `go to your SDLC knowledge store (…)`) all contain a `[sdlc-root]/knowledge/` path and are caught by this scan; a hit means z-sdlc regressed (file a bug upstream, tag `[contract-change]`) or the plugin pulled a pre-standardization release.
+
+### Check 2a — No wildcard in tag arguments
+
+`tags` and `tag_prefixes` match literally. A `*` inside either list is an ordinary character, so the call returns zero results and raises no error. The rule table itself once emitted `sdlc:discipline:` followed by `*` in a `tags` list, and sleeved's `sdlc-reflect`, `sdlc-idea` and `sdlc-archive` searched for nothing through a full migration cycle.
+
+**Scan:**
+
+```bash
+grep -rnE --include='*.md' 'tag(s|_prefixes)=\[[^]]*\*' .claude/skills .claude/agents .claude/sdlc
+```
+
+Zero hits expected. Any hit is a **HALT**: the call it names does not do what it says. The correct form for "any discipline" is `tag_prefixes=["sdlc:discipline"]`; prose notation is `sdlc:discipline:<name>`.
+
+**Exemptions:** `.claude/sdlc/process/sdlc_changelog.md` and `.claude/sdlc/process/changelog-archive/*.md` only (history quoting the old form).
+
+**Related checks this grep cannot make** (no `*` is involved, so 2a does not see them):
+
+- **A `tags` list of two or more tags is an OR unless `tags_match="all"` is on the same call.** Detect candidates with `grep -rnE --include='*.md' 'tags=\[[^]]*"[^"]*"[^]]*,' .claude/skills .claude/agents .claude/sdlc`. Every hit on a search spec (not a `memory_store` / `document_ingest*` / `memory_get_index` call, not a list with a `<placeholder>`) must carry `tags_match="all"` or be a deliberate OR that the report lists; the form to expect for knowledge + domain is `tags=["sdlc:knowledge", "sdlc:domain:<d>"], tags_match="all"`.
+- **No prefix on `sdlc:knowledge`, and no colon on the discipline family.** `grep -rnE --include='*.md' 'tag_prefixes=\["sdlc:knowledge|tag_prefixes=\["sdlc:discipline:"' …` must return nothing: a `sdlc:knowledge` prefix also matches `sdlc:knowledge-id:…`, and `sdlc:discipline:` misses the bare `sdlc:discipline` tag.
 
 ### Check 3 — No inline adapter conditionals
 
@@ -153,7 +155,7 @@ After the shared checks, additionally verify:
   - All files flagged by the phrasing-contract runtime scan (see `sdlc-migrate/SKILL.md` § "Detecting Files That Contain Phrasing-Contract Patterns")
   - All project-tailored agents in `.claude/agents/` (Knowledge Context, Communication Protocol sections)
   - Process docs: `discipline_capture.md`, `overview.md`, `incident_response.md`, etc.
-- **Knowledge ingestion complete** — all knowledge YAMLs from the file-based source were ingested into the memory graph with correct tags (`sdlc:knowledge`, `sdlc:domain:*`)
+- **Knowledge ingestion complete** — all knowledge YAMLs from the file-based source were ingested into the memory graph with correct tags (`sdlc:knowledge`, `sdlc:domain:<name>`)
 - **Original file-based knowledge files either removed or marked** — if the port leaves them behind, they're a drift risk for future migrations
 
 ---
@@ -170,7 +172,8 @@ Duration:  {N}s
 
 SHARED CHECKS
 [✓] MCP integration health:       {N} MCP calls across {M} files
-[✓] No residual standard phrases: 0 hits (searched 4 patterns across 2 trees)
+[✓] No residual knowledge-layer paths: 0 hits outside the exemption list (3 trees)
+[✓] No wildcard in tag arguments: 0 hits
 [✓] No inline adapter conditionals: 0 hits
 [✓] Manifest integrity:           valid JSON, all required fields, hashes match
 [✓] Knowledge layer reachable:    sentinel found, version tag current
@@ -187,10 +190,10 @@ VERDICT: PASSED — {operation} completed successfully
 On any failure, replace `✓` with `✗` and inline the specific regression detail. Example:
 
 ```
-[✗] No residual standard phrases: 3 hits found
+[✗] No residual knowledge-layer paths: 3 hits found
     .claude/sdlc/process/discipline_capture.md:18 — consult [sdlc-root]/knowledge/agent-context-map.yaml
-    .claude/sdlc/process/overview.md:45 — Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml
-    .claude/agents/sdlc-reviewer.md:84 — consult [sdlc-root]/knowledge/agent-context-map.yaml
+    .claude/skills/sdlc-cleanup-comments/references/dispatch-prompts.md:13 — Read [sdlc-root]/knowledge/coding/comment-discipline.yaml
+    .claude/skills/sdlc-reflect/SKILL.md:294 — `[sdlc-root]/disciplines/*.md` (write targets)
 
 VERDICT: FAILED — 3 regressions detected
 Recovery: {operation-specific recovery instructions}

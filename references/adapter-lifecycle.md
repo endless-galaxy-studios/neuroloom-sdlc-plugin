@@ -20,7 +20,7 @@ Ingest all knowledge into the Neuroloom API via `document_ingest_batch`. No flat
 Before ingesting, check what already exists in the workspace for each domain:
 
 ```
-memory_search(query="SDLC knowledge entries", tags=["sdlc:knowledge", "sdlc:domain:{domain}"])
+memory_search(query="SDLC knowledge entries", tags=["sdlc:knowledge", "sdlc:domain:{domain}"], tags_match="all")
 ```
 
 If results exist, this is a re-initialization. Count entries tagged `sdlc:project-specific` — these will be preserved (never overwritten). Report the count to upstream so it can include it in its confirmation gate:
@@ -137,9 +137,10 @@ Update the Neuroloom knowledge layer using server-side idempotent upsert. No fla
 7. **Verify after re-seed (updated disciplines only):**
    ```
    memory_search(query="{discipline-name} framework methodology",
-                 tags=["sdlc:discipline:{name}", "sdlc:seed-version:{LATEST_VERSION}"])
+                 tags=["sdlc:discipline:{name}", "sdlc:seed-version:{LATEST_VERSION}"],
+                 tags_match="all")
    ```
-   Should return upstream framework content with new version tag. Separate search for `sdlc:parking-lot` should still return project entries.
+   `tags_match="all"` makes `tags` an AND, so a result must carry BOTH the discipline tag and the new version tag. (The earlier form listed both tags without it, which is an OR: any entry of that discipline passed regardless of version, and the check verified nothing. Both tags are exact, so neither is used as a prefix.) Treat an empty result as a failed re-seed, and check that each returned entry's tags include BOTH `sdlc:discipline:{name}` and `sdlc:seed-version:{LATEST_VERSION}`; ignore any entry missing either, and treat the re-seed as failed if none remain. On a server that predates D178a the parameter is ignored and the call is an OR again, which is why that per-entry check on both tags stays. Separate search for parking-lot entries, which must still exist: `memory_search(query="{discipline-name} parking lot", tags=["sdlc:parking-lot", "sdlc:discipline:{name}"], tags_match="all")`.
 
 8. **Knowledge layer spot-check.** Sample 3–5 entries from the change manifest that were expected to change. Call `memory_search` and verify the content matches the new upstream version and `sdlc:seed-version:{LATEST_VERSION}` tag is present.
 
@@ -151,6 +152,8 @@ Update the Neuroloom knowledge layer using server-side idempotent upsert. No fla
 **On failure:** halt
 **Applies to:** `[sdlc-root]/**/*.md`, `.claude/agents/*.md`, `.claude/skills/*/SKILL.md`, `.claude/skills/*/references/*.md`
 **Skip:** `[sdlc-root]/knowledge/**/*.yaml`
+
+The `references/*.md` entry is in scope on purpose. A skill's `references/` files carry runtime content (dispatch prompts, procedure detail) that a subagent reads and acts on, and the post-operation audit scans them. The dispatch list MUST include every `.claude/skills/*/references/*.md` that upstream wrote in this phase, plus any that already exist in the project and have never been transformed.
 
 Dispatch the `neuroloom-transformer` agent with the full list of written files. The agent handles the entire transformation pipeline (two-pass Pattern Mapping, MCP preservation gate, five verification audits) and returns an aggregate pass/fail report.
 
@@ -249,7 +252,7 @@ All other action handlers (`inject_mcp_tools`, `ensure_mcp_tools`, `transform_kn
 |-------|--------|---------|
 | `sdlc-develop-agent` | `.claude/agents/*.md` | Inject MCP tools per agent's tool profile, transform Knowledge Context and Communication Protocol sections |
 | `sdlc-develop-agent` (ENRICH mode) | `.claude/agents/*.md` | Ensure MCP tools still present per profile, re-transform Knowledge Context and Communication Protocol |
-| `sdlc-develop-skill` | `.claude/skills/*/SKILL.md` | Apply full two-pass Pattern Mapping pipeline |
+| `sdlc-develop-skill` | `.claude/skills/*/SKILL.md`, `.claude/skills/*/references/*.md` | Apply full two-pass Pattern Mapping pipeline |
 | `sdlc-ingest` | `[sdlc-root]/knowledge/**/*.yaml`, `[sdlc-root]/disciplines/*.md` | Route to Neuroloom backend via `document_ingest_batch` instead of writing flat files |
 | `sdlc-archive` | `path_pairs` (pre-move -> post-move, assembled by the skill, no glob) | Sync each archived doc's DocumentSource anchor via `PATCH /api/v1/documents/by-path` |
 
@@ -277,9 +280,9 @@ Execute the checks documented in `${CLAUDE_PLUGIN_ROOT}/references/post-operatio
 
 1. **MCP integration health** — count `memory_search(` + `memory_store(` across `[sdlc-root]/` and `.claude/agents/`. Verify minimum-MCP files each have at least one call. If any listed file has zero → REGRESSION.
 
-2. **No residual z-sdlc standard phrases** — grep for canonical phrasing-contract anchors (`consult [sdlc-root]/knowledge/agent-context-map.yaml`, etc.) outside the exemption list. Any hit → REGRESSION.
+2. **No residual knowledge-layer references** — generic scan `grep -rnE '\[sdlc-root\]/(knowledge|disciplines)/' .claude/skills .claude/agents .claude/sdlc`, classified against the closed exemption table in `post-operation-audit.md` Check 2. It replaces the earlier fixed phrase lists (canonical and pre-contract), which missed backtick-wrapped, Integration-line and fenced-prompt instances and never searched `.claude/skills/`. Any hit outside the table → REGRESSION.
 
-3. **No forbidden pre-contract phrasings** — grep for non-canonical variants (`Look up ... in`, `via [sdlc-root]/knowledge/`, etc.). Any hit → REGRESSION.
+3. **No wildcard in tag arguments** — `grep -rnE 'tag(s|_prefixes)=\[[^]]*\*' .claude/skills .claude/agents .claude/sdlc` (Check 2a). A `*` inside a tag argument matches nothing. Any hit → HALT.
 
 4. **No inline adapter conditionals** — grep for `(Neuroloom projects:`, `(skip for Neuroloom`, etc. Any hit → REGRESSION.
 

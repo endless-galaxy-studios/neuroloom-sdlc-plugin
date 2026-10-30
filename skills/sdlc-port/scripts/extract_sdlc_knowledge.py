@@ -411,7 +411,28 @@ def _extract_yaml_entries(
             # Treat unknown/inferred patterns as methodology.
             entries = _parse_methodology_pattern(data, filename, source_path)
 
+    _add_domain_tag(entries, rel)
+
     return entries, 0
+
+
+def _add_domain_tag(entries: list[dict[str, Any]], rel: Path) -> None:
+    """Tag each entry ``sdlc:domain:<subdir>`` from the knowledge file's subdirectory.
+
+    ``knowledge/<domain>/x.yaml`` is the domain the file belongs to. Domain-scoped
+    lookups (``tags=["sdlc:knowledge", "sdlc:domain:<d>"], tags_match="all"``) match on
+    this tag, so a ported entry without it is invisible to them. A file directly under
+    ``knowledge/`` has no domain, and an entry that already carries a ``sdlc:domain:``
+    tag keeps it (YAML authors may name a domain that differs from the directory).
+    """
+    if len(rel.parts) < 2:
+        return
+    domain_tag = f"sdlc:domain:{rel.parts[0]}"
+    for entry in entries:
+        tags = list(entry["tags"])
+        if not any(t.startswith("sdlc:domain:") for t in tags):
+            tags.append(domain_tag)
+        entry["tags"] = tags
 
 
 def _extract_discipline_entry(

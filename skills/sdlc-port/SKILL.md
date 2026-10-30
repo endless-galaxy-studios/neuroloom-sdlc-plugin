@@ -336,11 +336,11 @@ Proposed transformations ({K} files):
 
   .claude/agents/software-architect.md
     ops/sdlc/knowledge/architecture-patterns.yaml
-    -> memory_search(query="architecture patterns", tags=["sdlc:knowledge", "sdlc:domain:architecture"])
+    -> memory_search(query="architecture patterns", tags=["sdlc:knowledge", "sdlc:domain:architecture"], tags_match="all")
 
   .claude/skills/sdlc-plan/SKILL.md
     ops/sdlc/knowledge/gotchas.yaml
-    -> memory_search(query="SDLC gotchas", tags=["sdlc:knowledge", "sdlc:type:gotcha"])
+    -> memory_search(query="SDLC gotchas", tags=["sdlc:knowledge", "sdlc:type:gotcha"], tags_match="all")
   ...
 ```
 
@@ -385,7 +385,7 @@ Read ops/sdlc/knowledge/developer-documentation-patterns.yaml for DX heuristics.
 
 After:
 ```
-Call memory_search(query="developer documentation DX heuristics", tags=["sdlc:knowledge", "sdlc:domain:design"])
+Call memory_search(query="developer documentation DX heuristics", tags=["sdlc:knowledge", "sdlc:domain:design"], tags_match="all")
 to retrieve current documentation patterns.
 ```
 
@@ -539,7 +539,7 @@ Three categories of stale references exist in agent memory files:
 | Category | Pattern | Replacement |
 |----------|---------|-------------|
 | Knowledge file paths | `ops/sdlc/knowledge/{path}.yaml` | Replace the file-read instruction with a `memory_search()` call using the knowledge content as the query and appropriate `sdlc:knowledge` tags |
-| Discipline file paths | `ops/sdlc/disciplines/{name}.md` | Replace with `memory_search()` call using `tags=["sdlc:discipline:{domain}"]` |
+| Discipline file paths | `ops/sdlc/disciplines/{name}.md` | Replace with `memory_search()` call using `tag_prefixes=["sdlc:discipline"]` and the discipline's name in the query (entries ported by this skill carry only the bare `sdlc:discipline` tag) |
 | Structural references | `ops/sdlc/` referring to process, templates, or other relocated dirs | Replace `ops/sdlc/` with `.claude/sdlc/` |
 
 For knowledge and discipline paths, the replacement follows the same `memory_search()` pattern used
@@ -555,7 +555,7 @@ when designing new types.
 After:
 ```
 General TypeScript patterns for type safety are retrievable via
-memory_search(query="TypeScript type safety patterns", tags=["sdlc:knowledge", "sdlc:domain:coding"]).
+memory_search(query="TypeScript type safety patterns", tags=["sdlc:knowledge", "sdlc:domain:coding"], tags_match="all").
 Apply those patterns when designing new types.
 ```
 

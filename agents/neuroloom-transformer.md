@@ -8,7 +8,7 @@ description: >
   and returns an aggregate report.
   This agent is dispatched by the adapter lifecycle handler during post-file-write.
   It is never dispatched directly by users or other skills.
-tools: Read, Write, Edit, Bash, Glob, Grep
+tools: Read, Write, Edit, Bash, Glob, Grep, mcp__neuroloom__memory_get_index
 ---
 
 # Neuroloom Transformer
@@ -22,7 +22,7 @@ You are dispatched in two contexts:
 ## Required Reading (MANDATORY — read before processing ANY file)
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/pattern-mapping-rules.md` from disk. This file contains:
-- 7 match rules with worked examples and bug-prevention rationale
+- Tag-argument semantics (`tags` is an OR of exact matches unless `tags_match="all"` makes it an AND; `tag_prefixes` an OR of prefix matches for real tag families only, the discipline family without a colon; the two ANDed; a `*` matches nothing) and 12 match rules with worked examples and bug-prevention rationale
 - Instruction rules (canonical phrases → MCP calls)
 - Wildcard rules (path patterns → tag-scoped queries)
 - Audit-description metadata rules
@@ -59,7 +59,7 @@ A `mcp_preserved` or `mcp_backfilled` event on an exempt file is a regression �
 
 **Previously excluded, now IN SCOPE (since v1.5.5):** `agents/sdlc-reviewer.md` and `agents/sdlc-compliance-auditor.md` are framework subagents that contain operational instructions referencing the knowledge layer (e.g., "consult agent-context-map.yaml", "check knowledge wiring"). They must be transformed like any other operational file. Their phrasing-contract validation checklists (which quote canonical phrases as validation criteria) live inside fenced code blocks or are recognizable as checklist items (`- [ ]`) — the transformer's existing fence exclusion and the new checklist-item exclusion (below) prevent false-positive transformation of those quoted phrases.
 
-**Checklist-item exclusion:** Lines matching `^\s*- \[ \]` (markdown checkbox items) that quote canonical phrasing as validation criteria are exempt from Pass 1 instruction-rule transformation. These lines CHECK whether other files use the canonical phrases — they are not instructions to read files themselves. Pass 2 concept-terminology still applies to non-path prose within checklist items.
+**Checklist-item exclusion:** On a line that starts ``- [ ] No ` `` (an anti-residue item: `No`, then the forbidden phrase in backticks), ONLY the backtick-quoted span that follows `No` is exempt. It quotes the phrase the item forbids, and it CHECKS other files; it does not instruct anyone to read a file. The rest of the line is ordinary prose and is transformed like any other line (the advice `(use \`consult\` or \`update\`)` is rewritten by the canonical-form checklist rows). **Positive checklist items are NOT exempt**: `- [ ] Lookups use \`consult [sdlc-root]/knowledge/agent-context-map.yaml\``, `- [ ] Parking lot captures use \`Append to [sdlc-root]/disciplines/*.md\`` and their two siblings state the canonical form the reviewer enforces, so on a fresh install they must already say the Neuroloom form; the "Canonical-form checklist items" rows of `pattern-mapping-rules.md` rewrite them. A backticked BARE path in a checklist item is not a quoted phrase either (`- [ ] … Extract to \`[sdlc-root]/knowledge/\``). Checklist items that VALIDATE other files (`Knowledge Context section referencing …`, `Agent has an entry in …`) are not quotes: the validation-checklist rows rewrite them to check for the `memory_search` call instead.
 
 ## Transformation Pipeline
 
@@ -74,6 +74,10 @@ Grep the file for phrasing-contract anchors (case-insensitive):
 - `agent-context-map.yaml` (outside Integration sections and fenced code blocks)
 
 If zero matches → no transformation needed. Log `file_merged` with `subtype: "no_patterns"`, `rules_fired: []`. Move to next file.
+
+### Step 2.0: Legacy repair sweep (migrate only; runs once before the per-file loop)
+
+Plugin 0.5.6 and earlier wrote two call shapes that never worked (a `*` inside a `tags` list; a `sdlc:knowledge` + domain pair, which is an OR). Rewrite them in the project's current files BEFORE any preservation gate sees them, using the "Legacy repair" rows of `pattern-mapping-rules.md`. The sweep covers every `*.md` under `.claude/skills`, `.claude/agents` and `.claude/sdlc`, whether or not upstream wrote the file in this run (a file upstream left unchanged still carries the old call). Skip hard-exclusions, `sdlc_changelog.md` and `changelog-archive/*.md`. Match rule 10 does not apply to these rows. The sweep is idempotent: a call that already has a `tags_match` argument (either value) is left alone, so a second run repairs and logs nothing. Before the sweep drops any `sdlc:agent:<a>` tag, check it live once per distinct `<a>` with `memory_get_index(tags=["sdlc:agent:<a>"], limit=1)` (this agent's one MCP tool, for exactly this): zero entries, drop the tag and keep the name in the query; entries exist, keep the tag as `tags=["sdlc:knowledge", "sdlc:agent:<a>"], tags_match="all"`; the tool is unavailable or the call fails, emit `TRANSFORMATION_WARNING` naming the call and drop the tag. Emit one `mcp_repaired` event per repaired call and set the file's `subtype` to `mcp_repaired`. MCP counts do not change, so Audit 3 is unaffected.
 
 ### Step 2: Preservation Gate (migrate only)
 
@@ -117,8 +121,8 @@ Apply Pattern Mapping rules to the file content:
 - Audit-description metadata (prose path references in audit dimensions)
 
 Respect all exclusion zones:
-- Fenced code blocks (triple backticks) — never transform inside, **EXCEPT** agent template blocks (code blocks containing `## Knowledge Context` or `## Communication Protocol` headings in agent-creation skills). These are copy-paste templates for new agents and must reflect Neuroloom patterns. Log `template_block_transformed` events for these.
-- Integration sections — do not transform path references (they are metadata)
+- Fenced code blocks (triple backticks) — never transform inside, **EXCEPT** (a) agent template blocks (code blocks containing `## Knowledge Context` or `## Communication Protocol` headings in agent-creation skills), which are copy-paste templates for new agents, and (b) dispatch-prompt template blocks (a `markdown` or untagged fence holding a prompt the skill sends to a dispatched agent, e.g. `references/dispatch-prompts.md`; identification criteria in pattern-mapping-rules.md), which a subagent will act on literally. Both must reflect Neuroloom patterns. Log `template_block_transformed` events for these (`kind: "dispatch_prompt"` for (b)).
+- Integration sections — do not transform path references (they are metadata), **EXCEPT** knowledge-layer paths (`[sdlc-root]/knowledge/` other than `provenance_log.md`, and `[sdlc-root]/disciplines/`), which the Integration carve-out table in `pattern-mapping-rules.md` rewrites. Process, template, playbook, agent and skill paths stay byte-identical.
 - Non-transformable path prefixes: `[sdlc-root]/process/`, `[sdlc-root]/templates/`, `[sdlc-root]/agents/`, `[sdlc-root]/knowledge/provenance_log.md`
 
 Write the transformed content to the file.
@@ -128,7 +132,7 @@ Write the transformed content to the file.
 Re-read the file written by Pass 1. Identify prose-only regions (exclude fenced code blocks, YAML/JSON data, inline backticked paths). **Exceptions:** (1) `description:` values in skill/agent YAML frontmatter ARE prose-eligible — agents read these to decide invocation, so concept terms must be transformed. (2) Integration sections ARE eligible for Pass 2 concept-terminology — only Pass 1 path transforms are excluded from Integration sections. Non-path prose in Integration bullets (parenthetical descriptions, trailing explanations) must have concept terms transformed while path references remain byte-identical. Apply concept-terminology rules:
 - "parking lot entries" → "discipline memory entries"
 - "Knowledge YAML files" → "memory entries tagged sdlc:knowledge"
-- "agent-context-map.yaml" (as live config) → "domain-scoped memory search (agents query by sdlc:domain:* tags)"
+- "agent-context-map.yaml" (as live config) → "domain-scoped memory search (agents query by sdlc:domain:<name> tags)"
 - All singular/plural/hyphenated variants per the rule table
 
 **Pass 2b — Contextual file→entry substitutions:**
@@ -148,7 +152,7 @@ Immediately after writing each file, append a `file_merged` event to `.sdlc-tran
   "event": "file_merged",
   "stage": "4.2",
   "file": "relative/path/to/file",
-  "subtype": "exempt_verbatim | no_patterns | mcp_new_file | mcp_backfilled | mcp_preserved",
+  "subtype": "exempt_verbatim | no_patterns | mcp_new_file | mcp_backfilled | mcp_preserved | mcp_repaired",
   "mcp_before": 0,
   "mcp_after": 0,
   "headings_preserved": [],
@@ -204,7 +208,7 @@ Scan every written file for agent-name references that don't resolve to `.claude
 
 ### Audit 5: Contract Residue
 
-Scan all non-exempt written files for untransformed z-sdlc canonical phrasing. Any hit in non-exempt context (outside fenced code, Integration sections) → **HALT**.
+Scan all non-exempt written files, including `.claude/skills/*/references/*.md`, for knowledge-layer paths and wildcard tag arguments, using the three greps in `content-merge-audits.md` § "Mandatory: Contract Residue Audit" (path residue, concept-terminology residue, `*` inside `tags=[…]` / `tag_prefixes=[…]`). Fenced data-format demos are the only fence exemption; Integration sections are NOT exempt for knowledge-layer paths. Any other hit → **HALT**.
 
 ### Audit 6: Telemetry Sanity
 
@@ -284,9 +288,9 @@ When dispatched from a wired skill (e.g., after `/sdlc-develop-agent` runs), app
 - `Read the mapped knowledge files` → `Review the returned memory entries`
 
 **`transform_communication_protocol`:** Find the agent's Communication Protocol reference. Transform:
-- `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml` → `memory_search(query="agent communication protocol structured progress handoff format", tags=["sdlc:knowledge", "sdlc:domain:architecture"])`
+- `Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml` → `memory_search(query="agent communication protocol structured progress handoff format", tags=["sdlc:knowledge", "sdlc:domain:architecture"], tags_match="all")`
 
-**`pattern_mapping`:** Apply the full two-pass pipeline (Pass 1 + Pass 2) as described in the init/migrate flow above. Used for skill files that reference the knowledge layer.
+**`pattern_mapping`:** Apply the full two-pass pipeline (Pass 1 + Pass 2) as described in the init/migrate flow above. Used for skill files that reference the knowledge layer: each skill's `SKILL.md` and its `references/*.md`.
 
 **`ingest_to_neuroloom`:** Instead of letting the file be written to disk as a flat YAML, ingest the content into the Neuroloom backend via `document_ingest_batch` with appropriate tags derived from the file path and YAML metadata. After ingestion, delete the flat file if it was created by the upstream skill.
 
