@@ -13,7 +13,7 @@ Phase handler instructions for the z-sdlc adapter lifecycle protocol. Upstream's
 ## knowledge-seed
 **On failure:** halt
 
-Ingest all knowledge into the Neuroloom API via `document_ingest_batch`. No flat YAML files are written to `[sdlc-root]/knowledge/` (except `provenance_log.md`, which is project-specific and lives on disk).
+Ingest all knowledge into the Neuroloom API via `document_ingest_batch`. No flat YAML files are written to `[sdlc-root]/knowledge/`, and no `provenance_log.md` either: provenance is kept as memories tagged `sdlc:provenance` (see § "Provenance records" in `${CLAUDE_PLUGIN_ROOT}/references/pattern-mapping-rules.md`).
 
 ### Pre-seed: Check existing knowledge
 
@@ -39,7 +39,7 @@ Upstream presents this in its Phase 4 confirmation gate alongside its own summar
 
 2. **Filter knowledge files.** From the set of knowledge YAMLs upstream provides, exclude:
    - `knowledge/agent-context-map.yaml` — configuration file, not knowledge content
-   - `knowledge/provenance_log.md` — create empty template on filesystem only
+   - `knowledge/provenance_log.md` — neither ingested nor created: the skills write each provenance record as a `sdlc:provenance` memory
    - `knowledge/README.md` and subdirectory READMEs — documentation only
 
 3. **Evaluate applicability.** For each knowledge YAML, check its `project_applicability.relevant_when` field against the project profile. Apply `action_if_irrelevant`: `keep` (seed regardless), `customize` (rewrite for project stack), `remove` (skip entirely).

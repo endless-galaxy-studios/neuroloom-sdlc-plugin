@@ -374,15 +374,16 @@ class TestCheck2ExemptionTable:
         section = audit.split("### Check 2 — No residual knowledge-layer references", 1)[1].split("### Check 2a", 1)[0]
         return [ln for ln in section.splitlines() if re.match(r"\| [1-9] \|", ln)]
 
-    def test_six_rows_and_no_whole_tree_or_whole_file_exemption(self) -> None:
+    def test_five_rows_and_no_whole_tree_or_whole_file_exemption(self) -> None:
         rows = self._rows()
-        assert len(rows) == 6
+        assert len(rows) == 5, "provenance_log.md is no longer exempt: provenance lives in memories"
         assert not rows[0].startswith("| 1 | Everything under"), "sdlc-migrate must be exempt line by line"
         assert "LINE BY LINE" in rows[0]
         assert "Only the span is exempt" in rows[1]
+        assert not any("provenance_log" in r for r in rows), "no exemption row may name the provenance log"
 
     def test_fenced_format_demos_are_exempt_but_dispatch_prompts_are_not(self) -> None:
-        row = self._rows()[5]
+        row = self._rows()[4]
         assert "fenced block that shows a file format or a command" in row
         assert "NOT a dispatch-prompt template block" in row
         assert "is NOT exempt" in row
@@ -395,6 +396,177 @@ class TestCheck2ExemptionTable:
         cma = (_ROOT / "references" / "content-merge-audits.md").read_text()
         assert "That table is the single list for every path-bearing hit" in cma
         assert "**Not exempt — Integration section:**" not in cma
+
+
+class TestProvenanceRecords:
+    """CD's decision (2026-10-29): provenance is memories tagged `sdlc:provenance`, not an on-disk file."""
+
+    def test_the_no_transformation_rows_are_gone(self) -> None:
+        rules = _rules()
+        for line in rules.splitlines():
+            if "provenance_log.md" in line and line.startswith("|"):
+                assert "**No transformation**" not in line, line[:100]
+        assert "file lives on disk in Neuroloom projects too" not in rules
+        assert "project-specific on-disk file" not in rules
+
+    def test_record_shape_and_the_parameter_that_is_easy_to_get_wrong(self) -> None:
+        rules = _rules()
+        assert 'tags=["sdlc:provenance", "sdlc:source-type:<type>", "sdlc:prov:<prov-id>", "sdlc:prov-status:<status>"]' in rules
+        assert 'memory_type="general")' in rules
+        assert "**`content=`, not `narrative=`.**" in rules  # memory_store takes content; memory_update takes narrative
+        assert "`sdlc_knowledge` and `wiki` are system-only" in rules
+        assert "`prov-YYYY-MM-DD-NNN` for ingest and research, `audit-sweep-YYYY-MM-DD-NNN` for Deep Verify sweeps" in rules
+
+    def test_next_id_lookup_and_the_cap(self) -> None:
+        rules = _rules()
+        assert '`memory_get_index(tags=["sdlc:provenance"], limit=500)`. The index rows carry titles but no tags' in rules
+        assert "the highest `prov-<today>-NNN` at the start of a title" in rules
+        assert "use `001` when there is none" in rules
+        assert "If `count` equals 500 the list is truncated: do not guess an id; say so and ask CD to choose it." in rules
+        assert 'memory_get_index(tags=["sdlc:prov:<id>"])' in rules
+
+    def test_status_is_a_tag_selected_exactly_and_changed_with_the_whole_tag_list(self) -> None:
+        rules = _rules()
+        assert "**Status is a tag as well as a line.**" in rules
+        assert ('memory_get_index(tags=["sdlc:provenance", "sdlc:source-type:reference-doc", '
+                '"sdlc:prov-status:approved-for-ingest"], limit=500)') in rules
+        assert "`memory_get_detail` is called on those rows only" in rules
+        assert ("memory_update(memory_id=<id>, tags=[<the record's full tag list, status tag swapped>], "
+                "narrative=<the whole record, status line updated>)") in rules
+        assert "`memory_update` REPLACES `tags`" in rules and "Always send every tag and every field." in rules
+        assert "A sweep record has no status" in rules
+
+    def test_the_status_transition_rows_exist(self) -> None:
+        rules = _rules()
+        for marker in (
+            "`the user approves them to \\`approved-for-ingest\\``",
+            "`update that entry's status to \\`ingested\\` and populate the ingestion fields`",
+            "sdlc:prov-status:approved-for-ingest swapped for sdlc:prov-status:ingested",
+            "the same call with `sdlc:prov-status:rejected` rejects it",
+        ):
+            assert marker in rules, marker
+
+    def test_the_files_created_match_is_an_exhaustive_scan_not_a_ranked_search(self) -> None:
+        rules = _rules()
+        row = next(ln for ln in rules.splitlines() if ln.startswith("| `read [sdlc-root]/knowledge/provenance_log.md and find entries with matching"))
+        assert "an exhaustive scan: every knowledge entry is matched against every record" in row
+        assert 'memory_get_index(tags=["sdlc:provenance"], limit=500) once, then memory_get_detail on each record once' in row
+        assert "build a map from every path in its" in row
+        assert "If count is 500 the list is truncated: say so and stop" in row
+        assert "Do NOT emit a per-entry `memory_search` for this" in row
+        assert "memory_search(query=\"<the file or topic>\"" not in rules  # the earlier ranked form is gone
+
+    def test_both_status_change_rows_read_the_current_tags_first(self) -> None:
+        """`memory_update` replaces `tags`; an agent that never read them could send only the status tag."""
+        rules = _rules()
+        consume = next(ln for ln in rules.splitlines() if ln.startswith("| `update that entry's status to"))
+        approve = next(ln for ln in rules.splitlines() if ln.startswith("| `the user approves them to"))
+        assert "Call memory_get_detail(id=<the record's id>) for its current tags, then memory_update(" in consume
+        assert "calls memory_get_detail(id=<id>) for its current tags, then memory_update(" in approve
+        for row in (consume, approve):
+            assert "drops `sdlc:provenance` and `sdlc:prov:<id>`" in row
+
+    def test_the_reference_doc_selection_is_explained(self) -> None:
+        rules = _rules()
+        assert rules.count("only `sdlc-research` writes approval handoffs today") >= 1
+        assert "a new source type that can be approved must be added to that selection" in rules
+        assert "a new source type that can be approved needs adding here" in rules
+
+    def test_scans_that_must_see_every_entry_list_by_index_not_by_ranked_search(self) -> None:
+        rules = _rules()
+        row = next(ln for ln in rules.splitlines() if ln.startswith("| `List all knowledge YAML files across [sdlc-root]/knowledge/`"))
+        assert 'Call memory_get_index(tags=["sdlc:knowledge"], limit=500) to list every knowledge entry.' in row
+        assert "If count is 500 the list is truncated: say so and stop" in row
+        assert "Not a ranked `memory_search`" in row
+
+    def test_a_sweep_id_is_allocated_at_the_start_and_never_renumbered(self) -> None:
+        rules = _rules()
+        assert "**Allocate the sweep id now.**" in rules
+        assert 'memory_get_index(tags=["sdlc:prov:<S>"]): it must return no row' in rules
+        assert "**A sweep is the exception:**" in rules
+        assert "a duplicate at store time means STOP and ask CD; never renumber" in rules
+        assert "allocate it ONCE at the start of the sweep, before anything uses it" in rules
+
+    def test_several_records_in_one_run_take_consecutive_ids_and_each_is_checked(self) -> None:
+        rules = _rules()
+        assert "take consecutive ids, the next id, then +1, +2 and so on, and the duplicate check below runs per record" in rules
+        assert "with consecutive ids when one run stores several" in rules
+        assert "**Then, per record,** call" in rules
+
+    def test_the_two_limits_are_disclosed_next_to_the_store_shape(self) -> None:
+        rules = _rules()
+        assert "**Two limits to know before relying on the store.**" in rules
+        # 1. the index is cut by importance, then age
+        assert "ordered by `importance_score` descending, then `created_at` descending" in rules
+        assert "falls off before newer, higher-scored ones" in rules
+        # 2. free-tier retention (read from api/neuroloom_api/jobs/pruning.py)
+        for marker in (
+            "`prune_stale_memories`", "no exemption by memory type, tag or importance",
+            "NO active superuser member", "with no subscription row the window is 30 days",
+            "`retention_days` NULL (paid, unlimited)", "a `pending-review` handoff older than the window is gone",
+            "an inference from the record, not a check of its subscription",
+        ):
+            assert marker in rules, marker
+
+    def test_race_recovery_reaches_the_emitted_text(self) -> None:
+        rules = _rules()
+        assert "**Then, per record,** call `memory_get_index(tags=[\"sdlc:prov:<prov-id>\"])`: one row is expected." in rules
+        assert "the one with the later `created_at` takes the next free id with `memory_update(" in rules
+
+    def test_the_double_rewrite_is_a_single_combined_row_listed_first(self) -> None:
+        rules = _rules()
+        combined = rules.index("The provenance log (\\`[sdlc-root]/knowledge/provenance_log.md\\`) is the prepared handoff mechanism")
+        single = rules.index("| `[sdlc-root]/knowledge/provenance_log.md` named in an Integration list")
+        concept = rules.index("| the concept `provenance log` / `provenance entries`")
+        assert combined < single and combined < concept, "the combined row must be listed before the two single rows"
+        assert "first match wins" in rules and "ONE parenthetical, not two" in rules
+
+    def test_the_rows_cover_the_phrasings_upstream_uses(self) -> None:
+        rules = _rules()
+        for marker in (
+            "to determine the next",
+            "Append one entry (or entries) to [sdlc-root]/knowledge/provenance_log.md",
+            "The sweep is logged to [sdlc-root]/knowledge/provenance_log.md",
+            "update the selected provenance entry's status",
+            "(projects can override via [sdlc-root]/knowledge/provenance_log.md header)",
+            "event records (\\`provenance_log.md\\` itself, ledgers)",
+            "provenance records themselves",
+            "named in an Integration list",
+            "the concept `provenance log`",
+            "list of project-specific files",
+            "**Provenance log** \\| knowledge/provenance_log.md",
+            "`process/path-mappings.md` row",
+        ):
+            assert marker in rules, marker
+        assert "NOT inside text about the `github-provenance` bundle" in rules
+
+    def test_the_audit_no_longer_exempts_the_log_and_scans_for_the_string(self) -> None:
+        audit = _audit()
+        assert "Hits whose path is `[sdlc-root]/knowledge/provenance_log.md`" not in audit
+        assert "grep -rn --include='*.md' 'provenance_log' .claude/skills .claude/agents .claude/sdlc" in audit
+        cma = (_ROOT / "references" / "content-merge-audits.md").read_text()
+        assert "grep -vE 'provenance_log" not in cma
+
+    def test_the_transformer_no_longer_special_cases_the_log(self) -> None:
+        agent = (_ROOT / "agents" / "neuroloom-transformer.md").read_text()
+        assert "(not followed by `provenance_log.md`)" not in agent
+        assert "other than `provenance_log.md`" not in agent
+        assert "ONE exception: its `knowledge/provenance_log.md` row is rewritten" in agent
+
+    def test_the_handlers_and_the_port_skill_stop_creating_or_relocating_the_file(self) -> None:
+        lifecycle = (_ROOT / "references" / "adapter-lifecycle.md").read_text()
+        assert "create empty template on filesystem only" not in lifecycle
+        assert "(except `provenance_log.md`, which is project-specific and lives on disk)" not in lifecycle
+        port = (_ROOT / "skills" / "sdlc-port" / "SKILL.md").read_text()
+        assert "project's ingestion/research lineage log; relocate but never" not in port
+        assert "project-specific append-only record; relocate with" not in port
+        assert "It is NOT relocated" in port
+        assert 'tags=["sdlc:provenance", "sdlc:source-type:<type>", "sdlc:prov:<prov-id>", "sdlc:prov-status:<status>"]' in port
+
+    def test_the_readme_documents_the_three_tags(self) -> None:
+        readme = (_ROOT / "README.md").read_text()
+        for tag in ("`sdlc:provenance`", "`sdlc:source-type:{type}`", "`sdlc:prov:{id}`", "`sdlc:prov-status:{status}`"):
+            assert tag in readme, tag
 
 
 # ---------------------------------------------------------------------------
@@ -451,7 +623,7 @@ _FAMILY_MARKERS: dict[str, str] = {
     "plain:disc:-": "Table cell containing `[sdlc-root]/disciplines/*.md`",
     "plain:other:-": "bare `[sdlc-root]/knowledge/` or bare `[sdlc-root]/disciplines/` token",
     "plain:other:read": "`Read relevant files under [sdlc-root]/knowledge/ and [sdlc-root]/disciplines/ for [X]`",
-    "plain:other:list": "`YAML files under [sdlc-root]/knowledge/`",
+    "plain:other:list": "`List all knowledge YAML files across [sdlc-root]/knowledge/`",
     "plain:other:search": "`Search [sdlc-root]/knowledge/ YAML files for [X]`",
     "plain:other:append to": "`Cross-project knowledge updates append to [sdlc-root]/knowledge/<domain>/`",
     "plain:other:extract to": "`Extract to [sdlc-root]/process/ or [sdlc-root]/knowledge/`",
@@ -459,6 +631,18 @@ _FAMILY_MARKERS: dict[str, str] = {
     "fenced-prompt:other:read": "`Read [sdlc-root]/knowledge/<domain>/<file>.yaml`",
     "fenced-agent-template:map:consult": "`consult [sdlc-root]/knowledge/agent-context-map.yaml`",
     "fenced-output": "**EXCEPTION — Output-template blocks",
+    "integration-prov": "named in an Integration list",
+    "plain:prov:read": "`Read [sdlc-root]/knowledge/provenance_log.md for each knowledge file's last ingestion or refresh date`",
+    "plain:prov:next-id": "Read [sdlc-root]/knowledge/provenance_log.md to determine the next",
+    "plain:prov:append": "`Append one entry (or entries) to [sdlc-root]/knowledge/provenance_log.md`",
+    "plain:prov:logged": "`The sweep is logged to [sdlc-root]/knowledge/provenance_log.md",
+    "plain:prov:override": "`(projects can override via [sdlc-root]/knowledge/provenance_log.md header)`",
+    "bare-prov:event-records": "`event records (\\`provenance_log.md\\` itself, ledgers)`",
+    "bare-prov:migrate-table-row": "`sdlc-migrate` table row `**Provenance log**",
+    "bare-prov:readme-copy-clause": "`sdlc-migrate`: `NOT knowledge/provenance_log.md; that's project-specific`",
+    "bare-prov:never-overwrite-list": "`sdlc-migrate`: `provenance_log.md` in the list of project-specific files",
+    "bare-prov:exclusion-bullet": "a bare list item `- provenance_log.md` in an exclusion list",
+    "bare-prov:path-mappings-row": "`process/path-mappings.md` row",
     "checklist-canonical": "Canonical-form checklist items",
 }
 
@@ -482,8 +666,6 @@ def _fence_blocks(lines: list[str]) -> list[tuple[int, int, str, str, str]]:
 
 
 def _classify(rel: str, line: str, tok: re.Match[str], fence: tuple[str, str, str] | None, in_integ: bool) -> str:
-    if tok.group(0).endswith("provenance_log.md"):
-        return "EXEMPT"
     if rel == "skills/sdlc-migrate/SKILL.md" and ("→" in line or re.search(r"\(to `\[sdlc-root\]", line)):
         return "EXEMPT"
     kind = "plain"
@@ -514,16 +696,68 @@ def _classify(rel: str, line: str, tok: re.Match[str], fence: tuple[str, str, st
         for span in re.finditer(r"`([^`]*)`", line):
             if span.start() <= tok.start() < span.end() and _QUOTE_VERB.match(span.group(1)):
                 return "checklist-canonical"
+    token = tok.group(0)
     if in_integ:
-        return "integration"
+        return "integration-prov" if token.endswith("provenance_log.md") else "integration"
     before = line[: tok.start()].replace("`", "")
     verbs = re.findall(_VERBS, before[-90:])
-    token = tok.group(0)
     fam = (
-        "map" if "agent-context-map" in token else "acp" if "agent-communication-protocol" in token
+        "prov" if token.endswith("provenance_log.md")
+        else "map" if "agent-context-map" in token else "acp" if "agent-communication-protocol" in token
         else "disc" if "/disciplines/" in token else "yaml" if token.endswith(".yaml") else "other"
     )
+    if fam == "prov":
+        # a provenance record read serves three purposes; the phrasing, not the verb, tells them apart
+        if "next `prov-" in line:
+            return "plain:prov:next-id"
+        if "override" in line:
+            return "plain:prov:override"
+        if not verbs:
+            return "plain:prov:logged"
     return f"{kind}:{fam}:{verbs[-1].lower() if verbs else '-'}"
+
+
+_BARE_PROV = re.compile(r"provenance_log(?:\.md)?")
+_BARE_EXEMPT_FILES = ("process/sdlc_changelog", "process/changelog-archive/")
+
+
+def _classify_bare_provenance(rel: str, line: str) -> str:
+    """Family for a `provenance_log` mention that is not a `[sdlc-root]/…` path token.
+
+    The path scan misses `provenance_log.md` written without the `[sdlc-root]/knowledge/` prefix:
+    a table cell, a list of project-specific files, a bullet, "event records (`provenance_log.md` itself)".
+    The post-operation audit greps the bare string, so each of these needs a rule row too.
+    """
+    if "event records" in line:
+        return "bare-prov:event-records"
+    if re.match(r"\|\s*\*\*Provenance log\*\*", line):
+        return "bare-prov:migrate-table-row"
+    if re.search(r"NOT `?knowledge/provenance_log\.md", line):
+        return "bare-prov:readme-copy-clause"
+    if "never be overwritten" in line or "Current exclusions" in line:
+        return "bare-prov:never-overwrite-list"
+    if re.match(r"\s*- `provenance_log\.md`\s*$", line):
+        return "bare-prov:exclusion-bullet"
+    if rel.endswith("path-mappings.md"):
+        return "bare-prov:path-mappings-row"
+    return "bare-prov:other"
+
+
+def _upstream_bare_provenance() -> list[tuple[str, int, str, str]]:
+    """(file, line, family, text) for every `provenance_log` mention outside a counted path token."""
+    out: list[tuple[str, int, str, str]] = []
+    for top in ("skills", "process", "templates", "agents"):
+        for f in sorted((_UPSTREAM / top).rglob("*.md")):
+            rel = str(f.relative_to(_UPSTREAM))
+            if rel.startswith(_BARE_EXEMPT_FILES):
+                continue
+            for n, ln in enumerate(f.read_text().split("\n"), start=1):
+                spans = [m.span() for m in _PATH.finditer(ln)]
+                for m in _BARE_PROV.finditer(ln):
+                    if any(a <= m.start() < b for a, b in spans):
+                        continue  # already counted as a path token
+                    out.append((rel, n, _classify_bare_provenance(rel, ln), ln))
+    return out
 
 
 def _upstream_occurrences() -> list[tuple[str, int, str, str]]:
@@ -584,6 +818,24 @@ class TestUpstreamCoverageInventory:
         assert total > 150, f"inventory looks wrong: only {total} occurrences"
         assert not unregistered, f"upstream phrasings with no registered rule family: {unregistered}"
         assert not missing_marker, f"families whose rule row is gone from pattern-mapping-rules.md: {missing_marker}"
+
+    def test_every_bare_provenance_log_mention_has_a_row_too(self) -> None:
+        """The audit greps the bare string `provenance_log`, so a mention with no `[sdlc-root]/` prefix needs a row."""
+        rules = _rules()
+        found = _upstream_bare_provenance()
+        assert len(found) >= 6, f"inventory looks wrong: only {len(found)} bare mentions"
+        for rel, n, family, _line in found:
+            marker = _FAMILY_MARKERS.get(family)
+            assert marker is not None, f"bare provenance_log mention with no registered row: {family} at {rel}:{n}"
+            assert marker in rules, f"{family} ({rel}:{n}): row text missing from pattern-mapping-rules.md: {marker}"
+
+    def test_the_bare_scan_sees_the_mentions_reviewers_named(self) -> None:
+        where = {(r, n) for r, n, _f, _l in _upstream_bare_provenance()}
+        files = {r for r, _n in where}
+        assert "skills/sdlc-audit/references/deep-verify.md" in files  # :38 "event records (`provenance_log.md` itself"
+        assert "skills/sdlc-migrate/SKILL.md" in files  # :145, :254, :352
+        assert "skills/sdlc-audit/references/compliance-methodology.md" in files  # :236 bullet
+        assert "process/path-mappings.md" in files  # :34 row
 
     def test_occurrences_are_counted_per_path_not_per_line(self) -> None:
         occ = _upstream_occurrences()

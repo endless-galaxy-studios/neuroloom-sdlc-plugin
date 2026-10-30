@@ -318,14 +318,17 @@ Files with no matching references are not transformation targets — skip them.
 - Agent or skill files with no matching references
 - Historical changelog entries in `ops/sdlc/process/sdlc_changelog.md` and `ops/sdlc/process/changelog-archive/*.md` — these are an accurate
   record of what happened at the time and must not be rewritten
-- `ops/sdlc/knowledge/provenance_log.md` — project-specific append-only record; relocate with
-  other files in Stage 4f, do not transform or ingest
+- `ops/sdlc/knowledge/provenance_log.md` — not a skill or process file, so it is not transformed; its entries
+  become `sdlc:provenance` memories (see "Provenance records" in `references/pattern-mapping-rules.md`) and the
+  file is removed with the other flat knowledge files in Post-Port Cleanup
 
 **Project-specific files to preserve during relocation:**
 - `process/agent-selection.yaml` — project's agent roster and dispatch rules; relocate but never
   overwrite during future migrations
-- `knowledge/provenance_log.md` — project's ingestion/research lineage log; relocate but never
-  ingest into knowledge layer
+- `knowledge/provenance_log.md` — project's ingestion/research lineage log. It is NOT relocated: for each
+  `prov-…` entry call `memory_store(title="<prov-id>: <short description>", content=<the entry's fields, status kept>,
+  tags=["sdlc:provenance", "sdlc:source-type:<type>", "sdlc:prov:<prov-id>", "sdlc:prov-status:<status>"], memory_type="general")`, then delete the file.
+  There is no script for this step; do it by hand and report the count
 
 ### Stage 4b — Present Proposed Changes
 

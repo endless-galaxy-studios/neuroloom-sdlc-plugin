@@ -53,7 +53,7 @@ These files are NEVER transformed. If they appear in your file list, skip them e
 - `process/knowledge-routing.md`
 - `process/sdlc_changelog.md`
 - `process/changelog-archive/*.md` (the project's archived changelog entries, z-sdlc contract 0017)
-- `process/path-mappings.md`
+- `process/path-mappings.md` (byte-verbatim, with ONE exception: its `knowledge/provenance_log.md` row is rewritten to a `sdlc:provenance` row, because no such file exists in a Neuroloom project)
 
 A `mcp_preserved` or `mcp_backfilled` event on an exempt file is a regression — halt immediately.
 
@@ -68,7 +68,7 @@ For each file in the list (excluding hard exclusions):
 ### Step 1: Runtime Scan
 
 Grep the file for phrasing-contract anchors (case-insensitive):
-- `[sdlc-root]/knowledge/` (not followed by `provenance_log.md`)
+- `[sdlc-root]/knowledge/`
 - `[sdlc-root]/disciplines/`
 - `consult [sdlc-root]/knowledge/`
 - `agent-context-map.yaml` (outside Integration sections and fenced code blocks)
@@ -122,8 +122,8 @@ Apply Pattern Mapping rules to the file content:
 
 Respect all exclusion zones:
 - Fenced code blocks (triple backticks) — never transform inside, **EXCEPT** (a) agent template blocks (code blocks containing `## Knowledge Context` or `## Communication Protocol` headings in agent-creation skills), which are copy-paste templates for new agents, and (b) dispatch-prompt template blocks (a `markdown` or untagged fence holding a prompt the skill sends to a dispatched agent, e.g. `references/dispatch-prompts.md`; identification criteria in pattern-mapping-rules.md), which a subagent will act on literally. Both must reflect Neuroloom patterns. Log `template_block_transformed` events for these (`kind: "dispatch_prompt"` for (b)).
-- Integration sections — do not transform path references (they are metadata), **EXCEPT** knowledge-layer paths (`[sdlc-root]/knowledge/` other than `provenance_log.md`, and `[sdlc-root]/disciplines/`), which the Integration carve-out table in `pattern-mapping-rules.md` rewrites. Process, template, playbook, agent and skill paths stay byte-identical.
-- Non-transformable path prefixes: `[sdlc-root]/process/`, `[sdlc-root]/templates/`, `[sdlc-root]/agents/`, `[sdlc-root]/knowledge/provenance_log.md`
+- Integration sections — do not transform path references (they are metadata), **EXCEPT** knowledge-layer paths (`[sdlc-root]/knowledge/` and `[sdlc-root]/disciplines/`), which the Integration carve-out table in `pattern-mapping-rules.md` rewrites. Process, template, playbook, agent and skill paths stay byte-identical.
+- Non-transformable path prefixes: `[sdlc-root]/process/`, `[sdlc-root]/templates/`, `[sdlc-root]/agents/`. `[sdlc-root]/knowledge/provenance_log.md` is NOT on this list any more: provenance is a set of `sdlc:provenance` memories, and every mention of the file is rewritten (§ "Provenance records" in `pattern-mapping-rules.md`).
 
 Write the transformed content to the file.
 

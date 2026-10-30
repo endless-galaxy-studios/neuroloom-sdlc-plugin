@@ -321,8 +321,7 @@ For every file written in stage 4.2 with `subtype != exempt_verbatim` (this incl
 
 1. **Path-bearing residue (Pass 1 territory):**
    ```bash
-   grep -nE '\[sdlc-root\]/(knowledge|disciplines)/' <written-file> \
-     | grep -vE 'provenance_log\.md'
+   grep -nE '\[sdlc-root\]/(knowledge|disciplines)/' <written-file>
    ```
 2. **Concept-terminology residue (Pass 2 territory) — case-insensitive to catch heading title-case:**
    ```bash
@@ -343,7 +342,7 @@ For every file written in stage 4.2 with `subtype != exempt_verbatim` (this incl
 
 For each path-bearing or concept-terminology hit, classify:
 
-- **Exempt, and not exempt — exactly the rows of the table in `post-operation-audit.md` Check 2** (the `sdlc-migrate` path-mapping lines, the backtick-quoted span of `- [ ] No` checklist items, the four process docs, the changelog and its archive, `provenance_log.md`, and fenced format/command demos). That table is the single list for every path-bearing hit; this audit does not keep a second one. Three consequences it spells out, repeated here because this audit used to get them the other way round: (1) an Integration-section `[sdlc-root]/knowledge/` or `[sdlc-root]/disciplines/` path is a **defect**, not exempt (the Pass 1 carve-out rewrites it; sleeved's migration to z-sdlc 2.2.0 carried seven such lines because this class used to be exempt); (2) a ```` ```markdown ```` or untagged fence holding a prompt sent to a dispatched agent is a **defect** (`pattern-mapping-rules.md` § "Dispatch-prompt template blocks"); (3) a ```` ```yaml ````/```` ```json ````/```` ```bash ```` fence, or a ```` ```markdown ```` fence that demonstrates an entry format, is exempt (row 6).
+- **Exempt, and not exempt — exactly the rows of the table in `post-operation-audit.md` Check 2** (the `sdlc-migrate` path-mapping lines, the backtick-quoted span of `- [ ] No` checklist items, the four process docs, the changelog and its archive, and fenced format/command demos). That table is the single list for every path-bearing hit; this audit does not keep a second one. Three consequences it spells out, repeated here because this audit used to get them the other way round: (1) an Integration-section `[sdlc-root]/knowledge/` or `[sdlc-root]/disciplines/` path is a **defect**, not exempt (the Pass 1 carve-out rewrites it; sleeved's migration to z-sdlc 2.2.0 carried seven such lines because this class used to be exempt); (2) a ```` ```markdown ```` or untagged fence holding a prompt sent to a dispatched agent is a **defect** (`pattern-mapping-rules.md` § "Dispatch-prompt template blocks"); (3) a ```` ```yaml ````/```` ```json ````/```` ```bash ```` fence, or a ```` ```markdown ```` fence that demonstrates an entry format, is exempt (row 5).
 - **Warn-class — YAML mechanism context:** the hit is in `sdlc-ingest/SKILL.md` and the surrounding sentence describes the file-mode YAML format that ingest consumes (e.g., "Existing knowledge: [count] YAML files"). Distinguishing signal: the sentence's subject is the upstream file format, not a Neuroloom-mode operation. Surface as warning, do not halt — CD reviews and either accepts or migrates the language.
 - **Defect — Pattern Mapping bypass:** the hit is in operational prose describing Neuroloom-mode operation. The transformer either didn't fire on this file or has a coverage gap. **Halt.**
 

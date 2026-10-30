@@ -182,6 +182,10 @@ All process-layer data in Neuroloom is organized via tags with the `sdlc:` prefi
 | `sdlc:doc:{type}` | Document type: `spec`, `plan`, `result`, `chronicle` | PostToolUse hook |
 | `sdlc:pattern:{name}` | YAML pattern type: `entries`, `gotchas`, `rules`, `methodology` | YAML parsers |
 | `sdlc:domain:{domain}` | Knowledge domain, from the file's subdirectory (`knowledge/<domain>/x.yaml`). Domain lookups AND it with `sdlc:knowledge` (`tags=[…], tags_match="all"`); a project ported before 0.5.7 lacks it and needs re-seeding | YAML parsers (`/sdlc-port`), `seed()` |
+| `sdlc:provenance` | A provenance record: where knowledge entered the knowledge layer (an ingestion, a research handoff, a Deep Verify sweep). One memory per record, `memory_type` `general`. Replaces the on-disk `provenance_log.md` | `sdlc-ingest`, `sdlc-research`, `sdlc-audit` |
+| `sdlc:source-type:{type}` | Provenance source kind: `reference-doc`, `file`, `directory`, `url`, `manual`, `audit-sweep` | same |
+| `sdlc:prov:{id}` | The record's id (`prov-YYYY-MM-DD-NNN`, or `audit-sweep-YYYY-MM-DD-NNN` for a sweep); one exact tag finds one record | same |
+| `sdlc:prov-status:{status}` | A provenance record's status: `pending-review`, `approved-for-ingest`, `ingested`, `rejected`. A tag so the skills select exactly (`memory_get_index` ANDs tags); a change is `memory_update` with the whole tag list, status tag swapped. Sweep records have none | same |
 | `sdlc:triage:{marker}` | Discipline parking lot triage state | Discipline parser |
 | `sdlc:project-context` | Workspace project profile (tech stack, conventions) | `/sdlc-initialize` |
 
