@@ -30,6 +30,9 @@ This is the first changelog for this plugin; earlier releases are in the git his
 
 ### Changed
 
+- **The content-merge audits read z-sdlc's replacement and removal marks** (z-sdlc contract 0021). A section a `PROJECT-SECTION-START: <label> replaces` block stands in for, or a `PROJECT-SECTION-REMOVED` line names, is absent by the project's marked choice: neither the structural count nor the mandatory-step check reports it as a regression. The marker audit counts removal lines with the blocks, so a lost removal mark halts like a lost block.
+- **Knowledge files a project declines stay declined** (z-sdlc contract 0022, `.sdlc-manifest.json` → `declined_files`). `knowledge-seed` skips a declined path and records each file its applicability check removes. `knowledge-update` leaves declined files out, and no longer re-seeds a file the project removed from the workspace (absent there, present upstream at the project's `source_version`): it reports it for CD to decline or re-seed.
+- **Supports z-sdlc 2.9.0** (`adapter.json`, both keys), covering the two `[contract-change]` entries since 2.2.0: 2026-11-14's knowledge-store glob, which the mapping table already transformed, and 2026-11-20's marks and declined files, above.
 - CI mode has been developed and checked on macOS with Claude Code 2.1.314; the z-sdlc smoke job in GitHub Actions has not run yet, and Windows is untested.
 - Four copies of the `NEUROLOOM_MODE` parse rule exist (base `config.py`, base launcher, this launcher, `sdlc_pyhooks`); `tests/test_mode_parser_agreement.py` keeps them in agreement.
 - The README paragraph that told you to leave `NEUROLOOM_CLAUDE_PLUGIN_ROOT` unset is corrected: leaving it unset is still right for attended sessions on a marketplace install, but in CI mode the variable is required.

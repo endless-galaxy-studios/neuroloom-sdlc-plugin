@@ -43,8 +43,9 @@ Upstream presents this in its Phase 4 confirmation gate alongside its own summar
    - `knowledge/agent-context-map.yaml` — configuration file, not knowledge content
    - `knowledge/provenance_log.md` — neither ingested nor created: the skills write each provenance record as a `sdlc:provenance` memory
    - `knowledge/README.md` and subdirectory READMEs — documentation only
+   - any file whose installed path (`[sdlc-root]/knowledge/<path>`) is in `.sdlc-manifest.json` → `declined_files`: the project declined it (z-sdlc `process/project-section-markers.md` § Deleted Files)
 
-3. **Evaluate applicability.** For each knowledge YAML, check its `project_applicability.relevant_when` field against the project profile. Apply `action_if_irrelevant`: `keep` (seed regardless), `customize` (rewrite for project stack), `remove` (skip entirely).
+3. **Evaluate applicability.** For each knowledge YAML, check its `project_applicability.relevant_when` field against the project profile. Apply `action_if_irrelevant`: `keep` (seed regardless), `customize` (rewrite for project stack), `remove` (skip entirely, and record it in `.sdlc-manifest.json` → `declined_files` under the path it would have had, `"[sdlc-root]/knowledge/<path>": {"why": "not relevant: <its relevant_when>", "decided": "<CD, or knowledge-seed>, <date>"}`, so no later update seeds it).
 
 4. **Batch-ingest via `document_ingest_batch`.** Groups of up to 50 documents per call. Each document must include:
 
@@ -105,11 +106,12 @@ Update the Neuroloom knowledge layer using server-side idempotent upsert. No fla
 
 1. **Resolve version.** Call `sdlc_get_version` to get the latest release tag → `LATEST_VERSION`.
 
-2. **Build the change manifest.** For each `knowledge_id` in the new upstream release, compare against workspace entries:
+2. **Build the change manifest.** Leave out every upstream knowledge file whose installed path (`[sdlc-root]/knowledge/<path>`) is in `.sdlc-manifest.json` → `declined_files`: the project declined it, and it is never seeded again. For each remaining `knowledge_id` in the new upstream release, compare against workspace entries:
 
    | Category | Detection |
    |----------|-----------|
-   | New | `knowledge_id` not found in workspace |
+   | New | `knowledge_id` not found in workspace, and its file wasn't in upstream at the project's `source_version` |
+   | Removed by the project | `knowledge_id` not found in workspace, but its file was in upstream at `source_version` and isn't declined. Not re-seeded: list it in the migration report for CD to decline (record it in `declined_files`) or have the next migration re-seed it. This phase runs in migrate's Phase 2, which asks nothing |
    | Updated | `knowledge_id` exists, content differs |
    | Unchanged | `knowledge_id` exists, content identical |
    | Deprecated | `knowledge_id` present in workspace, absent from new release |

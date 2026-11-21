@@ -21,12 +21,12 @@ MCP count can be preserved while structural content is lost. `migrate-f01a70` de
 
 For each count except `mandatory_step_count`:
 - **`post == upstream`** → pass (expected state after a clean merge)
-- **`post == project_pre_merge`** AND upstream differs → `mcp_preserved` merge kept project's version; verify this is intentional by checking if the difference is inside a preservation boundary (PROJECT-SECTION markers or MCP-bearing section)
-- **`post < upstream` by more than 1**, and the delta doesn't match `project_pre_merge - upstream` → **CONTENT-MERGE REGRESSION**. Halt.
+- **`post == project_pre_merge`** AND upstream differs → `mcp_preserved` merge kept project's version; verify this is intentional by checking if the difference is inside a preservation boundary (PROJECT-SECTION markers, a target a `replaces` block or `PROJECT-SECTION-REMOVED` line names, or MCP-bearing section)
+- **`post < upstream` by more than 1**, and the delta doesn't match `project_pre_merge - upstream` → **CONTENT-MERGE REGRESSION**. Halt. Before halting, take out of the upstream count what the project's marks set aside: a section a ``PROJECT-SECTION-START: <label> replaces `<target>` `` block stands in for, and a section a ``PROJECT-SECTION-REMOVED: <label> `<target>` `` line names, are absent by the project's marked choice (z-sdlc `process/project-section-markers.md` § The Three Kinds of Change).
 - **`post < upstream` by exactly 1** → **WARN but don't halt** — could be a legitimate one-off project customization. Log `structural_audit_warning` for review.
 
 For `mandatory_step_count`:
-- **`post < upstream` by any amount, with no PROJECT-SECTION around the lost step** → **ALWAYS REGRESSION**. No tolerance. MANDATORY-tagged content is labelled that way because the framework considers it non-optional; silently dropping it breaks the framework's intent even if the numeric delta is small.
+- **`post < upstream` by any amount, with no PROJECT-SECTION around the lost step, and no `replaces` block or `PROJECT-SECTION-REMOVED` line naming its section** → **ALWAYS REGRESSION**. No tolerance. MANDATORY-tagged content is labelled that way because the framework considers it non-optional; silently dropping it breaks the framework's intent even if the numeric delta is small.
 
 **Why the `mandatory_step_count` addition:** `migrate-fa70ef` dropped the entire 5-step "Library verification (MANDATORY)" procedure in `sdlc-plan.md`, going from 11 numbered-bold steps upstream to 6 in sleeved. But the plain `numbered_step_count` regression check reported no issue because the absolute delta (5) was within the "maybe legitimate project customization" range when the plugin was evaluating only pre-vs-post (not pre-vs-upstream-vs-post). The `MANDATORY` flag in the heading tells us those steps are framework-required — dropping them is always wrong.
 
@@ -88,8 +88,10 @@ PROJECT-SECTION marker blocks contain project-specific customizations (custom ag
 
 For every file written in Stage 4.2:
 
-1. Count `PROJECT-SECTION-START` markers in the **project's pre-merge version** → `MARKER_COUNT_BEFORE` (from Step 2a extraction)
-2. Count `PROJECT-SECTION-START` markers in the **final on-disk content** → `MARKER_COUNT_AFTER`
+1. Count `PROJECT-SECTION-START` markers and `PROJECT-SECTION-REMOVED` lines in the **project's pre-merge version** → `MARKER_COUNT_BEFORE` (from Step 2a extraction)
+2. Count `PROJECT-SECTION-START` markers and `PROJECT-SECTION-REMOVED` lines in the **final on-disk content** → `MARKER_COUNT_AFTER`
+
+Marks inside fenced code blocks are examples and aren't counted.
 3. **If `MARKER_COUNT_AFTER == MARKER_COUNT_BEFORE`:** pass
 4. **If `MARKER_COUNT_AFTER < MARKER_COUNT_BEFORE`:** → **HALT**. Report each lost marker by label.
 
