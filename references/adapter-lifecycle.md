@@ -79,7 +79,7 @@ Upstream presents this in its Phase 4 confirmation gate alongside its own summar
    |--------------|------|----------------|
    | Framework section | `sdlc:discipline:{name}`, `sdlc:seed`, `sdlc:seed-version:{v}` | `discipline:{name}:framework` |
 
-8. **Spec-relevant importance boost.** After base seeding, prompt CD to select which domains inform spec writing. For selected domains, call `document_ingest_batch` to update matching entries' `importance` to `0.9`.
+8. **Spec-relevant importance boost.** After base seeding, prompt CD to select which domains inform spec writing. For selected domains, call `document_ingest_batch` to update matching entries' `importance` to `0.9`. **No ask tool** (a headless run, or `sdlc-initialize` run inside a subagent): don't choose for CD and don't boost anything. Nothing later depends on the answer (upstream's own spec-relevance step, `sdlc-initialize` 6d, leaves every store `false` when CD skips it), so the run doesn't stop: list the question in its result with the domains and a proposed set, as z-sdlc's `process/headless-mode.md` § The Rule says for a question the next step doesn't depend on. CD's answer is applied later with the same `document_ingest_batch` call.
 
 9. **Sentinel note.** The sentinel memory is managed server-side by `seed()`. Do NOT create or update it via `document_ingest`. Verify via `memory_search(query="SDLC workspace sentinel", tags=["sdlc:sentinel"])` after seeding.
 
@@ -101,6 +101,8 @@ This confirms agents can find their relevant knowledge via tag-scoped queries.
 **On failure:** halt
 
 Update the Neuroloom knowledge layer using server-side idempotent upsert. No flat files are created, diffed, or cleaned up.
+
+**No agent-context-map: skip `sdlc-migrate` §3.3.** A Neuroloom project keeps none (post-operation check 7): agents reach knowledge through their domain-tagged `memory_search` calls, so an upstream map change (a role added, a file mapped to a role, a file restored) needs nothing. When this migration reaches §3.3, skip its map updates and never create the map, whatever the running copy of `sdlc-migrate` says: a project's installed copy predates z-sdlc's own adapter line in §3.3 until a migration has installed it, and the run follows the copy it started with. If a migration leaves `[sdlc-root]/knowledge/agent-context-map.yaml` behind, check 7 reports it.
 
 ### Procedure
 
@@ -282,7 +284,7 @@ Run the shared post-operation audit to verify integration integrity after all mu
 
 Execute the checks documented in `${CLAUDE_PLUGIN_ROOT}/references/post-operation-audit.md`. Summary of required checks:
 
-1. **MCP integration health** — count `memory_search(` + `memory_store(` across `[sdlc-root]/` and `.claude/agents/`. Verify minimum-MCP files each have at least one call. If any listed file has zero → REGRESSION.
+1. **MCP integration health** — count `memory_search(` + `memory_store(` across `[sdlc-root]/` and `.claude/agents/`. Verify minimum-MCP files each have at least one call, and one in each section their entry names. If any listed file has zero → REGRESSION.
 
 2. **No residual knowledge-layer references** — generic scan `grep -rnE '\[sdlc-root\]/(knowledge|disciplines)/' .claude/skills .claude/agents .claude/sdlc`, classified against the closed exemption table in `post-operation-audit.md` Check 2. It replaces the earlier fixed phrase lists (canonical and pre-contract), which missed backtick-wrapped, Integration-line and fenced-prompt instances and never searched `.claude/skills/`. Any hit outside the table → REGRESSION. Check 2b adds the concept-terminology scan (bare "discipline parking lots", "knowledge store" and the like, which name no path): WARN-class, and a REGRESSION when the file was logged `no_patterns`.
 
@@ -324,7 +326,7 @@ If any assertion fails → emit `TELEMETRY REGRESSION` halt. Do not paper over w
 - Agent template transformed for future agent creation
 
 **After `/sdlc-migrate`:**
-- `source_version` in manifest equals the target (not pre-migration version)
+- The run's `[target_tag]` equals `LATEST_VERSION` (the re-seed's version); a difference is a WARN, since `sdlc_get_version` reads a cached copy of the latest release. The manifest's `source_version` still holds the pre-migration value here, because upstream runs this phase before its manifest update (§4.5); `post-operation-audit.md` § "When this runs"
 - PROJECT-SECTION markers preserved (spot-check from transaction log)
 - Any `[contract-change]` entries in range were resolved (via upstream's guarded rename logic)
 - Sentinel version tag matches `LATEST_VERSION` (server updates it after re-seed)

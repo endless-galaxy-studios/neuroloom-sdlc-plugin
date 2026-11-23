@@ -4,7 +4,7 @@ Shared post-operation audit protocol used by `/sdlc-initialize`, `/sdlc-migrate`
 
 **Purpose:** Catch integration failures before declaring success. The operation may have written files without errors, but silent regressions (MCP calls reverted, phrases missed by transformation, manifest out of sync) only surface here.
 
-**When this runs:** Last stage before the success report, after all mutations (file writes, knowledge ingestion, manifest updates) are complete.
+**When this runs:** Last stage before the success report, after the file writes and knowledge ingestion are complete. For `/sdlc-initialize` and `/sdlc-port` the manifest is written by then too. **`/sdlc-migrate` runs this before it updates the manifest:** z-sdlc's §4.4a fires the adapter's `post-operation` phase after its compliance audit (§4.4) and before §4.5 writes `.sdlc-manifest.json` (z-sdlc `process/adapter-lifecycle-protocol.md`, "After all files written, before final manifest update"). On a migration the file still holds the previous version's `source_version`, `source_version_sha`, `file_count`, `declined_files` and hashes, so Check 4 and the migrate checks below judge it against what §4.5 is about to write, never against the new values.
 
 **Outcome model:** Hard-fail if any regression is found. The operation is halted, CD is given specific recovery instructions, and no success message is printed. If all checks pass, the operation reports success and proceeds to the user-facing summary.
 
@@ -20,10 +20,10 @@ For Neuroloom projects (`neuroloom_backend: true` in manifest), the installed fi
 
 **Procedure:**
 1. Count `memory_search(` + `memory_store(` occurrences across `.claude/sdlc/` and `.claude/agents/` → `MCP_COUNT_INSTALLED`
-2. Verify at minimum these files each contain at least one MCP call:
+2. Verify at minimum these files each contain at least one MCP call, and where the line names two sections, one in each of them:
    - `.claude/agents/AGENT_TEMPLATE.md` — Knowledge Context + Communication Protocol
    - `.claude/agents/sdlc-reviewer.md` — wiring checklist
-   - `.claude/agents/sdlc-compliance-auditor.md` — methodology reference
+   - `.claude/agents/sdlc-compliance-auditor.md` — Knowledge Context + Communication Protocol (z-sdlc 2.9.6 gave the auditor both sections; one call in the file no longer shows that both were transformed)
    - `.claude/sdlc/process/discipline_capture.md` — agent knowledge lookup
    - `.claude/sdlc/process/overview.md` — knowledge capture
 3. If any listed file has zero MCP calls: **REGRESSION** — transformation did not apply
@@ -136,11 +136,11 @@ The phrasing contract forbids inline conditionals like `(Neuroloom projects: use
 **Procedure:**
 1. `.sdlc-manifest.json` exists and is valid JSON
 2. Required fields present:
-   - `source_version` — matches the version the operation targeted
+   - `source_version` — init and port: matches the version the operation targeted. Migrate: still the pre-migration version (§4.5 has not run), so don't compare it with the target. Compare the run's `[target_tag]` with `LATEST_VERSION` from `knowledge-update` instead: when they differ, the files and the knowledge layer are at different releases. That is a **WARN** naming both, not a regression: `sdlc_get_version` reads a cached copy of the latest GitHub release, which can lag the source repo's newest tag, and a run with no release tag targets `HEAD`
    - `sdlc_root` — matches the actual installed location
    - `neuroloom_backend` — set to `true`
-   - `install_date` (init) or `last_migration` (migrate) or `ported_at` (port) — set to this operation's timestamp
-3. `installed_files` map (if present): each entry's on-disk SHA-256 should match the recorded hash. Drift here means a file was edited after the operation wrote it.
+   - `install_date` (init) or `ported_at` (port) — set to this operation's timestamp. A migration writes no timestamp field (z-sdlc `sdlc-migrate` §4.5), so there is none to check
+3. `installed_files` map (if present): each entry's on-disk SHA-256 should match the recorded hash. Drift here means a file was edited after the operation wrote it. Migrate: skip every file this run touched, which is every file §4.5 step 3 rehashes after this phase: written, merged or drift-resolved, scripts, templates and bundle tree files included (not only the operational files that have `file_merged` events). A mismatch on a file the run didn't touch is drift from before the run: list it as a WARN, not a regression of this operation.
 
 **Action on failure:** **REGRESSION** — manifest and on-disk state are out of sync.
 
@@ -185,7 +185,7 @@ After the shared checks, additionally verify:
 
 - **§4.2-gate MCP Retention Audit** already passed (or this skill would have halted). The post-operation audit re-verifies the file counts as a double-check.
 - **PROJECT-SECTION markers preserved** — spot-check one file with markers from the transaction log to confirm re-injection happened.
-- **source_version updated** — manifest's `source_version` equals the target (not the pre-migration version).
+- **Target matches the re-seed** — the run's `[target_tag]` equals `LATEST_VERSION`, the version `knowledge-update` re-seeded at; a difference is a WARN (Check 4). Don't check the manifest's `source_version` for the target: §4.5 writes it after this phase (see **When this runs**).
 - **Changelog entries consumed** — any `[contract-change]` entries in the migrated range were resolved (not just deferred).
 
 ### /sdlc-port
@@ -274,7 +274,7 @@ Port may have partially transformed files AND partially ingested knowledge. Reco
 
 This protocol is referenced by:
 - `/sdlc-initialize` — Stage 7 (or final stage before success report)
-- `/sdlc-migrate` — Stage 5 (post-§4.2-gate, before Stage 6 success report)
+- `/sdlc-migrate` — §4.4a, after the compliance audit (§4.4) and before the manifest update (§4.5)
 - `/sdlc-port` — final stage before success report
 
 Each skill runs the full shared checks plus its operation-specific subset. Regressions halt the skill.
