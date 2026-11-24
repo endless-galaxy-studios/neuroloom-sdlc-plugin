@@ -6,6 +6,8 @@ Phase handler instructions for the z-sdlc adapter lifecycle protocol. Upstream's
 
 **Pre-flight dependency:** Before any lifecycle phase fires, the adapter's pre-flight protocol (`${CLAUDE_PLUGIN_ROOT}/references/preflight.md`) must have passed. This validates Neuroloom API reachability, MCP tool availability (`document_ingest_batch`, `memory_search`, `memory_store`, `sdlc_get_version`), GitHub API access, and disk space. Pre-flight is the adapter's own gate — it runs before upstream's skill begins its Phase 1.
 
+**SDLC root check: halt before any phase.** This plugin supports one SDLC root, `ops/sdlc`. Upstream reads this file before its first phase fires: during `sdlc-migrate`'s pre-flight, before any write, and during `sdlc-initialize` after its Phase 1 copy. Run `preflight.md` check 0 then, and if it fails, stop the operation with that check's message. Do not let upstream pick `.claude/sdlc/` as `[sdlc-root]`; every audit this adapter runs reads `ops/sdlc`, and over another root it would pass without having looked. Upstream promises only to look for this file's H2 phase headings, not to act on this paragraph, so `knowledge-seed`, `knowledge-update` and `post-file-write` each run the check as their step 0. Which of them fires first depends on the operation and on which files a release changes (a knowledge-only release may write no file `post-file-write` matches), and the step costs one command.
+
 **Authority in a Neuroloom-backed project: the adapter wins.** CD decided (2026-10-29) that in a project with `neuroloom_backend: true` the adapter's transforms are authoritative where they differ from z-sdlc's verbatim or exempt treatment. Three cases: (1) `process/knowledge-routing.md` is this plugin's Neuroloom variant (`docs/knowledge-routing.md`), not z-sdlc's phrasing contract; (2) `agents/sdlc-reviewer.md` has its phrasing-contract checklist rewritten to the Neuroloom canonical forms, because the reviewer must check files that use those forms (only the quoted span of a `- [ ] No` anti-residue item stays verbatim); (3) knowledge-layer paths in Integration `Uses:`, `Depends on:`, `Feeds into:`, `DRY notes:` and `Knowledge routing:` lines are rewritten, not preserved. An audit that finds these files differing from z-sdlc is looking at the adapter's design, not at drift. One consequence: the project holds no copy of z-sdlc's phrasing contract, so a z-sdlc phrasing change shows up at migration time (the `[contract-change]` entries), not by reading the installed files.
 
 **Contract change version gate:** Upstream reads `adapter.json → supported_zsdlc_version` during pre-flight. `adapter.json` also keeps the pre-rename keys `ccsdlc_adapter` and `supported_ccsdlc_version`, with the same values, so projects whose installed skills predate the rename (v1.9.0 and earlier) still detect this adapter; drop them once every project has migrated past the rename. If any `[contract-change]` entry in the migration range has a version above the adapter's declared support, upstream halts with a message identifying the uncovered entries. The adapter maintainer must update `adapter.json` after verifying handler coverage before migration can proceed.
@@ -36,6 +38,8 @@ importance adjustments from memory_rate feedback will be lost for non-project-sp
 Upstream presents this in its Phase 4 confirmation gate alongside its own summary.
 
 ### Procedure
+
+0. **SDLC root.** Run `preflight.md` check 0 first. If it fails, this phase fails: halt with that check's message before any Neuroloom write.
 
 1. **Resolve version.** Call `sdlc_get_version` MCP tool to retrieve the latest z-sdlc release tag. Store as `SDLC_VERSION`. This tag is embedded in all seeded entries as `sdlc:seed-version:{SDLC_VERSION}`.
 
@@ -106,6 +110,8 @@ Update the Neuroloom knowledge layer using server-side idempotent upsert. No fla
 
 ### Procedure
 
+0. **SDLC root.** Run `preflight.md` check 0 first. If it fails, this phase fails: halt with that check's message before any Neuroloom write.
+
 1. **Resolve version.** Call `sdlc_get_version` to get the latest release tag → `LATEST_VERSION`.
 
 2. **Build the change manifest.** Leave out every upstream knowledge file whose installed path (`[sdlc-root]/knowledge/<path>`) is in `.sdlc-manifest.json` → `declined_files`: the project declined it, and it is never seeded again. For each remaining `knowledge_id` in the new upstream release, compare against workspace entries:
@@ -161,6 +167,8 @@ Update the Neuroloom knowledge layer using server-side idempotent upsert. No fla
 
 The `references/*.md` entry is in scope on purpose. A skill's `references/` files carry runtime content (dispatch prompts, procedure detail) that a subagent reads and acts on, and the post-operation audit scans them. The dispatch list MUST include every `.claude/skills/*/references/*.md` that upstream wrote in this phase, plus any that already exist in the project and have never been transformed.
 
+**Step 0 — SDLC root.** Before the first dispatch of the run, run `preflight.md` check 0 (again, if a knowledge phase already ran it). If it fails, this phase fails: halt with that check's message, before the transformer touches a file. `[sdlc-root]` must be `ops/sdlc`.
+
 Dispatch the `neuroloom-transformer` agent with the full list of written files. The agent handles the entire transformation pipeline (two-pass Pattern Mapping, MCP preservation gate, five verification audits) and returns an aggregate pass/fail report.
 
 ### Dispatch
@@ -170,7 +178,7 @@ Dispatch: neuroloom-transformer
 Input:
   files: [list of all file paths written by upstream in this phase]
   operation: "initialize" | "migrate"
-  sdlc_root: "{detected SDLC root path}"
+  sdlc_root: "ops/sdlc"
   run_id: "{current transaction log run_id}"
 ```
 
@@ -286,9 +294,9 @@ Execute the checks documented in `${CLAUDE_PLUGIN_ROOT}/references/post-operatio
 
 1. **MCP integration health** — count `memory_search(` + `memory_store(` across `[sdlc-root]/` and `.claude/agents/`. Verify minimum-MCP files each have at least one call, and one in each section their entry names. If any listed file has zero → REGRESSION.
 
-2. **No residual knowledge-layer references** — generic scan `grep -rnE '\[sdlc-root\]/(knowledge|disciplines)/' .claude/skills .claude/agents .claude/sdlc`, classified against the closed exemption table in `post-operation-audit.md` Check 2. It replaces the earlier fixed phrase lists (canonical and pre-contract), which missed backtick-wrapped, Integration-line and fenced-prompt instances and never searched `.claude/skills/`. Any hit outside the table → REGRESSION. Check 2b adds the concept-terminology scan (bare "discipline parking lots", "knowledge store" and the like, which name no path): WARN-class, and a REGRESSION when the file was logged `no_patterns`.
+2. **No residual knowledge-layer references** — generic scan `grep -rnE '\[sdlc-root\]/(knowledge|disciplines)/' .claude/skills .claude/agents ops/sdlc | grep -vE '^ops/sdlc/(knowledge|disciplines)/'`, classified against the closed exemption table in `post-operation-audit.md` Check 2. It replaces the earlier fixed phrase lists (canonical and pre-contract), which missed backtick-wrapped, Integration-line and fenced-prompt instances and never searched `.claude/skills/`. Any hit outside the table → REGRESSION. Check 2b adds the concept-terminology scan (bare "discipline parking lots", "knowledge store" and the like, which name no path): WARN-class, and a REGRESSION when the file was logged `no_patterns`.
 
-3. **No wildcard in tag arguments** — `grep -rnE 'tag(s|_prefixes)=\[[^]]*\*' .claude/skills .claude/agents .claude/sdlc` (Check 2a). A `*` inside a tag argument matches nothing. Any hit → HALT.
+3. **No wildcard in tag arguments** — `grep -rnE 'tag(s|_prefixes)=\[[^]]*\*' .claude/skills .claude/agents ops/sdlc | grep -vE '^ops/sdlc/(knowledge|disciplines)/'` (Check 2a). A `*` inside a tag argument matches nothing. Any hit → HALT.
 
 4. **No inline adapter conditionals** — grep for `(Neuroloom projects:`, `(skip for Neuroloom`, etc. Any hit → REGRESSION.
 
@@ -296,7 +304,7 @@ Execute the checks documented in `${CLAUDE_PLUGIN_ROOT}/references/post-operatio
 
 6. **Knowledge layer reachable** — `memory_search(query="SDLC workspace sentinel", tags=["sdlc:sentinel"])` returns exactly one result with current version tag.
 
-7. **No stale agent-context-map** — verify `[sdlc-root]/knowledge/agent-context-map.yaml` does not exist as a live config file.
+7. **No file-mode knowledge layer** (Check 6) — a migration that creates `ops/sdlc/knowledge/agent-context-map.yaml` → REGRESSION; any other file under `ops/sdlc/knowledge/` or `ops/sdlc/disciplines/`, and the map on an initialize → WARN, each listed.
 
 8. **Skill transform wiring intact** — for each skill listed in `${CLAUDE_PLUGIN_ROOT}/transforms.yaml`, verify the installed skill file contains a `## Neuroloom Post-Execution Transform` section. If any declared skill is missing its wiring → REGRESSION (the mandatory skill-transform-wiring step in post-file-write was skipped).
 
@@ -341,6 +349,6 @@ Collect all check results. If any check returns REGRESSION:
 ### Recovery on failure
 
 If post-operation finds regressions in a migration:
-- Operational layer: `git checkout -- .claude/` (migration is uncommitted)
+- Operational layer: `git checkout -- .claude/ ops/sdlc/` (migration is uncommitted)
 - Knowledge layer: re-run `/sdlc-migrate` — idempotent upsert will re-apply correctly
 - For detailed recovery procedures: see `${CLAUDE_PLUGIN_ROOT}/references/recovery-procedures.md`

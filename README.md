@@ -54,7 +54,7 @@ Follow the instructions [here](https://github.com/endless-galaxy-studios/neurolo
 
 ## What z-sdlc is
 
-z-sdlc is an open-source process framework for Claude Code. It lives at `.claude/sdlc/` in your project and provides:
+z-sdlc is an open-source process framework for Claude Code. It lives at `ops/sdlc/` in your project and provides:
 
 - **Skills** — orchestration commands (`/sdlc-plan`, `/sdlc-execute`, `/sdlc-lite-plan`, `/sdlc-idea`, `/sdlc-review`, etc.) that drive the spec → plan → implement → review lifecycle
 - **Domain agents** — specialized subagents (backend-engineer, frontend-engineer, software-architect, search-engineer, etc.) that do the implementation and review work
@@ -109,7 +109,7 @@ Which files need transformation is determined at runtime by scanning each upstre
 Each of the three operations runs a post-operation audit (defined in `references/post-operation-audit.md`) as its final stage. The audit:
 
 - Counts `memory_search(` / `memory_store(` calls across all installed files and verifies the Pattern Mapping targets landed
-- Scans `.claude/skills/` (including each skill's `references/`), `.claude/agents/` and `.claude/sdlc/` for any remaining `[sdlc-root]/knowledge/` or `[sdlc-root]/disciplines/` path outside a closed exemption list, and for a `*` inside a `tags=[...]` / `tag_prefixes=[...]` argument (the API matches tags literally, so a wildcard returns nothing)
+- Scans `.claude/skills/` (including each skill's `references/`), `.claude/agents/` and `ops/sdlc/` for any remaining `[sdlc-root]/knowledge/` or `[sdlc-root]/disciplines/` path outside a closed exemption list, and for a `*` inside a `tags=[...]` / `tag_prefixes=[...]` argument (the API matches tags literally, so a wildcard returns nothing)
 - Scans for inline adapter conditionals that violate the contract
 - Verifies manifest-to-filesystem hash consistency
 - Confirms the Neuroloom sentinel is present and version-tagged

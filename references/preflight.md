@@ -1,6 +1,6 @@
 # Pre-Flight Health Check
 
-Shared pre-flight protocol used by `/sdlc-initialize` and `/sdlc-migrate` before any mutations.
+Shared pre-flight protocol used by `/sdlc-initialize` and `/sdlc-migrate` before any mutations. `/sdlc-port` runs check 0 in its own Stage 1, and the `knowledge-seed`, `knowledge-update` and `post-file-write` handlers (`adapter-lifecycle.md`) each run it as their step 0, so the check fires even when upstream does not run this file.
 
 **Purpose:** Fail fast on environmental issues instead of discovering them mid-stage after partial state has been written. Every external dependency gets checked once, at the top, before any user confirmation gate or mutation.
 
@@ -12,6 +12,7 @@ Shared pre-flight protocol used by `/sdlc-initialize` and `/sdlc-migrate` before
 
 | # | Check | Tool / Mechanism | Pass Condition | Failure Response |
 |---|-------|-----------------|----------------|------------------|
+| 0 | SDLC root is `ops/sdlc` (run first) | `git ls-files --cached --others --exclude-standard -- .claude/sdlc`, keeping only the paths that exist on disk (a plain `mv` leaves the old paths in the index until it is staged); outside a git repository, `test -e .claude/sdlc`; read `sdlc_root` from `.sdlc-manifest.json` if the file exists; upstream's `[sdlc-root]` once it has chosen one | No path is left; `sdlc_root` is `ops/sdlc` or not set; no key of the manifest's `installed_files` or `declined_files`, and no target path (value) in `bundle_fragments`, starts with `.claude/sdlc/`; and `[sdlc-root]` is `ops/sdlc` | See Failure 0 below |
 | 1 | Neuroloom API reachable + authed | `sdlc_get_version` MCP call | Returns a version string (e.g., `"v1.2.3"`) | See Failure 1 below |
 | 2 | GitHub reachable + not rate-limited | `gh api rate_limit` | `remaining > 50` (enough for fetches) | See Failure 2 below |
 | 3 | Required MCP tools available | Attempt `ToolSearch` or tool listing | All four tools resolve: `document_ingest_batch`, `memory_search`, `memory_store`, `sdlc_get_version` | See Failure 3 below |
@@ -30,6 +31,7 @@ Run all checks in order. Do **not** short-circuit — collect all failures and r
 ```
 PRE-FLIGHT HEALTH CHECK
 ═══════════════════════════════════════
+[✓] SDLC root:         ops/sdlc
 [✓] Neuroloom API:      reachable (workspace: {workspace_id})
 [✓] Neuroloom auth:     valid (key configured)
 [✓] GitHub API:         reachable ({remaining}/{limit} calls available, resets at {reset_time})
@@ -51,6 +53,38 @@ On any failure, replace `✓` with `✗` and inline the specific error. Example:
 ---
 
 ## Failure Responses
+
+### Failure 0 — SDLC root is not `ops/sdlc`
+
+Plugin 0.7.0 and later support one SDLC root, `ops/sdlc/`. Earlier versions moved the process docs, templates and playbooks into `.claude/sdlc/`. z-sdlc's factory treats `.claude/` as protected agent configuration and refuses to edit anything under it, so that root can't take part in the factory. Fail when `.claude/sdlc/` holds any tracked file or new, unignored file (even beside `ops/sdlc/`: upstream would pick `ops/sdlc/` and leave the other copy to drift), when the manifest names any other `sdlc_root` or still names a file by a `.claude/sdlc/` path, or when upstream has chosen any other `[sdlc-root]`. The paths matter: `declined_files` is looked up by path, so a stale key makes `knowledge-update` miss a file CD declined. On a migration with a `source_version` the file only lands in the report ("removed by the project"), but on a full migration with no baseline it is seeded into Neuroloom, which this plugin cannot undo. Ignored files left behind after a move (a `.local/` directory, for example) do not count, which is why the check asks `git ls-files` instead of testing whether the directory exists. If `git ls-files` exits non-zero inside a repository, the check fails: it did not look.
+
+```
+This project's SDLC root is not ops/sdlc/ ({.claude/sdlc/ holds files | .sdlc-manifest.json has sdlc_root "{value}" | .sdlc-manifest.json names {N} files under .claude/sdlc/ | the run chose [sdlc-root] "{value}"}).
+neuroloom-sdlc supports only ops/sdlc/. Before re-running:
+  1. Move the contents of .claude/sdlc/ into ops/sdlc/ with git mv
+     (or stage the move), so the old paths leave the index.
+  2. In .sdlc-manifest.json, set "sdlc_root": "ops/sdlc", re-key every
+     installed_files and declined_files entry from .claude/sdlc/... to
+     ops/sdlc/..., and update the bundle_fragments target paths.
+  3. Update the live references that name .claude/sdlc/ (CLAUDE.md,
+     .claude/agents/, .claude/skills/, .claude/agent-memory/); leave
+     changelog and deliverable history as written.
+  4. Point adapter.plugin_root in the manifest at this plugin version's
+     install directory.
+  5. Commit the move before re-running, so a recovery can tell your move
+     apart from what a run writes.
+If .claude/sdlc/ holds only ignored leftovers and the run chose it as
+[sdlc-root] anyway (upstream picks any existing .claude/sdlc/), delete the
+directory instead of moving it.
+If upstream already wrote files in this run and the move was committed
+(step 5), `git status --porcelain --untracked-files=all` lists only the
+run's writes: restore each changed one with `git checkout -- <path>` and
+remove each new one with `git clean -f -- <path>`. If the move was not
+committed, git can't tell the run's writes from the move: take the list
+from this run's entries in .sdlc-transaction-log instead. Don't restore
+whole directories: that would also undo the move.
+```
+Stop, do not proceed.
 
 ### Failure 1 — Neuroloom API issues
 

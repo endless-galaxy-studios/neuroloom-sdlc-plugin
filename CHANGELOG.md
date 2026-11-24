@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-23
+
+### Breaking Changes
+
+- **The SDLC root is `ops/sdlc` again, and `.claude/sdlc` is no longer supported.** CD's decision, 2026-11-23. z-sdlc's factory treats `.claude/` as protected agent configuration: its implement guard refuses any path with a `.claude` segment, and its tool policy denies edits there, so a `.claude/sdlc` root can't take part in the factory. The move to `.claude/sdlc` came from Neuroloom D26 (2026-03-28) and was about co-location only. There is no compatibility path.
+- **A project whose root is still `.claude/sdlc` must move it before running `/sdlc-migrate` or `/sdlc-port` on this version.** Move the contents of `.claude/sdlc/` into `ops/sdlc/` with `git mv` (or stage the move); in `.sdlc-manifest.json` set `"sdlc_root": "ops/sdlc"` and re-key the `installed_files` and `declined_files` entries to `ops/sdlc/` paths and update the `bundle_fragments` target paths; commit the move; and update the live references that name `.claude/sdlc/` (`CLAUDE.md`, `.claude/agents/`, `.claude/skills/`, `.claude/agent-memory/`). Until then the new root check halts both skills (below).
+- **After installing 0.7.0, point `adapter.plugin_root` in each project's `.sdlc-manifest.json` at the new install** (for a marketplace install, `~/.claude/plugins/cache/endless-galaxy-studios/neuroloom-sdlc/0.7.0`, as an absolute path). `sdlc-migrate` reads the handler doc from that path, and the plugin cache keeps the 0.6.1 directory beside the new one, so a manifest that still names 0.6.1 runs 0.6.1's handlers, root check missing. Nothing in 0.7.0 can catch that, because 0.7.0's handlers are the ones not being read.
+
+### Changed
+
+- **`/sdlc-port` transforms the SDLC root's own Markdown.** Stage 4a now scans every `*.md` under `ops/sdlc/` outside `knowledge/` and `disciplines/`, as the post-operation audit does, and looks for the `[sdlc-root]/knowledge/` and `[sdlc-root]/disciplines/` forms and relative links that z-sdlc's files use, not only the written-out `ops/sdlc/knowledge/` path. Before, Stage 4a scanned `.claude/agents/`, `.claude/skills/` and the agent template for written-out paths and named process docs only by example, while the audit scanned every file in the moved directories for the `[sdlc-root]/` form, so a correct port could fail its own audit. The files and spans the audit exempts on purpose are left alone, except `process/knowledge-routing.md`, which the port now replaces whole with the plugin's Neuroloom variant, as migrations do.
+- **`/sdlc-port` no longer moves anything.** Stage 4f, which moved `process/`, `templates/`, `playbooks/`, `examples/`, `plugins/` and `improvement-ideas/` from `ops/sdlc/` to `.claude/sdlc/` and rewrote paths to match, is gone. Stage 4g still rewrites agent-memory references to `ops/sdlc/knowledge/` and `ops/sdlc/disciplines/` into `memory_search` calls; it no longer touches other `ops/sdlc/` paths, which are now correct. The verification checklist drops the rows that demanded the six directories be gone from `ops/sdlc/` and checks they are still there.
+- **Post-Port Cleanup removes only `ops/sdlc/knowledge/` and `ops/sdlc/disciplines/`.** Its old "remove all remaining `ops/sdlc/` content" option ran `rm -rf ops/sdlc/`, which was safe only because Stage 4f had emptied the directory. Without 4f it would have deleted the live process docs, templates and playbooks. The option is gone, and the skill now says never to remove `ops/sdlc/` itself.
+- **Every post-operation scan reads `ops/sdlc`** (Checks 1, 2, 2a, 2b, 2d, the provenance scan, the exemption paths) and skips `ops/sdlc/knowledge/` and `ops/sdlc/disciplines/`. Those two hold file-mode data the transformer never rewrites, and on a port they are still on disk when the audit runs, before Post-Port Cleanup. Check 6 now covers both directories: an `agent-context-map.yaml` a migration created is a regression; any other file there, and the map on an initialize (z-sdlc's skeleton includes it), is a warning, whether upstream wrote it in file mode (z-sdlc's `sdlc-initialize` copies discipline files into the root) or a port left it behind. Check 4 requires `sdlc_root` to be `ops/sdlc`.
+- **Recovery commands restore the SDLC root.** The migrate and port recoveries said `git checkout -- .claude/`, which covered the root only while it sat inside `.claude/`. They now say `git checkout -- .claude/ ops/sdlc/`.
+
+### Fixed
+
+- **The `/sdlc-initialize` recovery deleted the project's agents.** It ran `rm -rf .claude/sdlc/ .claude/agents/`, which removed every agent the project already had. On an `ops/sdlc` project it also left the SDLC tree in place. It now undoes what initialization wrote with `git checkout` and `git clean`, file by file. Found by the Sleeved migration's reviewers.
+- **An audit over a missing root could pass.** grep over a path that does not exist finds nothing, so a scan of the wrong root reported clean. Check 4 now fails when `ops/sdlc/` is missing, and a grep error on it counts as a regression.
+
+### Added
+
+- **An SDLC root check** (`references/preflight.md` check 0). It fails when `.claude/sdlc/` holds any tracked or new, unignored file, even beside `ops/sdlc/` (ignored leftovers such as `.local/` don't count, so an old worktree's local state doesn't trip it), when the manifest or the migration names another root, or when the manifest still keys files by `.claude/sdlc/` paths (a stale `declined_files` key would re-seed knowledge CD declined). Its message says how to move. Without it, an unmoved install would get audits that scan a directory that isn't there and pass. `/sdlc-port` runs it in Stage 1. z-sdlc doesn't run `preflight.md` itself, so the `knowledge-seed`, `knowledge-update` and `post-file-write` handlers each run it as step 0 and halt the operation if it fails, whichever of them fires first.
+
 ## [0.6.1] - 2026-11-23
 
 ### Changed

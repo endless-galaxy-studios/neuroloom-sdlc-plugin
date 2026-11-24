@@ -19,13 +19,13 @@ Run every check. Collect failures. Report together at the end. Do not short-circ
 For Neuroloom projects (`neuroloom_backend: true` in manifest), the installed files should contain `memory_search(` / `memory_store(` calls in files detected by the phrasing-contract runtime scan (see `sdlc-migrate/SKILL.md` § "Detecting Files That Contain Phrasing-Contract Patterns") and in the Pattern Mapping rules.
 
 **Procedure:**
-1. Count `memory_search(` + `memory_store(` occurrences across `.claude/sdlc/` and `.claude/agents/` → `MCP_COUNT_INSTALLED`
+1. Count `memory_search(` + `memory_store(` occurrences across `ops/sdlc/` and `.claude/agents/` → `MCP_COUNT_INSTALLED`
 2. Verify at minimum these files each contain at least one MCP call, and where the line names two sections, one in each of them:
    - `.claude/agents/AGENT_TEMPLATE.md` — Knowledge Context + Communication Protocol
    - `.claude/agents/sdlc-reviewer.md` — wiring checklist
    - `.claude/agents/sdlc-compliance-auditor.md` — Knowledge Context + Communication Protocol (z-sdlc 2.9.6 gave the auditor both sections; one call in the file no longer shows that both were transformed)
-   - `.claude/sdlc/process/discipline_capture.md` — agent knowledge lookup
-   - `.claude/sdlc/process/overview.md` — knowledge capture
+   - `ops/sdlc/process/discipline_capture.md` — agent knowledge lookup
+   - `ops/sdlc/process/overview.md` — knowledge capture
 3. If any listed file has zero MCP calls: **REGRESSION** — transformation did not apply
 
 **Expected counts by operation:**
@@ -42,8 +42,10 @@ This check is a **generic scan**, not a phrase list. A fixed list of canonical p
 **Scan** (all three trees; `.claude/skills/` includes each skill's `references/`; Markdown only, because Markdown is the transform scope and `process/agent-selection.yaml` legitimately names paths):
 
 ```bash
-grep -rnE --include='*.md' '\[sdlc-root\]/(knowledge|disciplines)/' .claude/skills .claude/agents .claude/sdlc
+grep -rnE --include='*.md' '\[sdlc-root\]/(knowledge|disciplines)/' .claude/skills .claude/agents ops/sdlc | grep -vE '^ops/sdlc/(knowledge|disciplines)/'
 ```
+
+**Every residue scan in this file (Checks 2, 2a, 2b, 2d and the provenance scan) skips `ops/sdlc/knowledge/` and `ops/sdlc/disciplines/`** (the trailing `grep -vE`). Those two directories hold file-mode data, knowledge YAML and parking-lot entries. No live instruction in a Neuroloom project reads them: Check 2 polices every file that would. On a port they are still on disk when this audit runs (Post-Port Cleanup removes them afterwards), and any discipline file upstream writes during a run already passes through the transformer's per-file audits (`post-file-write` applies to `[sdlc-root]/**/*.md`). A hit there says nothing about whether an instruction was transformed. Check 6 is the check that looks at them. If grep reports `ops/sdlc: No such file or directory`, the scan did not run: that is a **REGRESSION** (Check 4), never a pass.
 
 The scan is deliberately not fence-aware and not Integration-aware: a hit inside a fenced dispatch prompt or on an Integration `Uses:` / `Depends on:` / `DRY notes:` line is a regression, because the transformer rewrites both (see `pattern-mapping-rules.md` § "Integration sections" and § "Dispatch-prompt template blocks"). Classify every hit against the exemption list below; row 5 is the only place fences are consulted. A hit that matches no exemption is a **REGRESSION**.
 
@@ -53,14 +55,14 @@ The scan is deliberately not fence-aware and not Integration-aware: a hit inside
 |---|-------------|----------------------|
 | 1 | In `.claude/skills/sdlc-migrate/`, lines that map an upstream path to its install path or list the project-specific files. Shape: a bare upstream path (`knowledge/`, `knowledge/README.md`) beside `→` or `(to` + an install path, e.g. SKILL.md "Source-to-project path mappings" and the file-copy list | Framework mechanics: they describe where the framework puts files in file mode. Exempt LINE BY LINE, not by tree: every other hit in `sdlc-migrate` is a live read (a check on the project's own disciplines or knowledge: "read … and verify", "Read each … parking lot", "Verify … references …", the post-migration review table, "new knowledge lands in …") and the transformer rewrites it, so it is a regression here. |
 | 2 | On `.claude/agents/sdlc-reviewer.md` and `.claude/agents/sdlc-compliance-auditor.md` lines that start `` - [ ] No ` `` (anti-residue items), the backtick-quoted span right after `No` | The span quotes the phrase the item forbids (`No \`consult [sdlc-root]/knowledge/agent-context-map.yaml\``). Only the span is exempt; the rest of the line is checked like any other. **Positive checklist items are not exempt**: `- [ ] Lookups use \`consult [sdlc-root]/knowledge/agent-context-map.yaml\`` names the canonical form the reviewer enforces, and a project whose reviewer still says the file-mode form flags every correctly transformed agent. A backticked bare path (`Extract to \`[sdlc-root]/knowledge/\``) is not a quoted phrase either. |
-| 3 | `.claude/sdlc/process/knowledge-routing.md`, `project-section-markers.md`, `path-mappings.md`, `adapter-lifecycle-protocol.md` | Documentation and data that name the paths: the phrasing contract (lists canonical AND forbidden phrases), the file-ownership table, the path-mapping table, the lifecycle protocol. |
-| 4 | `.claude/sdlc/process/sdlc_changelog.md` and `.claude/sdlc/process/changelog-archive/*.md` | History. Entries quote phrases as an accurate record of what happened (z-sdlc contract 0017). |
+| 3 | `ops/sdlc/process/knowledge-routing.md`, `project-section-markers.md`, `path-mappings.md`, `adapter-lifecycle-protocol.md` | Documentation and data that name the paths: the phrasing contract (lists canonical AND forbidden phrases), the file-ownership table, the path-mapping table, the lifecycle protocol. |
+| 4 | `ops/sdlc/process/sdlc_changelog.md` and `ops/sdlc/process/changelog-archive/*.md` | History. Entries quote phrases as an accurate record of what happened (z-sdlc contract 0017). |
 | 5 | Hits inside a fenced block that shows a file format or a command and is NOT a dispatch-prompt template block, an agent template block or an output-template block (identification criteria: `pattern-mapping-rules.md` § "Dispatch-prompt template blocks" and § "Output-template blocks"). Upstream examples: `sdlc-ingest/SKILL.md` and `sdlc-develop-agent/SKILL.md` ` ```yaml ` demos of an `agent-context-map.yaml` entry, `process/discipline_capture.md`'s ` ```markdown ` "Promoted entry format", and a ` ```bash ` command | A format or command demo illustrates upstream's file layout; rewriting it removes the example's value and can break its syntax. A ` ```markdown ` or untagged fence holding a prompt sent to a dispatched agent is NOT exempt: a subagent acts on it literally. |
 
 **Second scan: the on-disk provenance log.** CD decided (2026-10-29) that provenance lives as memories tagged `sdlc:provenance`, so the string `provenance_log` must not appear in any installed file:
 
 ```bash
-grep -rn --include='*.md' 'provenance_log' .claude/skills .claude/agents .claude/sdlc
+grep -rn --include='*.md' 'provenance_log' .claude/skills .claude/agents ops/sdlc | grep -vE '^ops/sdlc/(knowledge|disciplines)/'
 ```
 
 The only exempt hits are row 4 of the table (the changelog and its archive record what happened). Every other hit is a **REGRESSION**: a skill still tells an agent to read or append to a file that does not exist. This includes the lines of `sdlc-migrate` and `process/path-mappings.md` that list it among project-specific files, which are rewritten (they are not framework mechanics).
@@ -74,16 +76,16 @@ The only exempt hits are row 4 of the table (the changelog and its archive recor
 **Scan:**
 
 ```bash
-grep -rnE --include='*.md' 'tag(s|_prefixes)=\[[^]]*\*' .claude/skills .claude/agents .claude/sdlc
+grep -rnE --include='*.md' 'tag(s|_prefixes)=\[[^]]*\*' .claude/skills .claude/agents ops/sdlc | grep -vE '^ops/sdlc/(knowledge|disciplines)/'
 ```
 
 Zero hits expected. Any hit is a **HALT**: the call it names does not do what it says. The correct form for "any discipline" is `tag_prefixes=["sdlc:discipline"]`; prose notation is `sdlc:discipline:<name>`.
 
-**Exemptions:** `.claude/sdlc/process/sdlc_changelog.md` and `.claude/sdlc/process/changelog-archive/*.md` only (history quoting the old form).
+**Exemptions:** `ops/sdlc/process/sdlc_changelog.md` and `ops/sdlc/process/changelog-archive/*.md` only (history quoting the old form).
 
 **Related checks this grep cannot make** (no `*` is involved, so 2a does not see them):
 
-- **A `tags` list of two or more tags is an OR unless `tags_match="all"` is on the same call.** Detect candidates with `grep -rnE --include='*.md' 'tags=\[[^]]*"[^"]*"[^]]*,' .claude/skills .claude/agents .claude/sdlc`. Every hit on a search spec (not a `memory_store` / `document_ingest*` / `memory_get_index` call, not a list with a `<placeholder>`) must carry `tags_match="all"` or be a deliberate OR that the report lists; the form to expect for knowledge + domain is `tags=["sdlc:knowledge", "sdlc:domain:<d>"], tags_match="all"`.
+- **A `tags` list of two or more tags is an OR unless `tags_match="all"` is on the same call.** Detect candidates with `grep -rnE --include='*.md' 'tags=\[[^]]*"[^"]*"[^]]*,' .claude/skills .claude/agents ops/sdlc | grep -vE '^ops/sdlc/(knowledge|disciplines)/'`. Every hit on a search spec (not a `memory_store` / `document_ingest*` / `memory_get_index` call, not a list with a `<placeholder>`) must carry `tags_match="all"` or be a deliberate OR that the report lists; the form to expect for knowledge + domain is `tags=["sdlc:knowledge", "sdlc:domain:<d>"], tags_match="all"`.
 - **No prefix on `sdlc:knowledge`, and no colon on the discipline family.** `grep -rnE --include='*.md' 'tag_prefixes=\["sdlc:knowledge|tag_prefixes=\["sdlc:discipline:"' …` must return nothing: a `sdlc:knowledge` prefix also matches `sdlc:knowledge-id:…`, and `sdlc:discipline:` misses the bare `sdlc:discipline` tag.
 
 ### Check 2b — Concept-terminology residue (WARN; REGRESSION in one case)
@@ -93,10 +95,10 @@ Check 2 finds paths. Pass 2 translates bare flat-file vocabulary that names no p
 **Scan** (the regex is Audit 7's, and Step 1's concept scan uses the same one):
 
 ```bash
-grep -rinE --include='*.md' '\bknowledge stores?\b|\bknowledge files?\b|\bdiscipline files?\b|\bparking[- ]lot entr|\bknowledge-store entr|\bdiscipline parking[- ]lots?\b|\bknowledge YAMLs?\b|\bYAML knowledge files?\b|\bknowledge index\b|\bknowledge store gaps?\b' .claude/skills .claude/agents .claude/sdlc
+grep -rinE --include='*.md' '\bknowledge stores?\b|\bknowledge files?\b|\bdiscipline files?\b|\bparking[- ]lot entr|\bknowledge-store entr|\bdiscipline parking[- ]lots?\b|\bknowledge YAMLs?\b|\bYAML knowledge files?\b|\bknowledge index\b|\bknowledge store gaps?\b' .claude/skills .claude/agents ops/sdlc | grep -vE '^ops/sdlc/(knowledge|disciplines)/'
 ```
 
-**Not reported** (legitimate retention): everything under `.claude/skills/sdlc-migrate/` (it describes the framework's file layout); `.claude/sdlc/process/knowledge-routing.md`, `project-section-markers.md`, `path-mappings.md`, `adapter-lifecycle-protocol.md`; `sdlc_changelog.md` and `changelog-archive/*.md`; hits inside fenced blocks; hits inside a quoted phrase of a trigger list or a `user: \"…\"` line in a skill or agent description (`"verify the knowledge store"`); an `assistant:` line or `<commentary>` text is prose and IS reported; hits inside an MCP `query="…"` string; the Neuroloom replacement strings themselves (`Neuroloom knowledge store`); a hit directly followed by a `(memory …` parenthetical, which is the shape of the replacement's own output (`Update the knowledge index (memory entries tagged sdlc:knowledge + sdlc:knowledge-index)`, `Discipline Parking Lots (memory graph, entries tagged sdlc:discipline:<name>)`); and the quoted span of a `- [ ] No` checklist item.
+**Not reported** (legitimate retention): everything under `.claude/skills/sdlc-migrate/` (it describes the framework's file layout); `ops/sdlc/process/knowledge-routing.md`, `project-section-markers.md`, `path-mappings.md`, `adapter-lifecycle-protocol.md`; `sdlc_changelog.md` and `changelog-archive/*.md`; hits inside fenced blocks; hits inside a quoted phrase of a trigger list or a `user: \"…\"` line in a skill or agent description (`"verify the knowledge store"`); an `assistant:` line or `<commentary>` text is prose and IS reported; hits inside an MCP `query="…"` string; the Neuroloom replacement strings themselves (`Neuroloom knowledge store`); a hit directly followed by a `(memory …` parenthetical, which is the shape of the replacement's own output (`Update the knowledge index (memory entries tagged sdlc:knowledge + sdlc:knowledge-index)`, `Discipline Parking Lots (memory graph, entries tagged sdlc:discipline:<name>)`); and the quoted span of a `- [ ] No` checklist item.
 
 **Action on hit:** every other hit is a **WARN**: report file, line and the text, so CD can fix it or accept it. A hit in a file whose `file_merged` event for this run says `subtype: "no_patterns"` is a **REGRESSION**: Step 1 skipped Pass 2 on a file that needed it.
 
@@ -115,7 +117,7 @@ Check 2 and Check 2b cannot see a markdown link such as `](disciplines/README.md
 **Scan:**
 
 ```bash
-grep -rnoE --include='*.md' '\]\((\./|\.\./)*(knowledge|disciplines|bundles)/[^)#[:space:]]*' .claude/skills .claude/agents .claude/sdlc
+grep -rnoE --include='*.md' '\]\((\./|\.\./)*(knowledge|disciplines|bundles)/[^)#[:space:]]*' .claude/skills .claude/agents ops/sdlc | grep -vE '^ops/sdlc/(knowledge|disciplines)/'
 ```
 
 **Action:** resolve each target against the file that links it (`test -e`). A target that exists is a pass (a project that installed `bundles/` keeps its links). A target that does not exist is a **REGRESSION**, except in `sdlc_changelog.md` and `changelog-archive/*.md`, which quote history. The rows that fix them are in `pattern-mapping-rules.md` § "Audit-description metadata" (the two relative-link rows after the install-layout row).
@@ -137,7 +139,7 @@ The phrasing contract forbids inline conditionals like `(Neuroloom projects: use
 1. `.sdlc-manifest.json` exists and is valid JSON
 2. Required fields present:
    - `source_version` — init and port: matches the version the operation targeted. Migrate: still the pre-migration version (§4.5 has not run), so don't compare it with the target. Compare the run's `[target_tag]` with `LATEST_VERSION` from `knowledge-update` instead: when they differ, the files and the knowledge layer are at different releases. That is a **WARN** naming both, not a regression: `sdlc_get_version` reads a cached copy of the latest GitHub release, which can lag the source repo's newest tag, and a run with no release tag targets `HEAD`
-   - `sdlc_root` — matches the actual installed location
+   - `sdlc_root` — `ops/sdlc`, the only root this plugin supports (on `/sdlc-migrate` a manifest that has no `sdlc_root` yet passes, as in check 0: §4.5 writes the key after this phase); `ops/sdlc/` exists; and `.claude/sdlc/` holds no tracked or unignored file (`preflight.md` check 0). Anything else: **REGRESSION**, because every scan in this file reads `ops/sdlc`, and grep over a missing directory prints an error and finds nothing, so the scans would pass over a root they never looked at
    - `neuroloom_backend` — set to `true`
    - `install_date` (init) or `ported_at` (port) — set to this operation's timestamp. A migration writes no timestamp field (z-sdlc `sdlc-migrate` §4.5), so there is none to check
 3. `installed_files` map (if present): each entry's on-disk SHA-256 should match the recorded hash. Drift here means a file was edited after the operation wrote it. Migrate: skip every file this run touched, which is every file §4.5 step 3 rehashes after this phase: written, merged or drift-resolved, scripts, templates and bundle tree files included (not only the operational files that have `file_merged` events). A mismatch on a file the run didn't touch is drift from before the run: list it as a WARN, not a regression of this operation.
@@ -157,15 +159,17 @@ The phrasing contract forbids inline conditionals like `(Neuroloom projects: use
 
 All three are **REGRESSION**.
 
-### Check 6 — No stale file-based references in agent-context-map replacements
+### Check 6 — No file-mode knowledge layer at the SDLC root
 
-Neuroloom projects should NOT have `.claude/sdlc/knowledge/agent-context-map.yaml` as a live configuration file — that pattern is replaced by memory-graph tags.
+A Neuroloom project keeps its knowledge and parking lots in the memory graph. It should have no `ops/sdlc/knowledge/` or `ops/sdlc/disciplines/`, and above all no `ops/sdlc/knowledge/agent-context-map.yaml` acting as live configuration: memory-graph tags replace that file. The scans above skip these two directories, so this check is the one that looks at them.
 
 **Procedure:**
-1. If `.claude/sdlc/knowledge/agent-context-map.yaml` exists, flag it
-2. Check for any remaining references to it as a runtime lookup (vs. a historical mention in the changelog)
+1. `/sdlc-port`: skip steps 2 and 3. The port's source files are still there when this audit runs, and Post-Port Cleanup, which runs after it, offers to remove them.
+2. List the files under `ops/sdlc/knowledge/` and `ops/sdlc/disciplines/`, and read `git status --porcelain --untracked-files=all -- ops/sdlc/knowledge ops/sdlc/disciplines`. The flag matters: without it, git reports a directory that is wholly untracked as one line (`?? ops/sdlc/knowledge/`) and names no file in it.
+3. A new `ops/sdlc/knowledge/agent-context-map.yaml` (status `??` or `A`) on `/sdlc-migrate`: **REGRESSION**. It is the one file here that changes upstream's behaviour: `sdlc-migrate` §3.3 edits the map whenever it finds one, and the `knowledge-update` handler tells it never to create one. On `/sdlc-initialize` the same file is a **WARN** naming the gap: z-sdlc's skeleton includes the map, and nothing in this adapter removes it yet. Every other file here is a **WARN**, listed with the count and the fix (`rm -rf ops/sdlc/knowledge/ ops/sdlc/disciplines/`, once Neuroloom holds the content). A new one is a file upstream wrote in file mode: z-sdlc's `sdlc-initialize` copies `disciplines/*.md` into the root and edits them in its Phase 7, and a migration can add a discipline file or restore one CD chose to keep. A tracked one is a leftover the port kept.
+4. All operations: check for any remaining references to `agent-context-map.yaml` as a runtime lookup (vs. a historical mention in the changelog).
 
-**Action on failure:** **REGRESSION** — a port/init/migrate left behind the z-sdlc file-based config.
+**Action on failure:** as in step 3: only a new map on a migration is a **REGRESSION** there. A runtime reference (step 4) is a **REGRESSION**.
 
 ---
 
@@ -197,7 +201,7 @@ After the shared checks, additionally verify:
   - All project-tailored agents in `.claude/agents/` (Knowledge Context, Communication Protocol sections)
   - Process docs: `discipline_capture.md`, `overview.md`, `incident_response.md`, etc.
 - **Knowledge ingestion complete** — all knowledge YAMLs from the file-based source were ingested into the memory graph with correct tags (`sdlc:knowledge`, `sdlc:domain:<name>`)
-- **Original file-based knowledge files either removed or marked** — if the port leaves them behind, they're a drift risk for future migrations
+- **Original file-based knowledge files listed for Post-Port Cleanup** — the audit runs before the cleanup, so they are still on disk here. List `ops/sdlc/knowledge/` and `ops/sdlc/disciplines/` with their file counts; if the cleanup leaves them behind, later migrations report them (Check 6)
 
 ---
 
@@ -221,7 +225,7 @@ SHARED CHECKS
 [✓] No inline adapter conditionals: 0 hits
 [✓] Manifest integrity:           valid JSON, all required fields, hashes match
 [✓] Knowledge layer reachable:    sentinel found, version tag current
-[✓] No stale file-based refs:     agent-context-map.yaml absent
+[✓] No file-mode knowledge layer: no agent-context-map.yaml created by a migration (other files in ops/sdlc/knowledge/ or disciplines/: WARN, each listed)
 
 OPERATION-SPECIFIC CHECKS
 [✓] {operation-specific check 1}
@@ -235,7 +239,7 @@ On any failure, replace `✓` with `✗` and inline the specific regression deta
 
 ```
 [✗] No residual knowledge-layer paths: 3 hits found
-    .claude/sdlc/process/discipline_capture.md:18 — consult [sdlc-root]/knowledge/agent-context-map.yaml
+    ops/sdlc/process/discipline_capture.md:18 — consult [sdlc-root]/knowledge/agent-context-map.yaml
     .claude/skills/sdlc-cleanup-comments/references/dispatch-prompts.md:13 — Read [sdlc-root]/knowledge/coding/comment-discipline.yaml
     .claude/skills/sdlc-reflect/SKILL.md:294 — `[sdlc-root]/disciplines/*.md` (write targets)
 
@@ -250,21 +254,21 @@ Recovery: {operation-specific recovery instructions}
 ### /sdlc-initialize failures
 
 Initialization wrote partial state. Recovery:
-1. `rm -rf .claude/sdlc/ .claude/agents/` to clear the filesystem layer
+1. Undo the filesystem layer with git, never with `rm -rf`. On a run that began from a clean tree, `git status --porcelain --untracked-files=all` over the whole tree lists what initialization wrote, one file per line; otherwise take the list from this run's entries in `.sdlc-transaction-log`, because `git clean` would also delete files you had not committed yet (it also writes `.sdlc-manifest.json`, `.gitignore`, `docs/_index.md` and bundle files; a leftover manifest makes a re-run take the Repair path): `git checkout -- <path>` restores each tracked file it changed, and `git clean -f -- <path>` removes each file it created (preview with `git clean -n`). Never delete `.claude/agents/` wholesale: it holds the agents the project had before initialization
 2. Delete the sentinel: requires a manual call to the Neuroloom API support team (the skill does not have a memory-delete primitive to avoid accidental data loss)
 3. Re-run `/sdlc-initialize` after the plugin's Pattern Mapping rules are fixed
 
 ### /sdlc-migrate failures
 
 Migration changes are uncommitted. Recovery:
-1. `git checkout -- .claude/` to restore the pre-migration state
+1. `git checkout -- .claude/ ops/sdlc/` to restore the pre-migration state
 2. File a bug against the plugin — the transformation missed a phrase
 3. Re-run `/sdlc-migrate` after the plugin update
 
 ### /sdlc-port failures
 
 Port may have partially transformed files AND partially ingested knowledge. Recovery:
-1. `git checkout -- .claude/` to restore filesystem
+1. `git checkout -- .claude/ ops/sdlc/` to restore filesystem (it also discards any uncommitted edits there, so start a port on a clean tree)
 2. The knowledge ingestion is idempotent (server-side upsert via `knowledge_id`) so re-running port is safe
 3. Re-run `/sdlc-port` after the plugin update
 

@@ -3,8 +3,8 @@
 | Thought | Reality |
 |---------|---------|
 | "I'll delete the local knowledge files after porting." | Keep them until verified. Git is not enough — verify seeded counts match local counts before removing anything. |
-| "All agent files need transformation." | Only files referencing `ops/sdlc/knowledge/` or `ops/sdlc/disciplines/` paths need transformation. User-created agents may have no such references — scan before assuming. |
-| "I only need to search for full `ops/sdlc/knowledge/` paths." | Also search for bare YAML filenames (`agent-context-map.yaml`, `agent-communication-protocol.yaml`). Validation checklists, maturity criteria, and template instructions reference these by name without the full path prefix. |
+| "All agent files need transformation." | Only files referencing `ops/sdlc/knowledge/` or `ops/sdlc/disciplines/` paths (or their `[sdlc-root]/` forms) need transformation. User-created agents may have no such references — scan before assuming. |
+| "I only need to search for full `ops/sdlc/knowledge/` paths." | z-sdlc's own files mostly write `[sdlc-root]/knowledge/` and relative `](knowledge/…)` / `](disciplines/…)` links; search for those too. Also search for bare YAML filenames (`agent-context-map.yaml`, `agent-communication-protocol.yaml`). Validation checklists, maturity criteria, and template instructions reference these by name without the full path prefix. |
 | "The transformation is just find-and-replace." | Transformations are LLM-driven because replacement context varies per reference. A file-read becomes a `memory_search` with domain-specific tags and a meaningful query string — not a mechanical substitution. |
 | "Re-porting is safe and non-destructive." | Re-porting re-ingests everything, resetting knowledge entries to local file state. If Neuroloom knowledge has been updated directly since the last port, re-port overwrites those changes. Warn the user explicitly. |
 | "I can create the sentinel after Stage 3 completes." | The sentinel lifecycle is owned by `seed()` server-side. This skill never creates or updates the sentinel — it only reads it. |

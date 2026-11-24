@@ -543,7 +543,7 @@ class TestProvenanceRecords:
     def test_the_audit_no_longer_exempts_the_log_and_scans_for_the_string(self) -> None:
         audit = _audit()
         assert "Hits whose path is `[sdlc-root]/knowledge/provenance_log.md`" not in audit
-        assert "grep -rn --include='*.md' 'provenance_log' .claude/skills .claude/agents .claude/sdlc" in audit
+        assert "grep -rn --include='*.md' 'provenance_log' .claude/skills .claude/agents ops/sdlc" in audit
         cma = (_ROOT / "references" / "content-merge-audits.md").read_text()
         assert "grep -vE 'provenance_log" not in cma
 
@@ -560,7 +560,7 @@ class TestProvenanceRecords:
         port = (_ROOT / "skills" / "sdlc-port" / "SKILL.md").read_text()
         assert "project's ingestion/research lineage log; relocate but never" not in port
         assert "project-specific append-only record; relocate with" not in port
-        assert "It is NOT relocated" in port
+        assert "It is not kept on disk" in port
         assert 'tags=["sdlc:provenance", "sdlc:source-type:<type>", "sdlc:prov:<prov-id>", "sdlc:prov-status:<status>"]' in port
 
     def test_the_readme_documents_the_three_tags(self) -> None:
@@ -1218,3 +1218,131 @@ class TestDeadRelativeLinks:
         readme = (_UPSTREAM / "README.md").read_text()
         for target in ("](knowledge/agent-context-map.yaml)", "](disciplines/README.md)", "](bundles/README.md)"):
             assert target in readme, target
+
+
+# Built from parts so this file does not match its own scan.
+_OLD_ROOT = ".claude/" + "sdlc"
+
+
+class TestSdlcRootIsOpsSdlc:
+    """0.7.0 moved the SDLC root back to `ops/sdlc` with no `.claude/sdlc` support.
+
+    z-sdlc's factory refuses any path with a `.claude` segment, so a `.claude/sdlc`
+    root can never take part in it. The failure these tests pin: an audit scan still
+    pointed at the old root greps a directory that is not there and passes without
+    having looked, and a cleanup written for the old layout deletes the live root.
+    """
+
+    # The guard that refuses the old root, the history line that records what the
+    # pre-0.6 audit searched, and the backstop in the manifest check.
+    _ALLOWED = frozenset(
+        {
+            "CHANGELOG.md",
+            "references/preflight.md",
+            "references/adapter-lifecycle.md",
+            "references/post-operation-audit.md",
+        }
+    )
+
+    def test_only_the_guard_and_history_name_the_old_root(self) -> None:
+        found = {
+            str(path.relative_to(_ROOT))
+            for path in _text_files()
+            if path.name != Path(__file__).name and _OLD_ROOT in path.read_text()
+        }
+        assert found <= self._ALLOWED, sorted(found - self._ALLOWED)
+
+    def test_no_scan_or_recovery_command_targets_the_old_root(self) -> None:
+        for path in _text_files():
+            if path.name == Path(__file__).name or path.name == "CHANGELOG.md":
+                continue
+            for n, line in enumerate(path.read_text().splitlines(), 1):
+                if _OLD_ROOT in line and re.search(r"\bgrep -r|\brm -rf\b|\brsync\b|\bmv \S", line):
+                    pytest.fail(f"{path.relative_to(_ROOT)}:{n} runs a command on the old root: {line.strip()}")
+
+    def test_the_port_moves_nothing(self) -> None:
+        port = (_ROOT / "skills" / "sdlc-port" / "SKILL.md").read_text()
+        assert "### Stage 4f" not in port
+        assert "### Stage 4g — Remap Agent Memory Files" in port
+
+    # The arguments of a recursive `rm`, up to the end of the command.
+    _RM_RE = re.compile(r"\brm\s+(?:-[A-Za-z]*[rR][A-Za-z]*|--recursive)(?:\s+-[A-Za-z-]+)*\s+([^`\n;|&]+)")
+
+    @staticmethod
+    def _deletes(arg: str) -> str | None:
+        path = arg.strip("\"'").removeprefix("./").rstrip("/")
+        if path in ("ops", "ops/sdlc", "ops/sdlc/*", ".claude", ".claude/agents", ".claude/agents/*", "[sdlc-root]"):
+            return path
+        if path.startswith("ops/sdlc/") and path.split("/")[2] not in ("knowledge", "disciplines"):
+            return path
+        return None
+
+    def test_nothing_deletes_the_root_or_the_agents(self) -> None:
+        # `rm -rf ops/sdlc/knowledge/ ops/sdlc/disciplines/` is the one allowed form.
+        for path in _text_files():
+            if path.name in (Path(__file__).name, "CHANGELOG.md"):
+                continue
+            for n, line in enumerate(path.read_text().splitlines(), 1):
+                for m in self._RM_RE.finditer(line):
+                    hits = [p for p in (self._deletes(arg) for arg in m.group(1).split()) if p]
+                    assert not hits, f"{path.relative_to(_ROOT)}:{n} deletes {hits}: {line.strip()}"
+
+    def test_the_delete_check_catches_the_shapes_it_must(self) -> None:
+        for cmd in ("rm -rf ops/sdlc/", "rm -rf ops/sdlc/knowledge ops/sdlc/", "rm -rf ./ops/sdlc", "rm -r ops/sdlc",
+                    'rm -rf "ops/sdlc"', "rm -rf ops/sdlc/*", "rm -rf ops/sdlc/process", "rm -rf .claude/agents/",
+                    "rm -Rf ops/sdlc", "rm --recursive ops/sdlc", "rm -rf .claude/", "rm -rf ops", "rm -rf [sdlc-root]/"):
+            m = self._RM_RE.search(cmd)
+            assert m and any(self._deletes(arg) for arg in m.group(1).split()), cmd
+        m = self._RM_RE.search("rm -rf ops/sdlc/knowledge/ ops/sdlc/disciplines/")
+        assert m and not any(self._deletes(arg) for arg in m.group(1).split())
+
+    def test_whole_tree_restores_include_the_root(self) -> None:
+        for path in _text_files():
+            if path.name in (Path(__file__).name, "CHANGELOG.md"):
+                continue
+            for n, line in enumerate(path.read_text().splitlines(), 1):
+                if re.search(r"git checkout -- \.claude/(?=[\s`]|$)", line):
+                    assert "ops/sdlc/" in line, f"{path.relative_to(_ROOT)}:{n} restores .claude/ only: {line.strip()}"
+
+    def test_audit_scans_read_ops_sdlc_and_skip_the_data_directories(self) -> None:
+        scans = []
+        for path in (_ROOT / "references").glob("*.md"):
+            for line in path.read_text().splitlines():
+                if "grep -r" in line and re.search(r"\sops/sdlc(?=[\s`|]|$)", line):
+                    scans.append((path.name, line))
+        names = {name for name, _ in scans}
+        assert {"post-operation-audit.md", "adapter-lifecycle.md"} <= names, names
+        for name, line in scans:
+            assert "grep -vE '^ops/sdlc/(knowledge|disciplines)/'" in line, f"{name}: {line.strip()}"
+
+    def test_check_6_rates_only_a_new_map_a_regression(self) -> None:
+        check = _audit().split("### Check 6", 1)[1].split("\n---", 1)[0]
+        step3 = check.split("\n3. ", 1)[1].split("\n4. ", 1)[0]
+        assert "A new `ops/sdlc/knowledge/agent-context-map.yaml`" in step3
+        assert "Every other file here is a **WARN**" in step3
+        assert step3.count("**REGRESSION**") == 1
+        # Without the flag git names a wholly untracked directory, not the map inside it.
+        assert "git status --porcelain --untracked-files=all -- ops/sdlc/knowledge ops/sdlc/disciplines" in check
+
+    def test_the_port_looks_for_the_placeholder_form_the_audit_scans(self) -> None:
+        port = (_ROOT / "skills" / "sdlc-port" / "SKILL.md").read_text()
+        stage_4a = port.split("### Stage 4a", 1)[1].split("### Stage 4b", 1)[0]
+        assert "`[sdlc-root]/knowledge/` and `[sdlc-root]/disciplines/` forms" in stage_4a
+        assert "exemption rows 2 to 5" in stage_4a
+        assert "names `provenance_log` is still rewritten" in stage_4a
+        assert "copy `${CLAUDE_PLUGIN_ROOT}/docs/knowledge-routing.md` over" in stage_4a
+        # 4d validates what 4a wrote, so it must keep the same exemptions on every check.
+        stage_4d = port.split("### Stage 4d", 1)[1].split("### Stage 4e", 1)[0]
+        assert "Every check below leaves alone what Stage 4a's" in stage_4d
+        assert "`ops/sdlc/process/knowledge-routing.md` is not checked this way" in stage_4d
+
+    def test_the_root_check_runs_in_every_phase_that_can_fire_first(self) -> None:
+        lifecycle = (_ROOT / "references" / "adapter-lifecycle.md").read_text()
+        for phase in ("knowledge-seed", "knowledge-update", "post-file-write"):
+            section = lifecycle.split(f"\n## {phase}\n", 1)[1].split("\n## ", 1)[0]
+            assert re.search(r"[Rr]un `preflight.md` check 0", section), phase
+        preflight = (_ROOT / "references" / "preflight.md").read_text()
+        assert "| 0 | SDLC root is `ops/sdlc`" in preflight
+        assert "### Failure 0 — SDLC root is not `ops/sdlc`" in preflight
+        port = (_ROOT / "skills" / "sdlc-port" / "SKILL.md").read_text()
+        assert "preflight.md` check 0" in port

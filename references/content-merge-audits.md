@@ -271,7 +271,7 @@ Resolution options:
    manifest's "agent_unresolved_accepted" list (also new field). The audit
    will surface it as a warning instead of halting.
 
-Recovery: git checkout -- .claude/  (migration is uncommitted)
+Recovery: git checkout -- .claude/ ops/sdlc/  (migration is uncommitted)
 ```
 
 **Log on pass or warn:** Emit the mandatory event below regardless of outcome.
@@ -392,7 +392,7 @@ untransformed z-sdlc canonical phrasing. Likely cause:
   (concept-terminology residue) OR Pass 1 has a coverage gap for the
   specific phrasing form (path residue not in Pattern Mapping table).
 
-Recovery: git checkout -- .claude/  (migration is uncommitted)
+Recovery: git checkout -- .claude/ ops/sdlc/  (migration is uncommitted)
 File a plugin bug with run_id <run_id> and the residue details above.
 ```
 
@@ -473,7 +473,7 @@ cannot declare run_complete because there is no record that the mandatory
 audit gates evaluated the written files.
 
 Recovery:
-1. git checkout -- .claude/ (restore pre-migration state)
+1. git checkout -- .claude/ ops/sdlc/ (restore pre-migration state)
 2. File a plugin bug with this run_id: {run_id}
 3. Re-run /sdlc-migrate after the executor is fixed
 ```

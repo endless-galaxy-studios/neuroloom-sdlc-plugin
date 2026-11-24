@@ -8,7 +8,7 @@ Write `.sdlc-manifest.json` in the project root:
 {
   "neuroloom_backend": true,
   "sdlc_version": "{version from sdlc_get_version, or 'local' if unavailable}",
-  "sdlc_root": ".claude/sdlc",
+  "sdlc_root": "ops/sdlc",
   "source_repo": "https://github.com/endless-galaxy-studios/z-sdlc",
   "source_version": "{version from sdlc_get_version, or 'local' if unavailable}",
   "source_version_sha": "{commit SHA of the release tag, if available}",
@@ -35,22 +35,14 @@ Run these checks after writing the manifest:
 | Knowledge entries seeded | `memory_search(query="SDLC knowledge entries", tags=["sdlc:knowledge"])` | Results count > 0 |
 | Discipline entries seeded | `memory_search(query="discipline entries", tags=["sdlc:discipline:architecture"])` | Results count > 0 |
 | Deliverable docs synced | `memory_search(query="deliverable spec", tags=["sdlc:deliverable:spec:d1"])` | Results match seeded count |
-| No stale path references | Grep transformed files for `ops/sdlc/knowledge/` and `ops/sdlc/disciplines/` | Zero matches in both |
-| No stale YAML references | Grep transformed files for `agent-context-map.yaml` and `agent-communication-protocol.yaml` (exclude `ops/sdlc/process/sdlc_changelog.md`) | Zero matches outside changelog |
-| No stale `ops/sdlc/process/` refs | Grep transformed files | Zero matches (excluding `sdlc_changelog.md` historical entries and `~/src/ops/sdlc/` upstream refs) |
-| No stale `ops/sdlc/templates/` refs | Grep transformed files | Zero matches (excluding `~/src/ops/sdlc/` upstream refs) |
-| No stale `ops/sdlc/playbooks/` refs | Grep transformed files | Zero matches |
-| No stale `ops/sdlc/examples/` refs | Grep transformed files | Zero matches |
-| No stale `ops/sdlc/plugins/` refs | Grep transformed files | Zero matches |
-| No stale `ops/sdlc/improvement-ideas/` refs | Grep transformed files | Zero matches |
-| Directories present at new paths | `ls .claude/sdlc/` | All six dirs visible |
-| Directories absent at old paths | `ls ops/sdlc/` | None of the six dirs present |
-| Manifest present | Read `.sdlc-manifest.json` | `neuroloom_backend: true` |
+| No stale path references | Grep transformed files for `ops/sdlc/knowledge/`, `ops/sdlc/disciplines/`, `[sdlc-root]/knowledge/` and `[sdlc-root]/disciplines/`, and for relative links `](knowledge/` and `](disciplines/` (rows 2 to 5 of the post-operation audit's Check 2 exemption table apply, as in Stage 4a; skip `ops/sdlc/process/knowledge-routing.md`) | Zero matches |
+| No stale YAML references | Grep transformed files for `agent-context-map.yaml` and `agent-communication-protocol.yaml` (rows 2 to 5 of the audit's Check 2 exemption table apply, as in Stage 4a; skip `ops/sdlc/process/knowledge-routing.md`, the plugin's copy) | Zero matches |
+| Operational directories still at the SDLC root | `ls ops/sdlc/` | `process/` and `templates/` present, plus whichever of `playbooks/`, `examples/`, `plugins/` and `improvement-ideas/` the install had. The port moves nothing |
+| Manifest present | Read `.sdlc-manifest.json` | `neuroloom_backend: true` and `sdlc_root: "ops/sdlc"` |
 | No stale `ops/sdlc/knowledge/` refs in agent memory | `grep -rn "ops/sdlc/knowledge/" .claude/agent-memory/` | Zero matches |
 | No stale `ops/sdlc/disciplines/` refs in agent memory | `grep -rn "ops/sdlc/disciplines/" .claude/agent-memory/` | Zero matches |
-| No stale structural `ops/sdlc/` refs in agent memory | `grep -rn "ops/sdlc/" .claude/agent-memory/` | Zero matches (excluding `~/src/ops/sdlc/` and historical audit records) |
 
-Exclusion rules for grep checks on relocated directories:
+Exclusion rules for the grep checks above:
 - Exclude `sdlc_changelog.md` historical entries, and the archived ones in `process/changelog-archive/*.md`
 - Exclude lines matching `~/src/ops/sdlc/` (upstream z-sdlc source path)
 
@@ -83,45 +75,47 @@ The audit verifies the bulk transformation landed correctly — every file-based
 - No residual z-sdlc standard phrases (they should all be transformed)
 - No inline adapter conditionals (contract violations)
 - Knowledge YAMLs fully ingested with correct domain tags
-- Original file-based knowledge files removed or marked (no drift risk)
+- Original file-based knowledge files listed for Post-Port Cleanup, which runs after the audit
 
-**If the audit fails:** Halt. Do NOT proceed to Post-Port Cleanup. Follow the audit's recovery instructions. For port failures: `git checkout -- .claude/` to restore filesystem; knowledge ingestion is idempotent so re-running port after a plugin fix is safe.
+**If the audit fails:** Halt. Do NOT proceed to Post-Port Cleanup. Follow the audit's recovery instructions. For port failures: `git checkout -- .claude/ ops/sdlc/` to restore the transformed files (whole trees, unlike Stage 4d's per-file restore, so it also discards uncommitted edits there: safe only for a port that began on a clean tree); knowledge ingestion is idempotent so re-running port after a plugin fix is safe.
 
 ### Post-Port Cleanup
 
-Use `AskUserQuestion` to ask the user whether to remove the following content,
-which is now redundant now that Neuroloom is the source of truth and operational
-files have been moved to `.claude/sdlc/`:
+Use `AskUserQuestion` to ask the user whether to remove the local knowledge and discipline
+directories, which are redundant now that Neuroloom holds their content.
 
 Question text:
 ```
-The following local directories are now redundant — Neuroloom holds their
-knowledge content, and operational files have been moved to .claude/sdlc/:
+These local directories are now redundant: Neuroloom holds their content.
 
   ops/sdlc/knowledge/       ({N} files) — ingested into Neuroloom
   ops/sdlc/disciplines/     ({M} files) — ingested into Neuroloom
-  ops/sdlc/                 (remaining: CLAUDE-SDLC.md, README.md, and
-                             empty dirs if any) — source directories now moved
 
-Remove the remaining ops/sdlc/ content now?
+Everything else under ops/sdlc/ is the project's live SDLC (process docs,
+templates, playbooks) and stays. If you keep these two, every later
+/sdlc-migrate audit lists them as a warning.
+
+Remove ops/sdlc/knowledge/ and ops/sdlc/disciplines/ now?
 ```
 
 Options:
-1. Remove ops/sdlc/knowledge/ and ops/sdlc/disciplines/ (leaves ops/sdlc/ root files)
-2. Remove all remaining ops/sdlc/ content (knowledge/, disciplines/, and root files)
-3. Keep all (I'll remove manually)
-4. Keep all and skip this prompt on future re-ports
+1. Remove ops/sdlc/knowledge/ and ops/sdlc/disciplines/
+2. Keep both (I'll remove them manually)
+3. Keep both and skip this prompt on future re-ports
 
 If the user selects option 1: run `rm -rf ops/sdlc/knowledge/ ops/sdlc/disciplines/`.
-If the user selects option 2: run `rm -rf ops/sdlc/`.
-If the user selects option 3: do nothing.
-If the user selects option 4: do nothing to the directories, but write `skip_cleanup_prompt: true`
+If the user selects option 2: do nothing.
+If the user selects option 3: do nothing to the directories, but write `skip_cleanup_prompt: true`
   into `.sdlc-manifest.json`. On future re-ports, Stage 1 (Mode Detection) must check this flag
   and skip the cleanup question entirely if it is set.
 
+Never remove `ops/sdlc/` itself or anything in it besides those two directories. It is the
+project's SDLC root.
+
 Always keep:
-- `.claude/sdlc/process/` — process docs (moved here by Stage 4f)
-- `.claude/sdlc/templates/` — templates (moved here by Stage 4f)
+- `ops/sdlc/process/`, `ops/sdlc/templates/`, `ops/sdlc/playbooks/`, `ops/sdlc/examples/`,
+  `ops/sdlc/plugins/`, `ops/sdlc/improvement-ideas/`, and the root files (`CLAUDE-SDLC.md`,
+  `README.md`, the external-review scripts): the live SDLC
 - `docs/_index.md` — deliverable catalog remains filesystem-local
 
 ### Final Summary

@@ -4,6 +4,7 @@
 
 | Failure | Recovery |
 |---------|----------|
+| SDLC root check fails (`${CLAUDE_PLUGIN_ROOT}/references/preflight.md` check 0) | Stop with the message in that file's § Failure 0. Nothing has been written. |
 | `ops/sdlc/` absent | Stop. Output: "No z-sdlc installation found. Run /sdlc-initialize instead." |
 | API auth failure | Stop. Output auth error with link to API key settings. Do not proceed. |
 | API network failure | Stop. Output network error. Check connectivity and retry. |
@@ -33,8 +34,8 @@ Stop immediately. No writes have occurred. Nothing to roll back.
 | Failure | Recovery |
 |---------|----------|
 | Edit tool fails on a file | Skip the file. Log the failure. Continue with remaining targets. |
-| Validation finds stale `ops/sdlc/knowledge/` reference after edit | Restore the specific file: `git checkout .claude/agents/{file}.md`. Log the specific reference. |
-| Validation finds stale `ops/sdlc/disciplines/` reference after edit | Restore the specific file: `git checkout .claude/agents/{file}.md`. Log the specific reference. |
+| Validation finds stale `ops/sdlc/knowledge/` reference after edit | Restore the specific file by its path (`git checkout .claude/agents/{file}.md`, `.claude/skills/{skill}/SKILL.md` or `ops/sdlc/{path}.md`). Log the specific reference. |
+| Validation finds stale `ops/sdlc/disciplines/` reference after edit | Restore the specific file by its path, as above. Log the specific reference. |
 | `memory_search` returns no match for a reference | Use the file path as the query basis. If still no match, skip transformation for that reference and log it. |
 
 ### Stage 5 — Manifest or verification failures

@@ -48,9 +48,12 @@ confirmation gate — the user already confirmed once.
 
 ## Stage 1 — Pre-flight and Inventory
 
-### Gate 1: Local z-sdlc installation exists
+### Gate 1: Local z-sdlc installation exists at `ops/sdlc/`
 
-Check whether `ops/sdlc/` is present in the project root. If absent, stop and output:
+First run the SDLC root check, `${CLAUDE_PLUGIN_ROOT}/references/preflight.md` check 0. If it fails, stop
+with its message. `ops/sdlc/` is the only root this plugin supports.
+
+Then check whether `ops/sdlc/` is present in the project root. If absent, stop and output:
 
 ```
 No z-sdlc installation found. Run /sdlc-initialize instead.
@@ -116,7 +119,10 @@ For deliverable docs and agent/skill files, glob and count files:
 | Category | Glob | What to count |
 |----------|------|---------------|
 | Deliverable docs | `docs/current_work/**/*.md` + `docs/chronicle/**/*.md` | Files |
-| Agent/skill files | `.claude/agents/*.md` + `.claude/skills/**/*.md` | Files (transformation targets) |
+| Agent/skill files | `.claude/agents/*.md` + `.claude/skills/**/*.md` + `ops/sdlc/**/*.md` outside `knowledge/` and `disciplines/` | Files (transformation targets) |
+
+Also run `git status --porcelain -- .claude ops/sdlc`. If it lists anything, say so at the Stage 2
+gate: the recovery for a failed audit restores whole trees and would discard those changes.
 
 ---
 
@@ -262,21 +268,30 @@ Per file:
 
 Transform agent files, skill files, reference docs, and the agent template to replace local
 `ops/sdlc/knowledge/` file-read patterns and bare YAML filename references with `memory_search`
-calls. This stage has five sub-steps.
+calls. This stage has six sub-steps, 4a to 4e and 4g. There is no 4f: it moved the operational
+directories out of `ops/sdlc/`, and 0.7.0 removed it.
 
 ### Stage 4a — Identify Targets
 
-Scan all files matched by `.claude/agents/*.md`, `.claude/skills/**/*.md`, and
-`.claude/skills/*/references/*.md` for TWO categories of references:
+Scan all files matched by `.claude/agents/*.md`, `.claude/skills/**/*.md`,
+`.claude/skills/*/references/*.md`, and every `*.md` under `ops/sdlc/` outside `knowledge/` and
+`disciplines/` (process docs, templates, playbooks, and root files such as `README.md`) for TWO
+categories of references. The post-operation audit scans all of these trees, so a file left out
+here fails it:
 
-1. **Path references**: `ops/sdlc/knowledge/` paths and `ops/sdlc/disciplines/` paths —
-   any instruction to read, load, or consult a file at either path.
+1. **Path references**: `ops/sdlc/knowledge/` and `ops/sdlc/disciplines/` paths, their
+   `[sdlc-root]/knowledge/` and `[sdlc-root]/disciplines/` forms (most of z-sdlc's own files use
+   these), and relative markdown links into `knowledge/` or `disciplines/` — any instruction to read,
+   load, or consult a file there. For the `[sdlc-root]/` forms and the links, apply the rows of
+   `${CLAUDE_PLUGIN_ROOT}/references/pattern-mapping-rules.md`, the same rules `/sdlc-migrate` uses.
+   The links matter after Post-Port Cleanup deletes the two directories: a link left pointing into
+   them fails the next migration's Check 2d.
 2. **Named YAML references**: bare references to `agent-context-map.yaml` or
    `agent-communication-protocol.yaml` — even without the full path prefix. These appear
    in validation checklists, maturity criteria, integration steps, and template instructions.
 
-Also scan `ops/sdlc/templates/agent-template.md` — it contains runtime instructions
-(Knowledge Context, Communication Protocol) that direct agents to read local YAML files.
+The `ops/sdlc/` scan includes `ops/sdlc/templates/agent-template.md`, which holds runtime
+instructions (Knowledge Context, Communication Protocol) that direct agents to read local YAML files.
 
 For each reference found, call `memory_search` to locate the matching seeded entry:
 ```
@@ -307,14 +322,22 @@ Files with no matching references are not transformation targets — skip them.
 - **Compliance/audit methodology** (e.g., compliance-methodology.md): maturity level criteria and
   wiring tier descriptions that reference `agent-context-map` as a concept → update to reference
   Neuroloom retrieval
-- **`process/knowledge-routing.md`**: file-path references to `ops/sdlc/knowledge/` lookup
-  patterns → replace with `memory_search()` calls. The target state is the Neuroloom variant at
-  `neuroloom-sdlc-plugin/docs/knowledge-routing.md`
+- **`process/knowledge-routing.md`**: replace the whole file with the plugin's Neuroloom variant —
+  copy `${CLAUDE_PLUGIN_ROOT}/docs/knowledge-routing.md` over `ops/sdlc/process/knowledge-routing.md`, as
+  migrations do (`${CLAUDE_PLUGIN_ROOT}/references/adapter-lifecycle.md` § Adapter-specific docs). Don't
+  edit it in place: the audit exempts it from the residue scans, so nothing would catch a partial rewrite
 
 **What NOT to transform:**
 - Template structural scaffolding in `ops/sdlc/templates/` (section headers, placeholder text) —
   only transform runtime instructions within templates (Knowledge Context, Communication Protocol)
 - `docs/_index.md` — remains filesystem-local
+- The files and blocks the post-operation audit's Check 2 exempts
+  (`${CLAUDE_PLUGIN_ROOT}/references/post-operation-audit.md`, exemption rows 2 to 5: the quoted span of
+  a reviewer's or auditor's `- [ ] No` item, the process docs that name the paths on purpose, such as
+  `path-mappings.md`, and format or command examples in code fences). Stage 4d does not report them
+  either. Two exceptions: `knowledge-routing.md` is replaced whole (above), and a line in those process
+  docs that names `provenance_log` is still rewritten, because the audit's provenance scan exempts only
+  the changelog.
 - Agent or skill files with no matching references
 - Historical changelog entries in `ops/sdlc/process/sdlc_changelog.md` and `ops/sdlc/process/changelog-archive/*.md` — these are an accurate
   record of what happened at the time and must not be rewritten
@@ -322,12 +345,14 @@ Files with no matching references are not transformation targets — skip them.
   become `sdlc:provenance` memories (see "Provenance records" in `references/pattern-mapping-rules.md`) and the
   file is removed with the other flat knowledge files in Post-Port Cleanup
 
-**Project-specific files to preserve during relocation:**
-- `process/agent-selection.yaml` — project's agent roster and dispatch rules; relocate but never
-  overwrite during future migrations
-- `knowledge/provenance_log.md` — project's ingestion/research lineage log. It is NOT relocated: for each
+**Project-specific files:**
+- `process/agent-selection.yaml` — project's agent roster and dispatch rules; it stays where it is and
+  is never overwritten during future migrations
+- `knowledge/provenance_log.md` — project's ingestion/research lineage log. It is not kept on disk: for each
   `prov-…` entry call `memory_store(title="<prov-id>: <short description>", content=<the entry's fields, status kept>,
   tags=["sdlc:provenance", "sdlc:source-type:<type>", "sdlc:prov:<prov-id>", "sdlc:prov-status:<status>"], memory_type="general")`, then delete the file.
+  Skip an entry whose `memory_get_index(tags=["sdlc:prov:<prov-id>"], limit=1)` already returns a row:
+  `memory_store` has no upsert, and a re-run after a recovery restores the file.
   There is no script for this step; do it by hand and report the count
 
 ### Stage 4b — Present Proposed Changes
@@ -425,12 +450,19 @@ differs, and the query should reflect that to improve retrieval relevance.
 
 ### Stage 4d — Validate Transformations
 
-After all edits, verify each transformed file:
-- No remaining `ops/sdlc/knowledge/` or `ops/sdlc/disciplines/` path references
+After all edits, verify each transformed file. Every check below leaves alone what Stage 4a's
+"What NOT to transform" keeps (the quoted span of a `- [ ] No` item, the exempt process docs, fenced
+examples, the changelog):
+- No remaining `ops/sdlc/knowledge/`, `ops/sdlc/disciplines/`, `[sdlc-root]/knowledge/` or
+  `[sdlc-root]/disciplines/` path references, outside what Stage 4a's "What NOT to transform" keeps
+- No remaining relative markdown links into the two directories (`](knowledge/…)`, `](disciplines/…)`)
 - No remaining bare `agent-context-map.yaml` or `agent-communication-protocol.yaml` references
-  (except in historical changelog entries, which are preserved as-is)
 - Every replacement `memory_search` call includes `query`
 - File is still valid markdown (no broken code fences or truncated sections)
+
+`ops/sdlc/process/knowledge-routing.md` is not checked this way: it is the plugin's own copy and
+names those files on purpose. Check instead that its first 5 lines match
+`${CLAUDE_PLUGIN_ROOT}/docs/knowledge-routing.md`, and copy it again if they don't.
 
 If validation fails for a file, restore it via:
 ```
@@ -440,9 +472,13 @@ or
 ```
 git checkout .claude/skills/{specific_skill}/SKILL.md
 ```
+or, for a file under the SDLC root
+```
+git checkout ops/sdlc/{specific_path}.md
+```
 
-List specific file paths — do NOT run `git checkout .claude/` as that restores all files including
-user-created agents that were never touched.
+List specific file paths — do NOT run `git checkout .claude/` or `git checkout ops/sdlc/`, as that
+restores every file under them, including user-created agents and process edits this run never touched.
 
 ### Stage 4e — Remove z-sdlc Originals for Plugin-Owned Skills
 
@@ -463,90 +499,32 @@ Do NOT remove skill directories from `neuroloom-sdlc-plugin/skills/` — those a
 **Do NOT remove** any other skill directories from `.claude/skills/`. All other
 z-sdlc skills remain active and are not replaced by the plugin.
 
-### Stage 4f — Relocate Operational SDLC Directories
-
-Move the six operational SDLC directories from `ops/sdlc/` to `.claude/sdlc/`. Run without asking
-for confirmation — this is part of the automatic post-transformation cleanup, same as Stage 4e.
-
-**Scope:** Only the six directories listed below. `ops/sdlc/knowledge/` and `ops/sdlc/disciplines/`
-are managed by Stage 3 ingestion and Post-Port Cleanup — not Stage 4f. `docs/_index.md` remains
-at its current path.
-
-**Step 1 — Create target directory:**
-
-```bash
-mkdir -p .claude/sdlc/
-```
-
-**Step 2 — Move directories (re-port collision guard):**
-
-Check whether `.claude/sdlc/process/` already exists. If ANY target directory pre-exists, use
-rsync+rm for ALL directories:
-
-```bash
-rsync -a ops/sdlc/process/ .claude/sdlc/process/ && rm -rf ops/sdlc/process
-rsync -a ops/sdlc/templates/ .claude/sdlc/templates/ && rm -rf ops/sdlc/templates
-rsync -a ops/sdlc/playbooks/ .claude/sdlc/playbooks/ && rm -rf ops/sdlc/playbooks
-rsync -a ops/sdlc/examples/ .claude/sdlc/examples/ && rm -rf ops/sdlc/examples
-rsync -a ops/sdlc/plugins/ .claude/sdlc/plugins/ && rm -rf ops/sdlc/plugins
-rsync -a ops/sdlc/improvement-ideas/ .claude/sdlc/improvement-ideas/ && rm -rf ops/sdlc/improvement-ideas
-```
-
-On fresh port (no target dirs exist), use plain `mv`:
-
-```bash
-mv ops/sdlc/process .claude/sdlc/process
-mv ops/sdlc/templates .claude/sdlc/templates
-mv ops/sdlc/playbooks .claude/sdlc/playbooks
-mv ops/sdlc/examples .claude/sdlc/examples
-mv ops/sdlc/plugins .claude/sdlc/plugins
-mv ops/sdlc/improvement-ideas .claude/sdlc/improvement-ideas
-```
-
-**Step 3 — Remap path references:**
-
-After moving, remap the following path prefixes in all transformed files:
-
-| Old path | New path |
-|----------|----------|
-| `ops/sdlc/process/` | `.claude/sdlc/process/` |
-| `ops/sdlc/templates/` | `.claude/sdlc/templates/` |
-| `ops/sdlc/playbooks/` | `.claude/sdlc/playbooks/` |
-| `ops/sdlc/examples/` | `.claude/sdlc/examples/` |
-| `ops/sdlc/plugins/` | `.claude/sdlc/plugins/` |
-| `ops/sdlc/improvement-ideas/` | `.claude/sdlc/improvement-ideas/` |
-
-**Exclusions from remapping:**
-- Lines matching `~/src/ops/sdlc/` — upstream z-sdlc source paths, not local installation
-- Historical entries in `sdlc_changelog.md` and `changelog-archive/*.md`
-
 ### Stage 4g — Remap Agent Memory Files
 
-Agent memory files (`.claude/agent-memory/*/*.md`) may contain stale `ops/sdlc/` references from
-pre-port agent sessions. These are runtime hints agents wrote to self-load knowledge from the
-filesystem. Post-port, knowledge lives in Neuroloom and operational directories have moved to
-`.claude/sdlc/`.
+Agent memory files (`.claude/agent-memory/*/*.md`) may contain stale `ops/sdlc/knowledge/` and
+`ops/sdlc/disciplines/` references from pre-port agent sessions. These are runtime hints agents wrote
+to self-load knowledge from the filesystem. Post-port, that knowledge lives in Neuroloom. Other
+`ops/sdlc/` paths (process docs, templates, playbooks) are still correct: the SDLC root stays at
+`ops/sdlc/`, so leave them as they are.
 
 **Step 1 — Scan for stale references:**
 
 ```bash
-grep -rn "ops/sdlc/" .claude/agent-memory/ 2>/dev/null
+grep -rnE "ops/sdlc/(knowledge|disciplines)/" .claude/agent-memory/ 2>/dev/null
 ```
 
 If no matches found, skip to Stage 5.
 
 **Step 2 — Classify and remap:**
 
-Three categories of stale references exist in agent memory files:
+Two categories of stale references exist in agent memory files:
 
 | Category | Pattern | Replacement |
 |----------|---------|-------------|
 | Knowledge file paths | `ops/sdlc/knowledge/{path}.yaml` | Replace the file-read instruction with a `memory_search()` call using the knowledge content as the query and appropriate `sdlc:knowledge` tags |
 | Discipline file paths | `ops/sdlc/disciplines/{name}.md` | Replace with `memory_search()` call using `tag_prefixes=["sdlc:discipline"]` and the discipline's name in the query (entries ported by this skill carry only the bare `sdlc:discipline` tag) |
-| Structural references | `ops/sdlc/` referring to process, templates, or other relocated dirs | Replace `ops/sdlc/` with `.claude/sdlc/` |
 
-For knowledge and discipline paths, the replacement follows the same `memory_search()` pattern used
-in Stage 4c for agent files. Example:
+Both follow the same `memory_search()` pattern used in Stage 4c for agent files. Example:
 
 Before:
 ```
@@ -560,13 +538,6 @@ After:
 General TypeScript patterns for type safety are retrievable via
 memory_search(query="TypeScript type safety patterns", tags=["sdlc:knowledge", "sdlc:domain:coding"], tags_match="all").
 Apply those patterns when designing new types.
-```
-
-For structural references, apply the same path substitution as Stage 4f:
-```
-ops/sdlc/process/   →  .claude/sdlc/process/
-ops/sdlc/templates/ →  .claude/sdlc/templates/
-ops/sdlc/           →  .claude/sdlc/  (when referring to the directory generally)
 ```
 
 **Step 3 — Preserve historical context:**
@@ -583,21 +554,21 @@ it.
 - `sdlc_changelog.md` and `changelog-archive/*.md` historical entries (if referenced)
 - `~/src/ops/sdlc/` upstream z-sdlc source refs
 
-Run without asking for confirmation — this is automatic cleanup, same as Stage 4e and 4f.
+Run without asking for confirmation — this is automatic cleanup, same as Stage 4e.
 
 ---
 
 ## Stage 5 — Manifest and Verification
 
-Manifest schema, verification checklist (19 checks across knowledge layer, path references, directories, and manifest), and final summary template: see `references/verification-manifest.md`.
+Manifest schema, verification checklist (10 checks across knowledge layer, path references, directories, and manifest), and final summary template: see `references/verification-manifest.md`.
 
 ## Verification Checklist (Summary)
 
-Consolidated pass/fail checklist (14 items covering sentinel, knowledge, disciplines, deliverables, stale path refs, directories, manifest, agent memory): see `references/verification-manifest.md` § "Verification Checklist".
+Consolidated pass/fail checklist (10 items covering sentinel, knowledge, disciplines, deliverables, stale path refs, the SDLC root, manifest, agent memory): see `references/verification-manifest.md` § "Verification Checklist".
 
 ## Red Flags
 
-Common anti-patterns and corrections (11 entries covering re-porting safety, transformation assumptions, sentinel lifecycle, seed tool selection): see `references/red-flags.md`.
+Common anti-patterns and corrections (9 entries covering re-porting safety, transformation assumptions, sentinel lifecycle, seed tool selection): see `references/red-flags.md`.
 
 ## Integration
 
@@ -605,7 +576,7 @@ Common anti-patterns and corrections (11 entries covering re-porting safety, tra
 - `ops/sdlc/knowledge/**/*.yaml` — local knowledge stores
 - `ops/sdlc/disciplines/**/*.md` — local discipline files
 - `docs/current_work/**/*.md` and `docs/chronicle/**/*.md` — deliverable docs
-- `.claude/agents/*.md` and `.claude/skills/**/*.md` — transformation targets
+- `.claude/agents/*.md`, `.claude/skills/**/*.md`, and `ops/sdlc/**/*.md` outside `knowledge/` and `disciplines/` — transformation targets
 
 **Feeds out:**
 - Neuroloom knowledge entries (knowledge YAMLs, disciplines, deliverable docs)
