@@ -95,12 +95,50 @@ def _get_json(
         return None
 
 
+_PIN_PATH_CAP = 300
+
+
+def _pinned_plugin_root_warning(project_dir: Path) -> str | None:
+    """Return a warning when the project's manifest pins adapter.plugin_root elsewhere.
+
+    z-sdlc releases before contract 0025 load the adapter's handlers from that path, so a
+    pin left from an earlier install runs that version's handlers, not this one's.
+    """
+    try:
+        manifest = json.loads((project_dir / ".sdlc-manifest.json").read_text(encoding="utf-8"))
+        root = manifest["adapter"]["plugin_root"]
+        if not isinstance(root, str) or not root:
+            return None
+        pinned = Path(root).expanduser()
+        if not pinned.is_absolute():
+            # A relative pin is a copy vendored in the project, which z-sdlc keeps supporting.
+            return None
+        if pinned.resolve() == Path(__file__).resolve().parent.parent:
+            return None
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+        return None
+    return (
+        f"Neuroloom SDLC: .sdlc-manifest.json pins adapter.plugin_root to {root[:_PIN_PATH_CAP]}."
+        " z-sdlc releases before contract 0025 run the adapter handlers found there, which may be"
+        " an older install of this plugin. Remove adapter.plugin_root from the manifest"
+        " before running /sdlc-migrate."
+    )
+
+
 def main() -> None:
     # Step 0: decide the mode before load(). Skew (CI requested, base cannot
     # report it) does nothing at all: no db, no API.
     state = mode_state()
     if state == "skew":
         return
+
+    # Claude Code sets CLAUDE_PROJECT_DIR for hooks; without it there is no project
+    # root to read, and these hooks never fall back to the process's directory.
+    project_dir = os.environ.get("CLAUDE_PROJECT_DIR")
+    if state != "ci" and project_dir:
+        warning = _pinned_plugin_root_warning(Path(project_dir))
+        if warning:
+            print(warning)
 
     # Step 1: Load config. Empty api_key means unconfigured — silent exit.
     config = pyhooks.config.load()
@@ -193,8 +231,10 @@ def main() -> None:
 
     _debug(f"Workspace version: {workspace_version or '<none>'}")
 
-    # Step 6: Notify if there is a newer version available.
-    if workspace_version and workspace_version != latest_version:
+    # Step 6: Notify if there is a newer version available. The API strips the
+    # tag's leading "v" (routers/sdlc.py) while the knowledge handlers label
+    # seeds with the git tag, so compare without it.
+    if workspace_version and workspace_version.removeprefix("v") != latest_version.removeprefix("v"):
         if ci:
             print(
                 "[Neuroloom SDLC] Workspace SDLC knowledge is at "

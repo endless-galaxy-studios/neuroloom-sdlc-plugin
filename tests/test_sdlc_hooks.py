@@ -532,6 +532,28 @@ class TestSessionStartVersionComparison:
         )
         assert out == ""
 
+    def test_a_v_prefix_on_one_side_only_is_the_same_version(
+        self, capsys: "pytest.CaptureFixture[str]"  # type: ignore[name-defined]
+    ) -> None:
+        # The API's version endpoint strips the tag's leading "v"; the knowledge handlers label
+        # seeds with the git tag itself, so the two spell one release differently.
+        out = self._run_with_versions(
+            "2.12.2",
+            ["sdlc:sentinel", "sdlc:seed-version:v2.12.2"],
+            capsys,
+        )
+        assert out == ""
+
+    def test_a_v_prefix_does_not_hide_a_newer_release(
+        self, capsys: "pytest.CaptureFixture[str]"  # type: ignore[name-defined]
+    ) -> None:
+        out = self._run_with_versions(
+            "2.12.3",
+            ["sdlc:sentinel", "sdlc:seed-version:v2.12.2"],
+            capsys,
+        )
+        assert "update available (v2.12.2 -> 2.12.3)" in out
+
     def test_missing_seed_version_tag_produces_no_output(
         self, capsys: "pytest.CaptureFixture[str]"  # type: ignore[name-defined]
     ) -> None:
@@ -542,6 +564,56 @@ class TestSessionStartVersionComparison:
             capsys,
         )
         assert out == ""
+
+
+class TestSessionStartPinnedPluginRoot:
+    """A manifest that pins adapter.plugin_root makes z-sdlc releases before contract 0025
+    load the handlers at that path, which may be an older install than the one enabled."""
+
+    def _manifest(self, tmp_path: Path, adapter: dict[str, object]) -> Path:
+        (tmp_path / ".sdlc-manifest.json").write_text(json.dumps({"adapter": adapter}))
+        return tmp_path
+
+    def test_a_pin_to_another_directory_is_reported(self, tmp_path: Path) -> None:
+        from sdlc_pyhooks.session_start import _pinned_plugin_root_warning
+
+        old = "/Users/someone/.claude/plugins/cache/endless-galaxy-studios/neuroloom-sdlc/0.6.1"
+        warning = _pinned_plugin_root_warning(self._manifest(tmp_path, {"plugin_root": old}))
+        assert warning is not None
+        assert old in warning
+        assert "Remove adapter.plugin_root" in warning
+
+    def test_a_pin_to_this_plugin_or_no_pin_is_quiet(self, tmp_path: Path) -> None:
+        from sdlc_pyhooks.session_start import _pinned_plugin_root_warning
+
+        here = str(_SDLC_ROOT)
+        assert _pinned_plugin_root_warning(self._manifest(tmp_path, {"plugin_root": here})) is None
+        assert _pinned_plugin_root_warning(self._manifest(tmp_path, {"plugin": "neuroloom-sdlc@endless-galaxy-studios"})) is None
+        assert _pinned_plugin_root_warning(tmp_path / "missing") is None
+        # A relative pin is a vendored copy; resolving it would read the hook's own directory.
+        assert _pinned_plugin_root_warning(self._manifest(tmp_path, {"plugin_root": ".claude/plugins/neuroloom-sdlc"})) is None
+
+    def test_an_unreadable_manifest_is_quiet(self, tmp_path: Path) -> None:
+        from sdlc_pyhooks.session_start import _pinned_plugin_root_warning
+
+        (tmp_path / ".sdlc-manifest.json").write_text("{not json")
+        assert _pinned_plugin_root_warning(tmp_path) is None
+
+    def test_main_prints_it_without_an_api_key(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: "pytest.CaptureFixture[str]",  # type: ignore[name-defined]
+    ) -> None:
+        import pyhooks.config
+
+        import sdlc_pyhooks.session_start as ss
+
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(self._manifest(tmp_path, {"plugin_root": "/elsewhere/0.6.1"})))
+        unconfigured = pyhooks.config.Config(api_key="", api_base="http://localhost:8000", state_db_path=Path("/tmp/test.db"))
+        with patch("pyhooks.config.load", return_value=unconfigured):
+            ss.main()
+        assert "/elsewhere/0.6.1" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------
