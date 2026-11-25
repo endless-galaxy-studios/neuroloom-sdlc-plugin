@@ -1,7 +1,5 @@
 {
   "zsdlc_adapter": true,
-  "supported_zsdlc_version": "2.9.10",
-  "ccsdlc_adapter": true,
-  "supported_ccsdlc_version": "2.9.10",
+  "supported_zsdlc_version": "3.0.0",
   "phase_handlers": "references/adapter-lifecycle.md"
 }

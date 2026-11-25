@@ -83,26 +83,26 @@ This plugin is an **adapter** for z-sdlc — it transforms z-sdlc's file-based k
 **What the contract means in practice:**
 
 - z-sdlc skills use a small set of standard phrases when referencing the knowledge layer (e.g., `consult [sdlc-root]/knowledge/agent-context-map.yaml`). The exact phrases are listed in the contract doc above.
-- This plugin's `/sdlc-migrate` skill contains a transformation table that matches those phrases and replaces them with Neuroloom calls.
+- This plugin's Pattern Mapping rules (`references/pattern-mapping-rules.md`) match those phrases and replace them with Neuroloom calls. z-sdlc's own `/sdlc-initialize` and `/sdlc-migrate` apply them by calling this plugin's adapter handlers (`references/adapter-lifecycle.md`), which dispatch the `neuroloom-transformer` agent.
 - When z-sdlc introduces a new knowledge-access phrase, it tags the changelog entry with `[contract-change]`. `/sdlc-migrate` scans for these on every upstream pull and flags them for the maintainer before applying the migration.
 
-**Keeping the plugin in sync:** Changes to the contract are driven by z-sdlc upstream. When this plugin is pulling a new z-sdlc release, `/sdlc-migrate` reports any `[contract-change]` commits in the range being migrated. Resolve those (update the transformation table) before completing the migration.
+**Keeping the plugin in sync:** Changes to the contract are driven by z-sdlc upstream. When this plugin is pulling a new z-sdlc release, `/sdlc-migrate` reports any `[contract-change]` commits in the range being migrated. Resolve those (update the Pattern Mapping rules) before completing the migration.
 
 **Authority in a Neuroloom-backed project: the adapter wins.** CD decided (2026-10-29) that in a project with `neuroloom_backend: true` the adapter's transforms are authoritative where they differ from z-sdlc's verbatim or exempt treatment. Three cases: (1) `process/knowledge-routing.md` is this plugin's Neuroloom variant (`docs/knowledge-routing.md`), not z-sdlc's phrasing contract; (2) `agents/sdlc-reviewer.md` has its phrasing-contract checklist rewritten to the Neuroloom canonical forms, because the reviewer must check files that use those forms (only the quoted span of a `- [ ] No` anti-residue item stays verbatim); (3) knowledge-layer paths in Integration `Uses:`, `Depends on:`, `Feeds into:`, `DRY notes:` and `Knowledge routing:` lines are rewritten, not preserved. An audit that finds these files differing from z-sdlc is looking at the adapter's design, not at drift. One consequence: the project holds no copy of z-sdlc's phrasing contract, so a z-sdlc phrasing change shows up at migration time (the `[contract-change]` entries), not by reading the installed files.
 
 ### Transformation Scope
 
-This plugin **overrides** only three z-sdlc skills with Neuroloom-native versions: `/sdlc-initialize`, `/sdlc-migrate`, and `/sdlc-port`. All other z-sdlc skills (`sdlc-plan`, `sdlc-execute`, `sdlc-tests-create`, etc.) ship from upstream unchanged.
+This plugin ships one skill of its own, `/sdlc-port`. `/sdlc-initialize` and `/sdlc-migrate` are z-sdlc's: they find this plugin through `adapter.json` and call its four phase handlers (`references/adapter-lifecycle.md`). The plugin stopped overriding them in May 2026, so a project needs z-sdlc's `sdlc-migrate` in `.claude/skills/` (z-sdlc runs `sdlc-initialize` from its source and never installs it). All other z-sdlc skills (`sdlc-plan`, `sdlc-execute`, `sdlc-tests-create`, etc.) ship from upstream unchanged.
 
-However, those non-override skills contain references to file-based knowledge (e.g., `consult [sdlc-root]/knowledge/agent-context-map.yaml`) that need to become `memory_search` calls in a Neuroloom workspace. The plugin handles this via **content transformation at install/migration time**, not by overriding the skills:
+However, those skills contain references to file-based knowledge (e.g., `consult [sdlc-root]/knowledge/agent-context-map.yaml`) that need to become `memory_search` calls in a Neuroloom workspace. The plugin handles this via **content transformation at install/migration time**, not by overriding the skills:
 
 | Lifecycle Moment | What Happens |
 |------------------|--------------|
-| `/sdlc-initialize` | Fetches z-sdlc from upstream, transforms skill/agent/process files via the Pattern Mapping rules, writes transformed versions to `.claude/` |
+| `/sdlc-initialize` | Fetches z-sdlc from upstream, transforms skill/agent/process files via the Pattern Mapping rules, writes transformed versions to `.claude/` and `ops/sdlc/` |
 | `/sdlc-migrate` | Pulls newer z-sdlc, applies Pattern Mapping rules while preserving any `memory_search(` / `memory_store(` calls already present in the project copy |
 | `/sdlc-port` | Converts an existing file-based z-sdlc install into a Neuroloom workspace, applying Pattern Mapping in bulk |
 
-Which files need transformation is determined at runtime by scanning each upstream file for phrasing-contract anchors (`[sdlc-root]/knowledge/`, `[sdlc-root]/disciplines/`, `consult [sdlc-root]/knowledge/`, `agent-context-map.yaml`). See `skills/sdlc-migrate/SKILL.md` § "Detecting Files That Contain Phrasing-Contract Patterns" for the algorithm and special-case overrides.
+Which files need transformation is determined at runtime by scanning each upstream file for phrasing-contract anchors (`[sdlc-root]/knowledge/`, `[sdlc-root]/disciplines/`, `consult [sdlc-root]/knowledge/`, `agent-context-map.yaml`). See `agents/neuroloom-transformer.md` § "Step 1: Runtime Scan" for the algorithm and special-case overrides.
 
 ### Integrity Gates
 
@@ -227,12 +227,12 @@ All process-layer data in Neuroloom is organized via tags with the `sdlc:` prefi
 | `sdlc:seed` | Marks memories created by the seed algorithm | `seed()` |
 | `sdlc:seed-version:{version}` | Tracks which framework version a memory was seeded from | `seed()`, sentinel |
 | `sdlc:knowledge-id:{id}` | Stable identifier for upsert deduplication | All ingestion paths |
-| `sdlc:project-specific` | Protects memories from being overwritten or deprecated during re-seed | User (manual tag) |
-| `sdlc:deprecated` | Marks entries removed from upstream framework (not deleted, just tagged) | `seed()` |
+| `sdlc:project-specific` | Protects memories from being overwritten or deprecated during re-seed | User, and the `project-knowledge` handler |
+| `sdlc:deprecated` | Marks seed memories a `sdlc_seed` call without `skip_deprecation` left out. A weekly server job deletes every memory carrying it; this plugin always seeds with `skip_deprecation`, so it never sets the tag | `seed()` |
 | `sdlc:deliverable:{id}` | Links a memory to a deliverable (e.g., `sdlc:deliverable:d17`) | PostToolUse hook, Discipline capture |
 | `sdlc:context:{type}:{slug}` | Links a discipline entry to a non-deliverable context (e.g., `sdlc:context:idea:caching`) | Discipline capture |
 | `sdlc:doc:{type}` | Document type: `spec`, `plan`, `result`, `chronicle` | PostToolUse hook |
-| `sdlc:pattern:{name}` | YAML pattern type: `entries`, `gotchas`, `rules`, `methodology` | YAML parsers |
+| `sdlc:pattern:{name}` | Knowledge pattern: `entries`, `gotchas`, `rules`, `methodology`, or `document` for a knowledge Markdown document | The plugin's extractor |
 | `sdlc:domain:{domain}` | Knowledge domain, from the file's subdirectory (`knowledge/<domain>/x.yaml`). Domain lookups AND it with `sdlc:knowledge` (`tags=[…], tags_match="all"`); a project ported before 0.5.7 lacks it and needs re-seeding | YAML parsers (`/sdlc-port`), `seed()` |
 | `sdlc:provenance` | A provenance record: where knowledge entered the knowledge layer (an ingestion, a research handoff, a Deep Verify sweep). One memory per record, `memory_type` `general`. Replaces the on-disk `provenance_log.md` | `sdlc-ingest`, `sdlc-research`, `sdlc-audit` |
 | `sdlc:source-type:{type}` | Provenance source kind: `reference-doc`, `file`, `directory`, `url`, `manual`, `audit-sweep` | same |
@@ -263,10 +263,13 @@ The slash commands use these MCP tools (available when the base Neuroloom plugin
 
 | Tool | Used by |
 |------|---------|
-| `document_ingest` | `/sdlc-initialize`, `/sdlc-port` (individual knowledge files) |
-| `document_ingest_batch` | `/sdlc-initialize`, `/sdlc-migrate`, `/sdlc-port` (batch operations) |
+| `sdlc_seed_from_file` / `sdlc_seed_get_upload_url` | `/sdlc-initialize`, `/sdlc-migrate` (the `knowledge-seed` and `knowledge-update` handlers), `/sdlc-port`, and the `sdlc-ingest` transform: knowledge and discipline entries the extractor builds, in files of at most 500 |
+| `document_ingest_batch` | `/sdlc-port` (deliverable docs) |
+| `memory_store` / `memory_update` | `/sdlc-initialize` (the `project-knowledge` handler) and `/sdlc-port` (provenance records, Stage 3c) |
+| `update_document_source_archive` | the `sdlc-archive` transform (a moved deliverable's document path) |
+| `memory_get_index` / `memory_get_detail` | every handler and `/sdlc-port`: existence checks by exact tag, counts, and reading rows for `knowledge-update`'s classifier |
 | `sdlc_get_version` | `/sdlc-initialize`, `/sdlc-migrate` |
-| `memory_search` | `/sdlc-migrate` (sentinel lookup), `/sdlc-port` (transformation matching) |
+| `memory_search` | every phase that writes, and the transformer (the workspace check: its response names the workspace the key reaches), and `/sdlc-port` (transformation matching) |
 
 ---
 
