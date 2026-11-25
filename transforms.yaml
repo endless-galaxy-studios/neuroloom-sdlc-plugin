@@ -22,8 +22,10 @@ tool_profiles:
       - mcp__neuroloom__memory_explore
       - mcp__neuroloom__memory_by_file
       - mcp__neuroloom__memory_get_detail
+      - mcp__neuroloom__memory_get_index
       - mcp__neuroloom__memory_rate
       - mcp__neuroloom__memory_store
+      - mcp__neuroloom__memory_update
       - mcp__neuroloom__code_search
       - mcp__neuroloom__code_context
       - mcp__neuroloom__code_callers
@@ -37,6 +39,7 @@ tool_profiles:
       - mcp__neuroloom__memory_explore
       - mcp__neuroloom__memory_by_file
       - mcp__neuroloom__memory_get_detail
+      - mcp__neuroloom__memory_get_index
       - mcp__neuroloom__memory_rate
       - mcp__neuroloom__code_search
       - mcp__neuroloom__code_context
@@ -51,10 +54,36 @@ tool_profiles:
       - mcp__neuroloom__memory_explore
       - mcp__neuroloom__memory_by_file
       - mcp__neuroloom__memory_get_detail
+      - mcp__neuroloom__memory_get_index
       - mcp__neuroloom__memory_rate
       - mcp__neuroloom__memory_store
+      - mcp__neuroloom__memory_update
       - mcp__neuroloom__code_search
       - mcp__neuroloom__code_context
+
+# Tools a call in an agent's memory (.claude/agent-memory/<name>/) may add beyond the
+# agent's profile, in migrate's tool injection and the port's Stage 4g. Agents write
+# their own memory, so this lists only tools that read: a note must never give an
+# agent a tool that writes. Taken from the MCP server's tools marked readOnlyHint
+# (mcp/neuroloom_mcp/server.py), less the two that hand out upload URLs.
+memory_grant_tools:
+  tools:
+    - mcp__neuroloom__memory_search
+    - mcp__neuroloom__memory_explore
+    - mcp__neuroloom__memory_by_file
+    - mcp__neuroloom__memory_get_detail
+    - mcp__neuroloom__memory_get_index
+    - mcp__neuroloom__memory_get_related
+    - mcp__neuroloom__memory_get_supersession_chain
+    - mcp__neuroloom__memory_get_timeline
+    - mcp__neuroloom__workspace_insight
+    - mcp__neuroloom__session_get_context
+    - mcp__neuroloom__sdlc_get_version
+    - mcp__neuroloom__code_search
+    - mcp__neuroloom__code_context
+    - mcp__neuroloom__code_callers
+    - mcp__neuroloom__code_callees
+    - mcp__neuroloom__code_navigate
 
 # Agent-to-profile mapping — determines which tools each agent gets.
 # Agents not listed here get the "full" profile as default.
@@ -149,11 +178,14 @@ actions:
       Read ${CLAUDE_PLUGIN_ROOT}/references/pattern-mapping-rules.md for the full rule table.
 
   ingest_to_neuroloom:
-    description: Route knowledge/discipline content to Neuroloom backend via document_ingest_batch
+    description: Route knowledge/discipline content to Neuroloom through the plugin's extractor and sdlc_seed
     behavior: |
-      Instead of leaving the flat file on disk, ingest the content into Neuroloom
-      with appropriate tags derived from file path and YAML metadata.
-      After successful ingestion, delete the flat file.
+      Instead of leaving the flat file on disk, seed the entries the skill's
+      report says it added, through the plugin's extractor (--tag
+      sdlc:project-specific, --only-ids) and sdlc_seed with skip_deprecation:
+      true, so they share the ids every other path uses. The rules (which files,
+      which ids are never sent, when the file is deleted, kept or renamed
+      .unsent-<timestamp>) are agents/neuroloom-transformer.md's ingest_to_neuroloom.
 
   sync_archive_status:
     description: Sync a document's DocumentSource anchor to its post-archive location via PATCH /api/v1/documents/by-path

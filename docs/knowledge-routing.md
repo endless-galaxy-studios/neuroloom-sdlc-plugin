@@ -29,15 +29,15 @@ flowchart TD
     I --> C
 
     subgraph Init ["Initialization path (sdlc-initialize)"]
-        J["Stage 5a: document_ingest_batch\nseeds entries with domain tags"]
-        K["Stage 6c: domain tags verified\nagents can self-route"]
+        J["knowledge-seed: the plugin's extractor + sdlc_seed\nseed entries with domain tags"]
+        K["knowledge-seed: domain tags verified\nagents can self-route"]
         J --> K
     end
 
     Init --> C
 ```
 
-**Initialization** is a one-time operation. `sdlc-initialize` seeds all knowledge entries into Neuroloom with the full tag schema (Stage 5a), then confirms that agents can search their domain knowledge (Stage 6c). After that, agents self-route without any orchestrator intervention.
+**Initialization** is a one-time operation. `sdlc-initialize` seeds all knowledge entries into Neuroloom with the full tag schema (the adapter's `knowledge-seed` phase), then confirms that agents can search their domain knowledge. After that, agents self-route without any orchestrator intervention.
 
 **The feedback loop** is how the knowledge layer grows over time. Agents park new observations in discipline entries; those entries accumulate; a discipline capture pass promotes the high-signal ones back into the knowledge layer where they become retrievable by future agents.
 
@@ -85,7 +85,7 @@ One entry with multiple domain tags — not duplicated entries with one tag each
 
 ### Before vs. After: File Path to `memory_search()`
 
-The following table shows the z-sdlc generic file-path pattern and its Neuroloom equivalent, drawn from the Pattern Mapping table in `sdlc-migrate/SKILL.md`:
+The following table shows the z-sdlc generic file-path pattern and its Neuroloom equivalent, drawn from the neuroloom-sdlc plugin's Pattern Mapping rules (`references/pattern-mapping-rules.md` in the plugin):
 
 | Generic (file-based) instruction | Neuroloom equivalent |
 |----------------------------------|---------------------|

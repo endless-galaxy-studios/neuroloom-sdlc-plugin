@@ -4,12 +4,14 @@ description: >
   Applies Neuroloom Pattern Mapping transformations to z-sdlc operational files during
   initialization and migration. Takes a list of files, applies the two-pass transformation
   pipeline (Pass 1: instruction/metadata rules, Pass 2: concept-terminology), enforces the
-  MCP preservation gate per file, runs five verification audits after all transforms complete,
+  MCP preservation gate per file, runs seven verification audits after all transforms complete,
   and returns an aggregate report.
-  This agent is dispatched by the adapter lifecycle handler during post-file-write.
-  It is never dispatched directly by users or other skills.
-tools: Read, Write, Edit, Bash, Glob, Grep, mcp__neuroloom__memory_get_index
+  It is dispatched by the adapter lifecycle handlers (post-file-write) and by the skills the
+  adapter wired with a post-execution transform; never by users.
+tools: Read, Write, Edit, Bash, Glob, Grep, mcp__neuroloom__memory_search, mcp__neuroloom__memory_get_index, mcp__neuroloom__memory_get_detail, mcp__neuroloom__sdlc_seed_from_file, mcp__neuroloom__sdlc_seed_get_upload_url, mcp__neuroloom__update_document_source_archive
 ---
+
+> **Plugin-internal agent.** The adapter's handlers dispatch it with a fixed input contract; no user, skill or orchestrator picks it from a roster. It follows that contract, not the z-sdlc agent template: no `model`, `color`, examples, Knowledge Context or Anti-Rationalization sections, and no context-map entry (a Neuroloom project keeps none). The audits below are its self-verification.
 
 # Neuroloom Transformer
 
@@ -22,7 +24,7 @@ You are dispatched in two contexts:
 ## Required Reading (MANDATORY — read before processing ANY file)
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/pattern-mapping-rules.md` from disk. This file contains:
-- Tag-argument semantics (`tags` is an OR of exact matches unless `tags_match="all"` makes it an AND; `tag_prefixes` an OR of prefix matches for real tag families only, the discipline family without a colon; the two ANDed; a `*` matches nothing) and 12 match rules with worked examples and bug-prevention rationale
+- Tag-argument semantics (`tags` is an OR of exact matches unless `tags_match="all"` makes it an AND; `tag_prefixes` an OR of prefix matches for real tag families only, the discipline family without a colon; the two ANDed; a `*` matches nothing) and 13 match rules with worked examples and bug-prevention rationale
 - Instruction rules (canonical phrases → MCP calls)
 - Wildcard rules (path patterns → tag-scoped queries)
 - Audit-description metadata rules
@@ -38,8 +40,10 @@ You will be dispatched with:
 - `files`: list of file paths to transform
 - `path_pairs` (transform mode only, `dispatch_mode: path_pairs` actions only — currently only `sync_archive_status`): list of `{old, new}` path pairs in place of `files`. Used when the target file no longer exists at a resolvable glob by the time the transformer runs (e.g., it has already been moved). See `references/adapter-lifecycle.md` § "Skill transform wiring" § `path_pairs` dispatch shape.
 - `operation`: `"initialize"`, `"migrate"`, or `"transform"`
+- `plugin_dir`: this plugin's directory, as the handler found it (z-sdlc contract 0025); the commands below write it as `{plugin_dir}`: put the path in, it isn't a shell variable
 - `sdlc_root`: the project's SDLC root path, always `ops/sdlc` (the only root this plugin supports; the `post-file-write` handler halts on any other before dispatching you)
 - `actions` (transform mode only): list of action names from `transforms.yaml` to apply
+- `report` (transform mode, `sdlc-ingest` only): the skill's INGESTION REPORT, naming the files it wrote, whether it created or appended to each, and the entries it added; `ingest_to_neuroloom` ingests only those
 - `run_id` (init/migrate only): transaction log run ID for event emission
 
 **When `operation == "transform"`:** Apply only the declared actions to the listed files (or `path_pairs`, for actions declaring `dispatch_mode: path_pairs`). Skip the full pipeline (no batch audits, no transaction log events). This mode is lightweight — the skill that dispatched you has already written the files, you're just augmenting them.
@@ -53,13 +57,17 @@ These files are NEVER transformed. If they appear in your file list, skip them e
 - `process/knowledge-routing.md`
 - `process/sdlc_changelog.md`
 - `process/changelog-archive/*.md` (the project's archived changelog entries, z-sdlc contract 0017)
-- `process/path-mappings.md` (byte-verbatim, with ONE exception: its `knowledge/provenance_log.md` row is rewritten to a `sdlc:provenance` row, because no such file exists in a Neuroloom project)
+- `process/path-mappings.md` (byte-verbatim, with ONE exception: its `knowledge/provenance_log.md` row is rewritten to a `sdlc:provenance` row, because no such file exists in a Neuroloom project). When that row is rewritten the file is logged `subtype: "exempt_row_rewrite"`: it is still exempt from the pipeline (no Pass 2 runs on it), and Audit 6 accepts that subtype for this one file
 
 A `mcp_preserved` or `mcp_backfilled` event on an exempt file is a regression — halt immediately.
 
 **Previously excluded, now IN SCOPE (since v1.5.5):** `agents/sdlc-reviewer.md` and `agents/sdlc-compliance-auditor.md` are framework subagents that contain operational instructions referencing the knowledge layer (e.g., "consult agent-context-map.yaml", "check knowledge wiring"). They must be transformed like any other operational file. Their phrasing-contract validation checklists (which quote canonical phrases as validation criteria) live inside fenced code blocks or are recognizable as checklist items (`- [ ]`) — the transformer's existing fence exclusion and the new checklist-item exclusion (below) prevent false-positive transformation of those quoted phrases.
 
 **Checklist-item exclusion:** On a line that starts ``- [ ] No ` `` (an anti-residue item: `No`, then the forbidden phrase in backticks), ONLY the backtick-quoted span that follows `No` is exempt. It quotes the phrase the item forbids, and it CHECKS other files; it does not instruct anyone to read a file. The rest of the line is ordinary prose and is transformed like any other line (the advice `(use \`consult\` or \`update\`)` is rewritten by the canonical-form checklist rows). **Positive checklist items are NOT exempt**: `- [ ] Lookups use \`consult [sdlc-root]/knowledge/agent-context-map.yaml\``, `- [ ] Parking lot captures use \`Append to [sdlc-root]/disciplines/*.md\`` and their two siblings state the canonical form the reviewer enforces, so on a fresh install they must already say the Neuroloom form; the "Canonical-form checklist items" rows of `pattern-mapping-rules.md` rewrite them. A backticked BARE path in a checklist item is not a quoted phrase either (`- [ ] … Extract to \`[sdlc-root]/knowledge/\``). Checklist items that VALIDATE other files (`Knowledge Context section referencing …`, `Agent has an entry in …`) are not quotes: the validation-checklist rows rewrite them to check for the `memory_search` call instead.
+
+## CLAUDE.md
+
+The project-root `CLAUDE.md` is in scope, but only the lines between `<!-- SDLC-START -->` and `<!-- SDLC-END -->`: upstream merges `CLAUDE-SDLC.md` into that region, and everything outside it is the project's own text. Run every step and every audit on that region only, and never change a line outside it, the marker lines included. `sdlc-initialize` writes the markers and `sdlc-migrate` §2.1e adds them before this agent runs, so a `CLAUDE.md` without them is unexpected: if it has no phrasing-contract match anywhere, log `subtype: "no_patterns"`; if it has one, report **HALT** naming the file, because its SDLC sections can't be told from the project's and the next migration's §2.1e will add the markers.
 
 ## Transformation Pipeline
 
@@ -89,7 +97,7 @@ A file with concept terms and no path anchor is NOT `no_patterns`: it goes to Pa
 
 ### Step 2.0: Legacy repair sweep (migrate only; runs once before the per-file loop)
 
-Plugin 0.5.6 and earlier wrote two call shapes that never worked (a `*` inside a `tags` list; a `sdlc:knowledge` + domain pair, which is an OR). Rewrite them in the project's current files BEFORE any preservation gate sees them, using the "Legacy repair" rows of `pattern-mapping-rules.md`. The sweep covers every `*.md` under `.claude/skills`, `.claude/agents` and `ops/sdlc` (not its `knowledge/` or `disciplines/`), whether or not upstream wrote the file in this run (a file upstream left unchanged still carries the old call). Skip hard-exclusions, `sdlc_changelog.md` and `changelog-archive/*.md`. Match rule 10 does not apply to these rows. The sweep is idempotent: a call that already has a `tags_match` argument (either value) is left alone, so a second run repairs and logs nothing. Before the sweep drops any `sdlc:agent:<a>` tag, check it live once per distinct `<a>` with `memory_get_index(tags=["sdlc:agent:<a>"], limit=1)` (this agent's one MCP tool, for exactly this): zero entries, drop the tag and keep the name in the query; entries exist, keep the tag as `tags=["sdlc:knowledge", "sdlc:agent:<a>"], tags_match="all"`; the tool is unavailable or the call fails, emit `TRANSFORMATION_WARNING` naming the call and drop the tag. Emit one `mcp_repaired` event per repaired call and set the file's `subtype` to `mcp_repaired`. MCP counts do not change, so Audit 3 is unaffected.
+Plugin 0.5.6 and earlier wrote two call shapes that never worked (a `*` inside a `tags` list; a `sdlc:knowledge` + domain pair, which is an OR). Rewrite them in the project's current files BEFORE any preservation gate sees them, using the "Legacy repair" rows of `pattern-mapping-rules.md`. The sweep covers every `*.md` under `.claude/skills`, `.claude/agents` and `ops/sdlc` (not its `knowledge/` or `disciplines/`), whether or not upstream wrote the file in this run (a file upstream left unchanged still carries the old call). Skip hard-exclusions, `sdlc_changelog.md` and `changelog-archive/*.md`. Match rule 10 does not apply to these rows. The sweep is idempotent: a call that already has a `tags_match` argument (either value) is left alone, so a second run repairs and logs nothing. Before the sweep drops any `sdlc:agent:<a>` tag, check it live once per distinct `<a>` with `memory_get_index(tags=["sdlc:agent:<a>"], limit=1)` (the tool it uses, for exactly this): zero entries, drop the tag and keep the name in the query; entries exist, keep the tag as `tags=["sdlc:knowledge", "sdlc:agent:<a>"], tags_match="all"`; the tool is unavailable or the call fails, emit `TRANSFORMATION_WARNING` naming the call and drop the tag. Emit one `mcp_repaired` event per repaired call and set the file's `subtype` to `mcp_repaired`. MCP counts do not change, so Audit 3 is unaffected.
 
 ### Step 2: Preservation Gate (migrate only)
 
@@ -97,7 +105,7 @@ If `operation == "migrate"` and the file already exists in the project:
 
 **2a. PROJECT-SECTION marker extraction (MANDATORY — runs before MCP gate):**
 
-Scan the project's current on-disk version for `PROJECT-SECTION-START` / `PROJECT-SECTION-END` marker pairs. Extract each marked block along with its label, the heading it appears under, and the exact byte content between the markers (inclusive of the marker comments themselves). Store these as `PROJECT_BLOCKS`. Count → `PROJECT_SECTION_COUNT_BEFORE`.
+Scan the project's current on-disk version for `PROJECT-SECTION-START` / `PROJECT-SECTION-END` marker pairs and `PROJECT-SECTION-REMOVED` lines, outside fenced code blocks (marks inside a fence are examples: upstream's own skills carry some). Their count, START marks plus REMOVED lines, is `PROJECT_SECTION_COUNT_BEFORE`, the number Step 2f and Audit 2 compare with. Extract each marked block along with its label, the heading it appears under, and the exact byte content between the markers (inclusive of the marker comments themselves). Store these as `PROJECT_BLOCKS`.
 
 PROJECT-SECTION blocks are project-specific customizations that `sdlc-migrate` already preserved during its content-merge (§2.2). The transformer must not silently discard them when it applies Pattern Mapping to the file. These blocks survive transformation unconditionally — they are not subject to MCP presence checks.
 
@@ -111,7 +119,7 @@ PROJECT-SECTION blocks are project-specific customizations that `sdlc-migrate` a
    c. After Step 3 produces `UPSTREAM_TRANSFORMED`, merge preserved MCP sections back using heading fuzzy-match
    d. Re-inject `PROJECT_BLOCKS` at their original heading positions (same logic as `sdlc-migrate` §2.1 step 4-5: if the heading no longer exists, append at end with a migration warning comment)
    e. Verify: `MCP_COUNT_AFTER >= MCP_COUNT_BEFORE`
-   f. Verify: count of `PROJECT-SECTION-START` markers in output == `PROJECT_SECTION_COUNT_BEFORE`. If any decrease → **HALT** (report PROJECT-SECTION loss with file, label of lost block, and surrounding heading)
+   f. Verify: count of `PROJECT-SECTION-START` markers plus `PROJECT-SECTION-REMOVED` lines in output == `PROJECT_SECTION_COUNT_BEFORE` (counted the same way, outside fenced code blocks). If any decrease → **HALT** (report PROJECT-SECTION loss with file, label of lost block, and surrounding heading)
    g. If MCP count decreases → **HALT** (report MCP loss with file, before/after counts, lost sections)
 
 **Heading fuzzy-match (4 tiers, stop at first hit):**
@@ -162,9 +170,9 @@ Immediately after writing each file, append a `file_merged` event to `.sdlc-tran
   "ts": "ISO-8601",
   "run_id": "{from dispatch context}",
   "event": "file_merged",
-  "stage": "4.2",
+  "phase": "post-file-write",
   "file": "relative/path/to/file",
-  "subtype": "exempt_verbatim | no_patterns | mcp_new_file | mcp_backfilled | mcp_preserved | mcp_repaired",
+  "subtype": "exempt_verbatim | exempt_row_rewrite | no_patterns | mcp_new_file | mcp_backfilled | mcp_preserved | mcp_repaired",
   "mcp_before": 0,
   "mcp_after": 0,
   "headings_preserved": [],
@@ -192,7 +200,7 @@ After ALL files have been processed through Steps 1–5, execute skill transform
 
 ## Post-Batch Verification Audits
 
-After ALL files are processed and skill transform wiring is complete, run seven mandatory audits. Read `${CLAUDE_PLUGIN_ROOT}/references/content-merge-audits.md` for full procedures.
+After ALL files are processed and skill transform wiring is complete, run seven mandatory audits. `${CLAUDE_PLUGIN_ROOT}/references/content-merge-audits.md` holds the full procedures for the merge, preservation, agent-resolution and residue audits; Audit 6 (the telemetry count) and Audit 7 (concept-terminology residue) are specified here, and `post-operation` re-asserts the telemetry from the run's log.
 
 ### Audit 1: Structural Content-Loss
 
@@ -208,7 +216,7 @@ If `post < upstream` by more than 1 (non-mandatory) or by any amount (mandatory)
 
 ### Audit 2: PROJECT-SECTION Preservation
 
-For every transformed file, compare the count of `PROJECT-SECTION-START` markers in the final on-disk content against the count in the project's pre-merge version (captured in Step 2a). If any file's count decreased → **HALT** with the label of the lost block. This audit catches the failure mode where the transformer silently drops project-specific customizations that don't contain MCP calls.
+For every transformed file, compare the count of `PROJECT-SECTION-START` markers plus `PROJECT-SECTION-REMOVED` lines (outside fenced code blocks) in the final on-disk content against the same count in the project's pre-merge version (captured in Step 2a), as `content-merge-audits.md` § PROJECT-SECTION Preservation Audit counts them. If any file's count decreased → **HALT** with the label of the lost block. This audit catches the failure mode where the transformer silently drops project-specific customizations that don't contain MCP calls.
 
 ### Audit 3: MCP Retention
 
@@ -216,7 +224,7 @@ Verify aggregate `memory_search(` + `memory_store(` count across all written fil
 
 ### Audit 4: Stale Agent Reference
 
-Scan every written file for agent-name references that don't resolve to `.claude/agents/`. Consume `agent_renames` from manifest if present. Classify unresolved refs as halt/warn/substitute.
+Scan every written file for agent-name references that don't resolve to `.claude/agents/`. Consume `agent_renames` from manifest if present. Classify unresolved refs as halt/warn/substitute. On `operation: initialize`, an unresolved name is a WARN, never a HALT: z-sdlc 3.0.0 sends Phase 1's copies through `post-file-write` before Phase 4 creates the project's agents, so the roster then holds only the framework's agents and there is no manifest to read `agent_renames` from.
 
 ### Audit 5: Contract Residue
 
@@ -225,8 +233,8 @@ Scan all non-exempt written files, including `.claude/skills/*/references/*.md`,
 ### Audit 6: Telemetry Sanity
 
 - `file_merged` event count = number of files in input list
-- `concept_terminology_applied` event count = `file_merged` count
-- Every exempt file has `subtype: "exempt_verbatim"`
+- `concept_terminology_applied` event count = the `file_merged` events whose `subtype` is not `exempt_verbatim`, `exempt_row_rewrite` or `no_patterns` (those stop before Pass 2)
+- Every exempt file has `subtype: "exempt_verbatim"`, or `"exempt_row_rewrite"` for `process/path-mappings.md` when its provenance row was rewritten; any other subtype is a regression
 - Zero unresolved `transformation_warning` events
 
 ### Audit 7: Concept-Terminology Residue
@@ -234,7 +242,7 @@ Scan all non-exempt written files, including `.claude/skills/*/references/*.md`,
 After all files are processed, grep ALL non-exempt written files for surviving flat-file concept terms (the first regex below is also Step 1's concept scan; keep the two identical):
 
 ```bash
-# Pass 1 terms (explicit)
+# Pass 2 terms (explicit)
 grep -inE '\bknowledge stores?\b|\bknowledge files?\b|\bdiscipline files?\b|\bparking[- ]lot entr|\bknowledge-store entr|\bdiscipline parking[- ]lots?\b|\bknowledge YAMLs?\b|\bYAML knowledge files?\b|\bknowledge index\b|\bknowledge store gaps?\b' <written-file>
 
 # Pass 2b terms (contextual — only flag within knowledge/discipline headings)
@@ -263,24 +271,26 @@ NEUROLOOM TRANSFORMER REPORT
 Operation: {initialize|migrate}
 Files processed: {N}
   Exempt (verbatim): {count}
+  Exempt (row rewritten): {count}
   No patterns (verbatim): {count}
   Transformed: {count}
     New file: {count}
     Backfilled: {count}
     MCP preserved: {count}
+    Repaired (legacy call shapes): {count}
 
 Verification Audits:
   Structural Content-Loss: PASS | HALT ({details})
   PROJECT-SECTION Preservation: PASS | HALT ({label} lost in {file})
   MCP Retention: PASS | HALT ({details})
-  Stale Agent Reference: PASS | WARN ({count} descriptive-context refs) | HALT ({details})
+  Stale Agent Reference: PASS | WARN ({count} descriptive-context refs; on initialize, dispatch-position ones too) | HALT ({details})
   Contract Residue: PASS | HALT ({details})
   Telemetry Sanity: PASS | HALT ({details})
   Concept-Terminology Residue: PASS | WARN ({count} surviving terms in {files})
 
 Overall: PASS | HALT
 {if HALT: specific file, count, and recovery instruction}
-{if WARN on Audit 6: list of surviving terms for manual review}
+{if WARN on Audit 7: list of surviving terms for manual review}
 ```
 
 If any audit HALTs, the overall result is HALT. The dispatcher (upstream's skill following the handler doc) will stop the migration.
@@ -304,9 +314,11 @@ When dispatched from a wired skill (e.g., after `/sdlc-develop-agent` runs), app
 
 **`pattern_mapping`:** Apply the full two-pass pipeline (Pass 1 + Pass 2) as described in the init/migrate flow above. Used for skill files that reference the knowledge layer: each skill's `SKILL.md` and its `references/*.md`.
 
-**`ingest_to_neuroloom`:** Instead of letting the file be written to disk as a flat YAML, ingest the content into the Neuroloom backend via `document_ingest_batch` with appropriate tags derived from the file path and YAML metadata. After ingestion, delete the flat file if it was created by the upstream skill.
+**Before either Neuroloom write below** (`ingest_to_neuroloom`, `sync_archive_status`), confirm the workspace once per dispatch, as `adapter-lifecycle.md` § The workspace check says: `memory_search(query="SDLC workspace sentinel", tags=["sdlc:sentinel"])`, and compare the response's `filters.workspace_id` with `.sdlc-manifest.json`'s `workspace_id`. A response without it, a manifest without one, or a different id: write nothing to Neuroloom, leave the files as they are (apart from a created discipline file, renamed as `ingest_to_neuroloom` says), and report the action as HALT with both ids. `ingest_to_neuroloom` also needs the manifest's `"knowledge_id_scheme": 2` and no `knowledge_seed_in_progress`: without the marker the workspace's ids are from before 0.7.0 (or its seed never finished), and the current ids would land beside them. These actions run when a skill finishes, outside any lifecycle phase, so no handler has checked for them. The HALT report says what CD does next, by cause: a workspace mismatch or missing id, fix the API key, or the manifest's `workspace_id` if the workspace really moved, then dispatch the transformer again with the same input; a missing scheme marker or an unfinished seed, finish what is unfinished first: a stopped port (the manifest has `port_in_progress`) by running `/sdlc-port` again, an initialize by its recovery (`adapter-lifecycle.md` § Halts and their recoveries), and a workspace from before 0.7.0 needs the one-time conversion, since repeating the dispatch halts the same way; for `sync_archive_status` it lists every `{old, new}` pair, since the skill that collected them won't run again.
 
-**`sync_archive_status`:** Reads `path_pairs` from the dispatch, not `files` (see Input section above). For each `{old, new}` pair, call `PATCH /api/v1/documents/by-path` with `target_source_path=old`, `new_source_path=new`, `archival_status="archived"`. A `404` response with `code=document_source_not_found` means the anchor was already synced by a prior attempt, or the document never had one (e.g. tier-gated at first ingest) — treat this as a successful no-op, not a failure; do not retry, do not report it in the transform-mode output as an error. This action makes no file-content edits and deletes nothing — unlike `ingest_to_neuroloom`, it is a pure API side effect with no accompanying filesystem mutation.
+**`ingest_to_neuroloom`:** Instead of letting the file be written to disk as a flat YAML, ingest it with the plugin's extractor and `sdlc_seed`, so its entries get the same ids as everything else. Only the files this skill run wrote or changed, as the dispatch's `report` (the skill's INGESTION REPORT) names them: the dispatch's `files` come from glob patterns that match every knowledge file, and `git status` can't tell this run's writes from files that were already modified before it. A discipline the report names by its name is `disciplines/<name>.md`. Skip every other file, since re-seeding one could put older text back over what a migration sent; with no `report`, ingest nothing and report HALT (recovery: dispatch again with the skill's report). For each: copy the file into an empty temp directory at its path under `knowledge/` (or `disciplines/`), run `python3 "{plugin_dir}/skills/sdlc-port/scripts/extract_sdlc_knowledge.py" --knowledge-dir <tmp>/knowledge --disciplines-dir <tmp>/disciplines --tag sdlc:project-specific --version <label> --output <tmp>/seed.json`, where `<label>` is the sentinel's current `sdlc:seed-version:` value (`memory_get_index(tags=["sdlc:sentinel"], limit=1)`, then `memory_get_detail`; every seed call sets the sentinel to its label, so any other value would move it; no sentinel: HALT), and send each file it prints with `skip_deprecation: true` (`sdlc_seed_from_file`, or `sdlc_seed_get_upload_url` in HTTP mode; success means all four counts came back). `sdlc:project-specific` keeps `knowledge-update` from ever overwriting what the project added. Send only the entries the report says this run added, whether the skill appended to a file or created it (a created discipline file is mostly a stub, whose framework entry would overwrite upstream's text): run the extractor on the temp copy, match each added entry from the report to its `knowledge_id` by title or bullet text, write those ids to a file and pass `--only-ids <file>`. Each added entry must match exactly one id: one that matches none (the report paraphrased it) or several can't be sent safely, so send nothing from that file, keep it, and report HALT (recovery: dispatch again with each entry's exact text). Never send an entry the extractor built from a discipline file's framework, status, Active Questions, Project Context, tracker or parking-lot structure, nor any entry whose id has that shape (`discipline:<stem>:` followed by `framework`, `status`, `active-questions`, `project-context`, `maturity-tracker` or `parking-lot-structure`; a parking-lot bullet's `parking-lot:<digest>` id is not one), whatever file it came from: the server matches by id alone, so a knowledge YAML rule with such an id would overwrite that discipline's entry. A reported entry with such an id halts: each would overwrite the project's whole entry with this file's piece of it. In a file the report marks as created, or doesn't mark either way and git doesn't hold (`git cat-file -e HEAD:<path>` fails; one git holds is appended to), those entries are scaffolding: a new parking-lot heading and its italic note land in `parking-lot-structure`, so print their text in the report (the bullets keep their section as a tag and their own source line). A file the report gives only a count for can't be matched: keep it and report HALT. Delete the flat file (if the upstream skill created it) only when the extractor exited 0, printed at least one seed file, every one of them succeeded, every id the extractor produced from the file was sent (apart from a created file's scaffolding above), and no response counted an entry `unchanged`, other than a parking-lot bullet (`discipline:<stem>:parking-lot:<digest>`, an id made from the bullet's own text, so a row under it already holds that text): any other `unchanged` entry means the workspace already held a row under that id, and a row tagged `sdlc:project-specific` answers `unchanged` without being updated, so the file may hold the only copy of its text. A non-zero exit (a parse error, a declined path, zero entries) or no seed file means its content reached nothing: keep the file and report it. A discipline file the report marks as created is never kept at its path, on this or any halt: once Post-Port Cleanup has removed the discipline files, a later `/sdlc-port` re-port would read the stub and send its scaffolding as the discipline's framework entry, overwriting Neuroloom's. After an ingest attempt that keeps it, rename it to `<name>.md.unsent-<timestamp>` (`%Y%m%dT%H%M%SZ` in UTC, with `-2`, `-3` … if that name is taken: outside the extractor's `*.md` pattern, and unique, so a later kept stub never overwrites it) and name it in the report, with the recovery: rename it back to `<name>.md`, or, if one exists, merge its bullets into that file under the same parking-lot heading and report that file as appended; then dispatch again with each entry's exact text. The workspace and scheme-marker halts above rename a created discipline file the same way, and their recovery renames it back as above (merging into an existing `<name>.md`) before repeating the dispatch; they leave every other file untouched. If a rename fails (a name too long for the file system), report HALT and say so: the stub is still at its path (a re-port never sends a discipline's framework or project data, so it can't overwrite Neuroloom's, but ingest it again once it is renamed).
+
+**`sync_archive_status`:** Reads `path_pairs` from the dispatch, not `files` (see Input section above). For each `{old, new}` pair, call `update_document_source_archive` (the Neuroloom MCP tool for `PATCH /api/v1/documents/by-path`) with `target_source_path=old`, `new_source_path=new`, `archival_status="archived"`. A `404` response with `code=document_source_not_found` means the anchor was already synced by a prior attempt, or the document never had one (e.g. tier-gated at first ingest) — treat this as a successful no-op, not a failure; do not retry, do not report it in the transform-mode output as an error. This action makes no file-content edits and deletes nothing — unlike `ingest_to_neuroloom`, it is a pure API side effect with no accompanying filesystem mutation.
 
 ### Transform mode output
 

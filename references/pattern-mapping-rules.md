@@ -140,12 +140,12 @@ For idea and design-consult entries, use `sdlc:context:` instead of `sdlc:delive
 | `grep [X] across [sdlc-root]/disciplines/*.md` / `Grep the entry's key across [sdlc-root]/disciplines/*.md` (also `search`, `look through`) | `call memory_search(query="[X]", tag_prefixes=["sdlc:discipline"])` |
 | `Search [sdlc-root]/knowledge/ YAML files for [X]` / `scan [sdlc-root]/knowledge/ for [X]` (glob across all knowledge) | `Call memory_search(query="[X]", tags=["sdlc:knowledge"])` |
 | `Read relevant files under [sdlc-root]/knowledge/ and [sdlc-root]/disciplines/ for [X]` | `memory_search(query="[X]", tags=["sdlc:knowledge"])` and `memory_search(query="[X]", tag_prefixes=["sdlc:discipline"])` — two calls, results merged by the reader. One call cannot hold both: `tags` with `tag_prefixes` would demand BOTH families, and prefix-matching `sdlc:knowledge` also matches every `sdlc:knowledge-id:…` tag |
-| `Read each [sdlc-root]/knowledge/**/*.yaml that the project has customized (use \`git diff HEAD -- [sdlc-root]/knowledge/\` to identify project-modified files)` (glob) | `Call memory_get_index(tags=["sdlc:knowledge"], limit=500)` for every knowledge entry (K) and `memory_get_index(tags=["sdlc:knowledge", "sdlc:seed"], limit=500)` for the seeded ones (S); the entries the project added or ingested are K minus S, matched on `id`, and are read with `memory_get_detail`. `memory_get_index` is a hard filter with `tags` as an AND and no relevance gate, so a search's top-N cannot miss an entry. Document ingestion never adds `sdlc:seed` (only the server's seed path does), so project knowledge ingested through `sdlc-ingest` is in K minus S, and it shares the `sdlc_knowledge` memory type with seeds, which is why the filter is NOT on `memory_type`. The tool takes `limit` (the API caps it at 500) and no offset, so raise `limit` rather than page, and treat a `count` equal to `limit` as truncated. The index rows carry no tags, hence the set difference. An edited seeded entry stays in S and is not found. Do not search `sdlc:project-specific`: nothing sets that tag unless a person does |
+| `Read each [sdlc-root]/knowledge/**/*.yaml that the project has customized (use \`git diff HEAD -- [sdlc-root]/knowledge/\` to identify project-modified files)` (glob) | `Call memory_get_index(tags=["sdlc:knowledge", "sdlc:project-specific", "sdlc:domain:<domain>"], limit=500)` once per domain for the knowledge the project added or ingested (one call for all of it can pass 500: Neuroloom's own tree has 504), and read each entry with `memory_get_detail`. `sdlc:project-specific` marks it: `/sdlc-port` tags every entry upstream didn't have at the project's release, `sdlc-ingest`'s transform tags what it ingests, and the `project-knowledge` phase tags what `sdlc-initialize` hands it. Every path now seeds through `sdlc_seed`, so `sdlc:seed` no longer separates project knowledge from upstream's. `memory_get_index` is a hard filter with `tags` as an AND and no relevance gate, so a search's top-N cannot miss an entry. The tool takes `limit` (the API caps it at 500) and no offset, so raise `limit` rather than page, and treat a `count` equal to `limit` as truncated. An upstream entry the project edited isn't tagged and is not found here; `knowledge-update` reports those as conflicts when upstream changes them. Entries stored before plugin 0.7.0 lack the tag |
 | `Read [sdlc-root]/disciplines/README.md` (the discipline list) | `Call memory_search(query="discipline list", tag_prefixes=["sdlc:discipline"])` |
 | `[sdlc-root]/disciplines/README.md § "Creating a New Discipline"` (criteria) | `memory_search(query="creating a new discipline criteria", tag_prefixes=["sdlc:discipline"])` |
 | `Read [sdlc-root]/knowledge/<domain>/<file>.yaml` (also when the path is followed by sentence punctuation — match rule 12) | `memory_search(query="<file-name-as-topic>", tags=["sdlc:knowledge", "sdlc:domain:<domain>"], tags_match="all")` |
 | `Read [sdlc-root]/knowledge/<domain>/<file>.yaml and <verb> [rest]` | `memory_search(query="<file-name-as-topic>", tags=["sdlc:knowledge", "sdlc:domain:<domain>"], tags_match="all") and <verb> [rest]` |
-| `Read [sdlc-root]/disciplines/<name>.md` (a NAMED discipline, never a glob) | `memory_search(query="<name> discipline entries", tag_prefixes=["sdlc:discipline"])`. The name goes in the query, not in a tag: entries ported by `sdlc-port` carry only the bare `sdlc:discipline` tag, and `sdlc:discipline:<name>` would miss them |
+| `Read [sdlc-root]/disciplines/<name>.md` (a NAMED discipline, never a glob) | `memory_search(query="<name> discipline entries", tag_prefixes=["sdlc:discipline"])`. The name goes in the query, not in a tag: entries `sdlc-port` stored before 0.7.0 carry only the bare `sdlc:discipline` tag, and `sdlc:discipline:<name>` would miss them |
 | `Read [sdlc-root]/disciplines/<name>.md and find [X]` | `memory_search(query="[X] <name> discipline", tag_prefixes=["sdlc:discipline"])` |
 | `read [sdlc-root]/disciplines/<name>.md and <verb> [rest]` (e.g. `and verify:`) | `call memory_search(query="<name> discipline entries", tag_prefixes=["sdlc:discipline"]) and <verb> [rest]` |
 | `Read relevant methodology files in [sdlc-root]/knowledge/` | `memory_search(query="methodology [context]", tags=["sdlc:knowledge"])` |
@@ -481,7 +481,7 @@ If any of these match the written content, the matcher picked a rule whose repla
 
 **Fence-parity assertion (added post-`migrate-fa70ef`):** count lines matching `^\s*\`\`\`` in both the pre-merge project version and the post-write content. The post-write count must be either **equal to the upstream count** (no net change in fenced blocks) OR **equal to `project_pre_merge_count`** (preserved as-is), whichever is applicable per the merge subtype:
 
-- `exempt_verbatim` / `mcp_backfilled` subtype → post count must equal upstream count
+- `exempt_verbatim` / `exempt_row_rewrite` / `mcp_backfilled` subtype → post count must equal upstream count
 - `mcp_preserved` subtype → post count must equal `project_pre_merge_count + (upstream_count - project_pre_upstream_count)` where `project_pre_upstream_count` was the fence count in the upstream version the project last migrated from
 - `mcp_new_file` → post count must equal upstream count
 
@@ -676,7 +676,8 @@ Examples of text Pass 2 MUST NOT transform:
   "ts": "ISO-8601",
   "run_id": "migrate-xxxxxx",
   "event": "concept_terminology_applied",
-  "stage": "4.2-pass2",
+  "phase": "post-file-write",
+  "pass": 2,
   "file": "<install-path>",
   "substitutions": [
     {"rule": "<rule-label>", "before": "<snippet>", "after": "<snippet>", "region": "integration-descriptor|heading|prose"}
@@ -684,7 +685,7 @@ Examples of text Pass 2 MUST NOT transform:
 }
 ```
 
-One event per file; includes an array of substitutions (may be empty if no concept-terminology rules fired). Emission is mandatory if Pass 1 wrote the file — absence of the event for a written file is a telemetry regression per Stage 5.0.
+One event per file; includes an array of substitutions (may be empty if no concept-terminology rules fired). Emission is mandatory if Pass 1 wrote the file — absence of the event for a written file is a telemetry regression per the `post-operation` telemetry assertion.
 
 **Pass 2 halts on output regression:** after Pass 2 writes, re-run the existing post-write output-regression scans (orphan debris, double-paren, malformed verbs). If Pass 2 introduces any of those patterns, halt and roll back that file to its Pass 1 output — Pass 2 must only make prose-level concept translations; producing structural corruption is a rule bug.
 
