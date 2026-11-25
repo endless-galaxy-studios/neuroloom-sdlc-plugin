@@ -128,6 +128,14 @@ def _extract_doc(
 def _collect_all_docs(
     docs_dir: Path,
 ) -> tuple[list[dict[str, Any]], int, int, int]:
+    """Walk the docs tree; see ``_collect_docs_detailed`` (this drops its last item)."""
+    docs, md_count, fm_count, skipped, _ = _collect_docs_detailed(docs_dir)
+    return docs, md_count, fm_count, skipped
+
+
+def _collect_docs_detailed(
+    docs_dir: Path,
+) -> tuple[list[dict[str, Any]], int, int, int, list[str]]:
     """Walk the docs tree and collect all extractable document dicts.
 
     Args:
@@ -137,16 +145,19 @@ def _collect_all_docs(
         A tuple of ``(docs, md_file_count, frontmatter_count, skipped_count)``
         where ``md_file_count`` is the total number of .md files found,
         ``frontmatter_count`` is the subset that had valid frontmatter and were
-        included, and ``skipped_count`` counts OSError-unreadable files.
+        included, ``skipped_count`` counts OSError-unreadable files, and the last
+        item lists the files excluded for having no valid frontmatter (as
+        ``docs/...`` source paths).
     """
     all_docs: list[dict[str, Any]] = []
     md_file_count = 0
     frontmatter_count = 0
     skipped_count = 0
+    no_frontmatter: list[str] = []
 
     if not docs_dir.exists():
         logger.warning("Docs directory does not exist: %s", docs_dir)
-        return all_docs, md_file_count, frontmatter_count, skipped_count
+        return all_docs, md_file_count, frontmatter_count, skipped_count, no_frontmatter
 
     md_paths = sorted(
         p for p in docs_dir.rglob("*") if p.suffix.lower() == ".md" and p.is_file()
@@ -159,8 +170,10 @@ def _collect_all_docs(
         if doc is not None:
             frontmatter_count += 1
             all_docs.append(doc)
+        elif not skipped:
+            no_frontmatter.append(str(md_path.relative_to(docs_dir.parent)))
 
-    return all_docs, md_file_count, frontmatter_count, skipped_count
+    return all_docs, md_file_count, frontmatter_count, skipped_count, no_frontmatter
 
 
 # ---------------------------------------------------------------------------
@@ -199,8 +212,8 @@ def main() -> None:
     args = parser.parse_args()
 
     # Collect documents.
-    all_docs, md_file_count, frontmatter_count, skipped_count = _collect_all_docs(
-        args.docs_dir
+    all_docs, md_file_count, frontmatter_count, skipped_count, no_frontmatter = (
+        _collect_docs_detailed(args.docs_dir)
     )
 
     # Derive display-friendly path for scan line.
@@ -264,6 +277,11 @@ def main() -> None:
         remaining = len(all_docs) - 10
         if remaining > 0:
             print(f"  ... and {remaining} more", file=sys.stderr)
+        if no_frontmatter:
+            print(file=sys.stderr)
+            print(f"Skipped for no frontmatter ({len(no_frontmatter)}):", file=sys.stderr)
+            for name in no_frontmatter:
+                print(f"  - {name}", file=sys.stderr)
         return
 
     if not all_docs:

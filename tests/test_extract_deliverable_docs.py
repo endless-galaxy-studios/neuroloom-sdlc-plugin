@@ -860,3 +860,51 @@ class TestStdoutCLI:
         assert result.returncode == 0
         assert result.stdout == ""
         assert "nothing to write" in result.stderr.lower()
+
+
+# ===========================================================================
+# Dry run lists the files skipped for having no frontmatter
+# ===========================================================================
+
+
+class TestDryRunListsFilesWithoutFrontmatter:
+    def _docs(self, tmp_path: Path) -> Path:
+        docs = tmp_path / "docs"
+        (docs / "chronicle").mkdir(parents=True)
+        (docs / "with.md").write_text("---\ntier: lite\n---\n# With\n", encoding="utf-8")
+        (docs / "bare.md").write_text("# No frontmatter\n", encoding="utf-8")
+        (docs / "chronicle" / "old.md").write_text("plain text\n", encoding="utf-8")
+        (docs / "broken.md").write_text("---\nkey: [unclosed\n---\n", encoding="utf-8")
+        return docs
+
+    def _dry_run(self, docs: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-I", str(_SCRIPT_PATH), "--docs-dir", str(docs), "--dry-run"],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+
+    def test_files_without_frontmatter_are_listed_with_a_count(self, tmp_path: Path) -> None:
+        r = self._dry_run(self._docs(tmp_path))
+        assert r.returncode == 0, r.stderr
+        assert "Skipped for no frontmatter (3):" in r.stderr
+        for name in ("docs/bare.md", "docs/chronicle/old.md", "docs/broken.md"):
+            assert f"  - {name}" in r.stderr
+        assert "  - docs/with.md" not in r.stderr
+
+    def test_the_ingested_set_and_tags_are_unchanged(self, tmp_path: Path) -> None:
+        docs = self._docs(tmp_path)
+        out = tmp_path / "docs.json"
+        r = subprocess.run(
+            [sys.executable, "-I", str(_SCRIPT_PATH), "--docs-dir", str(docs), "--output", str(out)],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+        assert r.returncode == 0, r.stderr
+        written = json.loads(out.read_text())
+        assert [d["knowledge_id"] for d in written] == ["deliverable:with"]
+        assert written[0]["tags"] == ["sdlc:deliverable", "sdlc:tier:lite"]
+
+    def test_nothing_is_listed_when_every_file_has_frontmatter(self, tmp_path: Path) -> None:
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        (docs / "a.md").write_text("---\ntier: lite\n---\nx\n", encoding="utf-8")
+        assert "no frontmatter" not in self._dry_run(docs).stderr.lower()
