@@ -250,7 +250,7 @@ All agents with Neuroloom tools follow these patterns:
 
 **This step is MANDATORY on every migration, not just initialization.** Upstream's direct-copy overwrites skill files with upstream versions that lack the `## Neuroloom Post-Execution Transform` section. Without re-wiring, skills created or modified after migration won't trigger the transformer, causing silent regression in all future agent-creation and knowledge-ingestion operations.
 
-After the transformer completes on the batch of operational files, wire post-execution transforms into installed skills. Read `${CLAUDE_PLUGIN_ROOT}/transforms.yaml` — for each entry, inject a dispatch instruction at the end of the target skill's SKILL.md so the skill itself triggers the transformer after it runs.
+After the transformer completes on the batch of operational files, wire post-execution transforms into installed skills. Read `${CLAUDE_PLUGIN_ROOT}/transforms.yaml` — for each skill it lists (entries that name the same skill share one section, **One section per skill** below), inject a dispatch instruction at the end of the target skill's SKILL.md so the skill itself triggers the transformer after it runs.
 
 **What gets injected (appended before the skill's `## Integration` section):**
 
@@ -273,7 +273,7 @@ Write the `files` line as it stands: the transformer resolves the patterns when 
 
 **`path_pairs` dispatch shape (added for `sdlc-archive` — the exception to the `files:` glob shape above):**
 
-The `files:` field above works because every other wired skill's target files still exist at a discoverable path when the transformer runs — `target_patterns` resolves to a live glob. `sdlc-archive` breaks that assumption: by the time its Step 5 (Archive Deliverables, copy-then-delete — not `git mv`) has run, the pre-move path no longer exists on disk, so a glob can't recover it. The skill already knows both paths (it read the file from the pre-move path before copying it to the post-move path), so it must pass them explicitly instead of relying on glob resolution.
+The `files:` field above works because every other wired skill's target files still exist at a discoverable path when the transformer runs — `target_patterns` resolves to a live glob. `sdlc-archive` breaks that assumption: by the time its Step 5 (Archive Deliverables) or Step 7 (Archive Idea Briefs & Resolved Artifacts) has run (both copy, then delete, rather than `git mv`), the pre-move path no longer exists on disk, so a glob can't recover it. The skill already knows both paths (it read the file from the pre-move path before copying it to the post-move path), so it must pass them explicitly instead of relying on glob resolution.
 
 When a `transforms.yaml` entry declares `dispatch_mode: path_pairs` (currently only `sdlc-archive`), the injected section replaces the `files:` line with a `path_pairs:` line, and the skill collects the pairs itself over the course of its own run rather than the transformer resolving them:
 
@@ -283,7 +283,7 @@ When a `transforms.yaml` entry declares `dispatch_mode: path_pairs` (currently o
 After this skill completes its work, dispatch the `neuroloom-transformer` agent to apply Neuroloom-specific augmentation to the output files.
 
 **Dispatch:**
-- path_pairs: [{old: pre-move path, new: post-move path} for every deliverable doc archived in this run — collect from Step 5's approval table as each item is moved]
+- path_pairs: [{old: pre-move path, new: post-move path} for every deliverable doc, idea brief, bug report and handoff archived in this run — collect from Step 5 (Archive Deliverables) and Step 7 (Archive Idea Briefs & Resolved Artifacts) as each item is copied to `docs/chronicle/`, using the item's approved mapping from Step 4's approval table]
 - operation: "transform"
 - plugin_dir: this plugin's install directory (`claude plugin list --json`, the `installPath` of the enabled `neuroloom-sdlc@endless-galaxy-studios` entry, the one z-sdlc's § Finding the plugin picks: this project's install, project scope then local, else the user's, never another project's; else a copy vendored in the project)
 - actions: [actions list from transforms.yaml]
@@ -294,6 +294,8 @@ The transformer reads `${CLAUDE_PLUGIN_ROOT}/references/pattern-mapping-rules.md
 All other action handlers (`inject_mcp_tools`, `ensure_mcp_tools`, `transform_knowledge_context`, `transform_communication_protocol`, `pattern_mapping`, `ingest_to_neuroloom`) are unaffected — they keep the `files:` glob shape. Only `sync_archive_status` reads `path_pairs`.
 
 **The injected section is idempotent** — if the skill already contains a `## Neuroloom Post-Execution Transform` section, replace it (in case the transforms.yaml was updated between migrations). If the section is absent, inject it.
+
+**One section per skill.** `transforms.yaml` lists `sdlc-develop-agent` twice, once for its default run and once with `mode: ENRICH`. Both entries share the skill's one section: its `files:` line names their shared target pattern, `.claude/agents/*.md`, and its `actions:` line names the default entry's actions and then the other entry's in parentheses, `actions: inject_mcp_tools, transform_knowledge_context, transform_communication_protocol (ENRICH mode: ensure_mcp_tools, transform_knowledge_context, transform_communication_protocol)`. Replacing the section once per entry would keep only the last entry's actions.
 
 **Currently declared transforms** (see `${CLAUDE_PLUGIN_ROOT}/transforms.yaml`):
 
@@ -341,7 +343,7 @@ Execute the checks documented in `${CLAUDE_PLUGIN_ROOT}/references/post-operatio
 
 7. **No file-mode knowledge layer** (Check 6) — an `ops/sdlc/knowledge/agent-context-map.yaml` the run created and left in place → REGRESSION; on initialize, a seeded Phase 1 copy `knowledge-seed` step 9 didn't remove → REGRESSION; a tracked map an earlier run left, an uncommitted one step 11 left in place, and on migrate a copy step 11 listed as likely redundant → WARN. What Neuroloom doesn't hold stays on disk and isn't reported, apart from step 11's lists.
 
-8. **Skill transform wiring intact** — for each skill listed in `${CLAUDE_PLUGIN_ROOT}/transforms.yaml`, verify the installed skill file contains a `## Neuroloom Post-Execution Transform` section. If any declared skill is missing its wiring → REGRESSION (the mandatory skill-transform-wiring step in post-file-write was skipped).
+8. **Skill transform wiring intact** — for each skill listed in `${CLAUDE_PLUGIN_ROOT}/transforms.yaml`, verify the installed skill file contains a `## Neuroloom Post-Execution Transform` section in the current shape (§ "Skill transform wiring" above): its **Dispatch** list has an `operation: "transform"` line, a `plugin_dir:` line and an `actions:` line, plus `files:` (or `path_pairs:` for a `dispatch_mode: path_pairs` entry, `sdlc-archive`), and for `sdlc-ingest` a `report:` line; for a skill listed more than once (`sdlc-develop-agent`), its `actions:` line names every entry's actions. A missing section, or an older plugin's section that lacks any of these lines → REGRESSION (the mandatory skill-transform-wiring step in post-file-write was skipped, or left a skill as it was).
 
 9. **Knowledge-routing.md is Neuroloom-aware** — verify `[sdlc-root]/process/knowledge-routing.md` contains `memory_search` or `memory_store` (the Neuroloom-aware version). If it contains `agent-context-map.yaml` as a live reference without MCP equivalents → REGRESSION (the adapter-specific docs copy was skipped or overwritten).
 

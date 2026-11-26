@@ -32,16 +32,18 @@ Read by `/sdlc-port` Stages 4a and 4c (`${CLAUDE_SKILL_DIR}/SKILL.md`).
   exemption.
 - `docs/_index.md` — remains filesystem-local
 - The files and blocks the post-operation audit's Check 2 exempts
-  (`${CLAUDE_PLUGIN_ROOT}/references/post-operation-audit.md`, exemption rows 1 to 5: the framework-
+  (`${CLAUDE_PLUGIN_ROOT}/references/post-operation-audit.md`, exemption rows 1 to 6: the framework-
   mechanics lines of `.claude/skills/sdlc-migrate/`, the quoted span of a reviewer's or auditor's
   `- [ ] No` item, the process docs that name the paths on purpose, such as `path-mappings.md`, the
-  changelog, and format or command demos in code fences, which row 5 limits: a fenced dispatch
-  prompt, agent template or output template is transformed). Stage 4d's path and bare-YAML checks
-  don't report them either. Two exceptions: `knowledge-routing.md` is replaced whole (above), and a
-  `provenance_log` mention or a relative link into `knowledge/` or `disciplines/` on any of these
-  lines except the changelog's is still rewritten (rows 1 and 3 included, e.g. `sdlc-migrate`'s list
-  of project-specific files), because the audit's provenance scan and Check 2d exempt only the
-  changelog.
+  changelog, format or command demos in code fences, which row 5 limits (a fenced dispatch
+  prompt, agent template or output template is transformed), and the contract 0026 file-presence
+  lines row 6 names). Stage 4d's path and bare-YAML checks
+  don't report them either. Two exceptions: (a) `knowledge-routing.md` is replaced whole (above);
+  (b) a relative link into `knowledge/` or `disciplines/` on any of these lines except the changelog's
+  (row 6's lines carry none), or a `provenance_log` mention on any of them except the changelog's and
+  row 6's, is still rewritten (rows 1 and 3 included, e.g. `sdlc-migrate`'s list of project-specific
+  files), because Check 2d exempts only the changelog and the audit's provenance scan only the
+  changelog and row 6.
 - Agent or skill files with no matching references
 - Historical changelog entries in `ops/sdlc/process/sdlc_changelog.md` and `ops/sdlc/process/changelog-archive/*.md` — these are an accurate
   record of what happened at the time and must not be rewritten

@@ -266,7 +266,7 @@ The slash commands use these MCP tools (available when the base Neuroloom plugin
 | `sdlc_seed_from_file` / `sdlc_seed_get_upload_url` | `/sdlc-initialize`, `/sdlc-migrate` (the `knowledge-seed` and `knowledge-update` handlers), `/sdlc-port`, and the `sdlc-ingest` transform: knowledge and discipline entries the extractor builds, in files of at most 500 |
 | `document_ingest_batch` | `/sdlc-port` (deliverable docs) |
 | `memory_store` / `memory_update` | `/sdlc-initialize` (the `project-knowledge` handler) and `/sdlc-port` (provenance records, Stage 3c) |
-| `update_document_source_archive` | the `sdlc-archive` transform (a moved deliverable's document path) |
+| `update_document_source_archive` | the `sdlc-archive` transform (the document path of a moved deliverable, idea brief, bug report or handoff) |
 | `memory_get_index` / `memory_get_detail` | every handler and `/sdlc-port`: existence checks by exact tag, counts, and reading rows for `knowledge-update`'s classifier |
 | `sdlc_get_version` | `/sdlc-initialize`, `/sdlc-migrate` |
 | `memory_search` | every phase that writes, and the transformer (the workspace check: its response names the workspace the key reaches), and `/sdlc-port` (transformation matching) |

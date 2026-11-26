@@ -358,7 +358,8 @@ here fails it:
    in validation checklists, maturity criteria, integration steps, and template instructions.
 3. **Provenance-log references**: any mention of `provenance_log` (reading, appending to or naming
    the file). Apply the provenance rows of `pattern-mapping-rules.md`; the audit's provenance scan
-   exempts only the changelog.
+   exempts only the changelog and the contract 0026 file-presence lines of Check 2's row 6, which
+   stay as they are.
 
 The `ops/sdlc/` scan includes `ops/sdlc/templates/agent-template.md`, which holds runtime
 instructions (Knowledge Context, Communication Protocol) that direct agents to read local YAML files.
@@ -474,7 +475,8 @@ frontmatter lists only `Read, Glob, Grep, Bash` (z-sdlc's compliance auditor) ca
 
 **Skill transforms.** Wire each skill `${CLAUDE_PLUGIN_ROOT}/transforms.yaml` lists, as initialize
 and migrate do (`adapter-lifecycle.md` § "Skill transform wiring"): inject its `## Neuroloom
-Post-Execution Transform` section. Without it a ported project's `/sdlc-archive` moves a deliverable
+Post-Execution Transform` section, or replace an older plugin's with the current
+shape. Without it a ported project's `/sdlc-archive` moves a deliverable or an idea brief
 while its Neuroloom document still points at the old path, and `/sdlc-ingest` writes flat files no
 agent reads, until the next migration wires them.
 
@@ -484,7 +486,7 @@ After all edits, verify each transformed file. Each check leaves alone exactly w
 it mirrors exempts, and the audit's scans exempt different things; `knowledge-routing.md` is checked
 separately, below:
 - No remaining `ops/sdlc/knowledge/`, `ops/sdlc/disciplines/`, `[sdlc-root]/knowledge/` or
-  `[sdlc-root]/disciplines/` path references outside the audit's Check 2 exemption rows 1 to 5 (as
+  `[sdlc-root]/disciplines/` path references outside the audit's Check 2 exemption rows 1 to 6 (as
   `references/transform-targets.md` lists them)
 - No remaining bare `agent-context-map.yaml` or `agent-communication-protocol.yaml` references
   outside those same rows
@@ -492,8 +494,9 @@ separately, below:
   pattern: `\]\((\./|\.\./)*(knowledge|disciplines|bundles)/`), whose target is a file Post-Port
   Cleanup removes or one that doesn't exist, outside `sdlc_changelog.md` and `changelog-archive/*.md`.
   Resolve each against the file that links it: a target that exists and stays is fine
-- No remaining `provenance_log` outside `sdlc_changelog.md` and `changelog-archive/*.md` (the
-  audit's provenance scan exempts nothing else)
+- No remaining `provenance_log` outside `sdlc_changelog.md`, `changelog-archive/*.md` and the
+  contract 0026 file-presence lines of the audit's Check 2 row 6 (the provenance scan exempts
+  nothing else)
 - Every replacement `memory_search` call includes `query`
 - File is still valid markdown (no broken code fences or truncated sections)
 

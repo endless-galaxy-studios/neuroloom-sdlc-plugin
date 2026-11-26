@@ -379,13 +379,17 @@ class TestCheck2ExemptionTable:
         section = audit.split("### Check 2 — No residual knowledge-layer references", 1)[1].split("### Check 2a", 1)[0]
         return [ln for ln in section.splitlines() if re.match(r"\| [1-9] \|", ln)]
 
-    def test_five_rows_and_no_whole_tree_or_whole_file_exemption(self) -> None:
+    def test_six_rows_and_no_whole_tree_or_whole_file_exemption(self) -> None:
         rows = self._rows()
-        assert len(rows) == 5, "provenance_log.md is no longer exempt: provenance lives in memories"
+        assert len(rows) == 6, rows
         assert not rows[0].startswith("| 1 | Everything under"), "sdlc-migrate must be exempt line by line"
         assert "LINE BY LINE" in rows[0]
         assert "Only the span is exempt" in rows[1]
-        assert not any("provenance_log" in r for r in rows), "no exemption row may name the provenance log"
+        # Provenance lives in memories (CD, 2026-10-29): no row exempts a read of the log. Only row 6's
+        # contract 0026 lines name it, as the project's own file upstream never copies or removes.
+        assert [n for n, r in enumerate(rows, start=1) if "provenance_log" in r] == [6]
+        assert "which a migration never copies and nothing reads or writes" in rows[5]
+        assert "any other line in these files is checked as usual" in rows[5]
 
     def test_fenced_format_demos_are_exempt_but_dispatch_prompts_are_not(self) -> None:
         row = self._rows()[4]
@@ -1339,8 +1343,10 @@ class TestSdlcRootIsOpsSdlc:
         stage_4a = port.split("### Stage 4a", 1)[1].split("### Stage 4b", 1)[0]
         stage_4a += (_ROOT / "skills" / "sdlc-port" / "references" / "transform-targets.md").read_text()
         assert "`[sdlc-root]/knowledge/` and `[sdlc-root]/disciplines/` forms" in stage_4a
-        assert "exemption rows 1 to 5" in stage_4a
-        assert "lines except the changelog's is still rewritten" in stage_4a
+        assert "exemption rows 1 to 6" in stage_4a
+        flat = " ".join(stage_4a.split())
+        assert "on any of these lines except the changelog's" in flat
+        assert "or a `provenance_log` mention on any of them except the changelog's and row 6's, is still rewritten" in flat
         assert "copy `${CLAUDE_PLUGIN_ROOT}/docs/knowledge-routing.md` over" in stage_4a
         # 4d validates what 4a wrote, so it must keep the same exemptions on every check.
         stage_4d = port.split("### Stage 4d", 1)[1].split("### Stage 4g", 1)[0]
@@ -1554,13 +1560,16 @@ class TestPortBugFixes070:
     def test_the_port_and_the_audit_name_the_same_exemption_rows(self) -> None:
         table = _audit().split("**Exemptions.**", 1)[1].split("**Second scan", 1)[0]
         rows = {int(m.group(1)): m.group(0) for m in re.finditer(r"^\| (\d) \|.*$", table, re.MULTILINE)}
-        assert sorted(rows) == [1, 2, 3, 4, 5], sorted(rows)
+        assert sorted(rows) == [1, 2, 3, 4, 5, 6], sorted(rows)
         assert "sdlc-migrate" in rows[1] and "- [ ] No" in rows[2] and "path-mappings.md" in rows[3]
-        assert "sdlc_changelog.md" in rows[4] and "fenced block" in rows[5]
+        assert "sdlc_changelog.md" in rows[4] and "fenced block" in rows[5] and "Contract 0026" in rows[6]
         doc = self._manifest_doc()
         for name in ("No stale path references", "No stale YAML references"):
             row = next(line for line in doc.splitlines() if line.startswith(f"| {name} |"))
-            assert "rows 1 to 5" in row and "knowledge-routing.md" in row, row
+            assert "rows 1 to 6" in row and "knowledge-routing.md" in row, row
+        # A port installs z-sdlc's file-presence lines too, so its provenance check exempts them as the audit does.
+        assert "the `provenance_log` check exempts the changelog and row 6's lines" in doc
+        assert "exempts only the changelog and the contract 0026 file-presence lines" in " ".join(self._port().split())
 
     def test_nothing_points_at_the_removed_migrate_override(self) -> None:
         for rel in ("README.md", "references/post-operation-audit.md", "docs/knowledge-routing.md",
@@ -1574,11 +1583,13 @@ class TestPortBugFixes070:
         assert "memory_update(" in stage_3c
 
     def test_4d_exempts_what_each_audit_scan_exempts(self) -> None:
-        # The provenance scan and Check 2d exempt only the changelog; rows 1 to 5 belong to Check 2.
+        # Check 2d exempts only the changelog; the provenance scan the changelog and Check 2 row 6's
+        # contract 0026 lines. Rows 1 to 5 apply to Check 2's path scan alone.
         stage_4d = self._port().split("### Stage 4d", 1)[1].split("### Stage 4g", 1)[0]
         bullets = [" ".join(b.split()) for b in stage_4d.split("\n- ")]
         prov = next(b for b in bullets if b.startswith("No remaining `provenance_log`"))
-        assert "outside `sdlc_changelog.md` and `changelog-archive/*.md`" in prov and "rows" not in prov
+        assert "outside `sdlc_changelog.md`, `changelog-archive/*.md` and the contract 0026 file-presence lines of the audit's Check 2 row 6" in prov
+        assert "rows 1" not in prov
         link = next(b for b in bullets if b.startswith("No remaining relative markdown link"))
         assert "outside `sdlc_changelog.md` and `changelog-archive/*.md`" in link and "rows" not in link
 
@@ -2035,3 +2046,62 @@ class TestPortBugFixes070:
         # z-sdlc 3.0.0 graduates a lite install without the adapter: there is no lite content to hand over.
         assert "lite-carried" not in lifecycle and "Phase 0-L" not in lifecycle
         assert project.startswith("**On failure:** halt")
+
+
+class TestSkillWiringCoversEveryListedSkill:
+    """Sleeved's 2026-11-26 migration logged four skills `verified_only` ("not in this dispatch's
+    file list ... not rewritten (dispatch scope)") and left their pre-0.7.0 wiring: no `plugin_dir`
+    line, and `sdlc-ingest` without its `report` line, which `ingest_to_neuroloom` needs. Check 8
+    only checked that the section existed, so the run would have passed and the next
+    `/sdlc-ingest` halted."""
+
+    def _post_batch(self) -> str:
+        agent = (_ROOT / "agents" / "neuroloom-transformer.md").read_text()
+        return " ".join(agent.split("## Post-Batch: Skill Transform Wiring", 1)[1].split("\n## ", 1)[0].split())
+
+    def _check8(self) -> str:
+        lifecycle = (_ROOT / "references" / "adapter-lifecycle.md").read_text()
+        return " ".join(lifecycle.split("8. **Skill transform wiring intact**", 1)[1].split("\n9. ", 1)[0].split())
+
+    def test_wiring_covers_every_listed_skill_whatever_this_run_dispatched(self) -> None:
+        step = self._post_batch()
+        assert "For every skill `transforms.yaml` lists, even one this dispatch's file list doesn't name or upstream didn't write this run" in step
+        assert "There is no verify-only mode" in step
+
+    def test_check_8_checks_the_sections_shape_not_just_its_heading(self) -> None:
+        check = self._check8()
+        for line in ("`operation: \"transform\"`", "`plugin_dir:`", "`actions:`", "`report:`", "`path_pairs:`"):
+            assert line in check, line
+        assert "an older plugin's section" in check and "REGRESSION" in check
+        assert "for a skill listed more than once (`sdlc-develop-agent`), its `actions:` line names every entry's actions" in check
+
+    def test_the_archive_template_syncs_everything_sdlc_archive_moves(self) -> None:
+        # z-sdlc 3.0.0's sdlc-archive moves deliverables in Step 5 and idea briefs, bug reports and
+        # handoffs in Step 7, from the mapping Step 4 approves. Always-replace would otherwise narrow
+        # Sleeved's hand-widened line to Step 5 and leave archived idea briefs' documents stale.
+        lifecycle = (_ROOT / "references" / "adapter-lifecycle.md").read_text()
+        line = next(ln for ln in lifecycle.splitlines() if ln.startswith("- path_pairs: ["))
+        for part in ("idea brief", "bug report", "handoff", "Step 5 (Archive Deliverables)",
+                     "Step 7 (Archive Idea Briefs & Resolved Artifacts)", "Step 4's approval table"):
+            assert part in line, part
+        transforms = (_ROOT / "transforms.yaml").read_text()
+        archive = transforms.split("- skill: sdlc-archive", 1)[1].split("\n  - skill:", 1)[0]
+        assert "Step 7" in archive and "idea brief" in archive
+
+    def test_one_section_per_skill_with_every_entrys_actions(self) -> None:
+        # transforms.yaml lists sdlc-develop-agent twice (default and mode: ENRICH); replacing the
+        # section once per entry would leave only the ENRICH actions.
+        step = self._post_batch()
+        assert "Entries that name the same skill share one section" in step
+        lifecycle = " ".join((_ROOT / "references" / "adapter-lifecycle.md").read_text().split())
+        assert "One section per skill" in lifecycle and "(ENRICH mode: " in lifecycle
+        # The documented line is built from transforms.yaml, so a change to either entry shows here.
+        import yaml
+        entries = [t for t in yaml.safe_load((_ROOT / "transforms.yaml").read_text())["transforms"] if t["skill"] == "sdlc-develop-agent"]
+        default = next(t["actions"] for t in entries if "mode" not in t)
+        enrich = next(t["actions"] for t in entries if t.get("mode") == "ENRICH")
+        assert f"`actions: {', '.join(default)} (ENRICH mode: {', '.join(enrich)})`" in lifecycle
+
+    def test_the_port_replaces_an_older_section_too(self) -> None:
+        port = " ".join((_ROOT / "skills" / "sdlc-port" / "SKILL.md").read_text().split())
+        assert "or replace an older plugin's with the current shape" in port

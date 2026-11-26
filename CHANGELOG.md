@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-26
+
+### Fixed
+
+- **`/sdlc-migrate` to z-sdlc 3.0.0 halted at `post-file-write` on z-sdlc's own contract 0026 text.** Contract 0026 added or extended lines that decide, from what is on disk, whether a knowledge or discipline file is missing or is one the adapter took. They name those folders, the files in them or `provenance_log.md`, but read nothing, and this plugin depends on them: they are why `sdlc-migrate` leaves alone the files `knowledge-seed` and `knowledge-update` took. No rewrite rule or exemption covered six of them, so the transformer's contract-residue and telemetry audits halted Sleeved's migration (2026-11-26; nothing was written to Neuroloom). Two more would have been reworded by the concept-term pass ("the discipline files the adapter took" into "discipline memory entries").
+
+  Post-operation Check 2's exemption table gains row 6, a closed list naming each of the eight lines by its file and opening words:
+  - in `sdlc-migrate`: "The knowledge layer is the adapter's" and its two bullets ("Every other file there", "In a full migration"), the §2.3 discipline-skip line, and the §4.4 Dimension 7 prompt line;
+  - the compliance auditor's Migration integrity item;
+  - `compliance-methodology.md`'s 7b File completeness bullet;
+  - `adapter-lifecycle-protocol.md`'s "The knowledge layer is the adapter's" paragraph.
+
+  Row 6 exempts those lines from the path, provenance and concept-term scans, and the transformer's Audit 7 leaves them out too. A row 6 line that also tells an agent to read, consult, append to or look up a knowledge-layer path is a REGRESSION instead, since upstream changed it. The contract-residue audit, the transformer's Audit 5 and the provenance scan use the same row, and the transformer keeps the lines byte for byte in both passes with no `transformation_warning` (the telemetry audit halts on an unresolved one). The provenance scan's rule now reads: no installed file may tell an agent to read or write an on-disk log. Row 6's lines name `provenance_log.md` only as the project's own record, which nothing reads or writes. `/sdlc-port`'s Stage 4a and 4d checks mirror rows 1 to 6 and leave a `provenance_log` mention on a row 6 line as it is, since a ported project installs the same lines.
+- **A migration could leave a skill's transform wiring as an older plugin wrote it.** Sleeved's halted run logged `sdlc-develop-agent`, `sdlc-develop-skill`, `sdlc-ingest` and `sdlc-archive` as `verified_only`, "not in this dispatch's file list". So their sections kept 0.6.x's shape: no `plugin_dir` line, and `sdlc-ingest` without the `report` line `ingest_to_neuroloom` needs. Post-operation Check 8 only checked that the section existed, so a passing migration would have been followed by a halted `/sdlc-ingest`. The transformer's wiring step now covers every skill `transforms.yaml` lists, whatever this run dispatched, and always replaces an existing section with the current shape; there is no verify-only mode. Check 8 checks the section's shape: its `operation`, `plugin_dir`, `actions` and `files` (or `path_pairs`) lines, and `sdlc-ingest`'s `report` line. `/sdlc-port`'s wiring replaces an older section too.
+- **`sdlc-archive`'s wiring synced only archived deliverables.** Its `path_pairs` line covered Step 5, but z-sdlc's `sdlc-archive` also moves idea briefs, bug reports and handoffs in Step 7, so their Neuroloom documents kept pointing at the deleted path. Sleeved had widened its line by hand, which always-replace would have undone. The template now covers both steps, from Step 4's approval table. A skill `transforms.yaml` lists twice (`sdlc-develop-agent`, default and `mode: ENRICH`) gets one section with both entries' actions, instead of the second entry replacing the first.
+- **Nothing tested the plugin against the z-sdlc release it requires.** The upstream coverage gate reads a v2.2.0 checkout, so 0.7.0's tests never ran the residue scans over 3.0.0's text. A new local gate, `tests/test_zsdlc_release_residue.py`, exports the release named by `supported_zsdlc_version` with `git archive`, without checking out the shared clone. It scans that release's skills, process docs, templates and agents, but not yet `CLAUDE-SDLC.md`, `playbooks/` or `bundles/` (the look-alike check also skips `sdlc-initialize`, which projects don't install), and checks four things:
+  - every path family has a rewrite rule;
+  - every `provenance_log` mention has a rule or an exemption row;
+  - each row 6 line is still there, with the text it was reviewed at (pinned by hash);
+  - every other installed line that looks like a file-presence rule (a knowledge-layer path, the provenance log or a concept term, plus a file that is the adapter's, off disk or not missing) is either in row 6 or on a hash-pinned list of reviewed lines the rules rewrite.
+
+  The last check is a keyword tripwire, so a release's contract-change entries still need reading. Like the v2.2.0 gate, CI can't run the gate (it needs `~/Projects/cc-sdlc` with the tag). Run it before releasing or bumping `supported_zsdlc_version`, with `REQUIRE_ZSDLC_TAG=1` so a missing tag fails instead of skipping.
+
+### Known limits
+
+- **Files `/sdlc-archive` deletes outright keep their Neuroloom documents.** Its Step 8 deletes stale bug reports and handoffs CD approves, and Step 10 deletes issue files; their chunk memories stay searchable at the deleted path. The plugin's tools can't find a document's chunks exactly, so a fix needs a delete-document-by-path endpoint in the API first. It predates this release.
+
 ## [0.7.0] - 2026-11-23
 
 ### Breaking Changes

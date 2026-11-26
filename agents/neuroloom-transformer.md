@@ -143,13 +143,14 @@ Apply Pattern Mapping rules to the file content:
 Respect all exclusion zones:
 - Fenced code blocks (triple backticks) — never transform inside, **EXCEPT** (a) agent template blocks (code blocks containing `## Knowledge Context` or `## Communication Protocol` headings in agent-creation skills), which are copy-paste templates for new agents, and (b) dispatch-prompt template blocks (a `markdown` or untagged fence holding a prompt the skill sends to a dispatched agent, e.g. `references/dispatch-prompts.md`; identification criteria in pattern-mapping-rules.md), which a subagent will act on literally. Both must reflect Neuroloom patterns. Log `template_block_transformed` events for these (`kind: "dispatch_prompt"` for (b)).
 - Integration sections — do not transform path references (they are metadata), **EXCEPT** knowledge-layer paths (`[sdlc-root]/knowledge/` and `[sdlc-root]/disciplines/`), which the Integration carve-out table in `pattern-mapping-rules.md` rewrites. Process, template, playbook, agent and skill paths stay byte-identical.
-- Non-transformable path prefixes: `[sdlc-root]/process/`, `[sdlc-root]/templates/`, `[sdlc-root]/agents/`. `[sdlc-root]/knowledge/provenance_log.md` is NOT on this list any more: provenance is a set of `sdlc:provenance` memories, and every mention of the file is rewritten (§ "Provenance records" in `pattern-mapping-rules.md`).
+- Non-transformable path prefixes: `[sdlc-root]/process/`, `[sdlc-root]/templates/`, `[sdlc-root]/agents/`. `[sdlc-root]/knowledge/provenance_log.md` is NOT on this list any more: provenance is a set of `sdlc:provenance` memories, and every mention of the file is rewritten (§ "Provenance records" in `pattern-mapping-rules.md`) except on the changelog's lines and the lines in the next bullet.
+- Contract 0026's file-presence lines, the closed list in `post-operation-audit.md` Check 2 row 6: write them byte for byte in this pass and in Pass 2, and emit no `transformation_warning` for them. They decide from what is on disk whether a knowledge-layer file is one the adapter took; rewriting them breaks that (`pattern-mapping-rules.md` § "Contract 0026's file-presence lines").
 
 Write the transformed content to the file.
 
 ### Step 4: Pass 2 — Concept-Terminology
 
-Re-read the file written by Pass 1. Identify prose-only regions (exclude fenced code blocks, YAML/JSON data, inline backticked paths). **Exceptions:** (1) `description:` values in skill/agent YAML frontmatter ARE prose-eligible — agents read these to decide invocation, so concept terms must be transformed — EXCEPT inside a quoted phrase in an explicit trigger list (`Triggers on "verify the knowledge store", …`) or the text of a `user: \"…\"` line in an `<example>` block: those are the user's own words, and rewriting them stops the skill matching them, so they stay byte-identical. Every other quoted span (`assistant: \"…\"` lines, `<commentary>`, other quoted examples) is prose and is transformed (full definition in `pattern-mapping-rules.md` § Pass 2 scope). (2) Integration sections ARE eligible for Pass 2 concept-terminology — only Pass 1 path transforms are excluded from Integration sections. Non-path prose in Integration bullets (parenthetical descriptions, trailing explanations) must have concept terms transformed while path references remain byte-identical. Apply concept-terminology rules:
+Re-read the file written by Pass 1. Identify prose-only regions (exclude fenced code blocks, YAML/JSON data, inline backticked paths, and contract 0026's file-presence lines, `post-operation-audit.md` Check 2 row 6). **Exceptions:** (1) `description:` values in skill/agent YAML frontmatter ARE prose-eligible — agents read these to decide invocation, so concept terms must be transformed — EXCEPT inside a quoted phrase in an explicit trigger list (`Triggers on "verify the knowledge store", …`) or the text of a `user: \"…\"` line in an `<example>` block: those are the user's own words, and rewriting them stops the skill matching them, so they stay byte-identical. Every other quoted span (`assistant: \"…\"` lines, `<commentary>`, other quoted examples) is prose and is transformed (full definition in `pattern-mapping-rules.md` § Pass 2 scope). (2) Integration sections ARE eligible for Pass 2 concept-terminology — only Pass 1 path transforms are excluded from Integration sections. Non-path prose in Integration bullets (parenthetical descriptions, trailing explanations) must have concept terms transformed while path references remain byte-identical. Apply concept-terminology rules:
 - "parking lot entries" → "discipline memory entries"
 - "Knowledge YAML files" → "memory entries tagged sdlc:knowledge"
 - "agent-context-map.yaml" (as live config) → "domain-scoped memory search (agents query by sdlc:domain:<name> tags)"
@@ -188,8 +189,8 @@ Complete Steps 1–5 for file N before starting file N+1.
 After ALL files have been processed through Steps 1–5, execute skill transform wiring as a distinct batch step. This is separate from per-file pattern mapping and runs once after all transformations complete.
 
 1. Read `${CLAUDE_PLUGIN_ROOT}/transforms.yaml`
-2. For each entry in `transforms:`, locate the installed skill file (e.g., `.claude/skills/{skill}/SKILL.md`)
-3. If the skill file contains a `## Neuroloom Post-Execution Transform` section, **replace it** (transforms.yaml may have been updated between migrations)
+2. For every skill `transforms.yaml` lists, even one this dispatch's file list doesn't name or upstream didn't write this run, locate the installed skill file (e.g., `.claude/skills/{skill}/SKILL.md`). Entries that name the same skill share one section (`adapter-lifecycle.md` § "Skill transform wiring", **One section per skill**): write it once, with every entry's actions.
+3. If the skill file contains a `## Neuroloom Post-Execution Transform` section, **replace it** with the current shape, always: transforms.yaml or the injected section may have changed since the plugin version that wrote it (0.7.0 added the `plugin_dir` line, and `sdlc-ingest`'s `report` line, which `ingest_to_neuroloom` needs). There is no verify-only mode: a section left as an older plugin wrote it fails Check 8, and `sdlc-ingest`'s halts the skill's first run (`ingest_to_neuroloom` ingests nothing without a `report`).
 4. If the section is absent, **inject it** before the skill's `## Integration` section (or at the end if no Integration section exists)
 5. The injected section content is defined in the adapter-lifecycle handler doc (`${CLAUDE_PLUGIN_ROOT}/references/adapter-lifecycle.md` § "Skill transform wiring")
 6. Log a `skill_transform_wired` event per skill with the skill name and action list
@@ -228,7 +229,7 @@ Scan every written file for agent-name references that don't resolve to `.claude
 
 ### Audit 5: Contract Residue
 
-Scan all non-exempt written files, including `.claude/skills/*/references/*.md`, for knowledge-layer paths and wildcard tag arguments, using the three greps in `content-merge-audits.md` § "Mandatory: Contract Residue Audit" (path residue, concept-terminology residue, `*` inside `tags=[…]` / `tag_prefixes=[…]`). Fenced data-format demos are the only fence exemption; Integration sections are NOT exempt for knowledge-layer paths. Any other hit → **HALT**.
+Scan all non-exempt written files, including `.claude/skills/*/references/*.md`, for knowledge-layer paths and wildcard tag arguments, using the three greps in `content-merge-audits.md` § "Mandatory: Contract Residue Audit" (path residue, concept-terminology residue, `*` inside `tags=[…]` / `tag_prefixes=[…]`). Classify each hit against `post-operation-audit.md` Check 2's exemption table, the one list, as `content-merge-audits.md` describes: fenced data-format demos (row 5) are the only fence exemption, contract 0026's file-presence lines (row 6) are exempt line by line, and Integration sections are NOT exempt for knowledge-layer paths. Any other hit → **HALT**.
 
 ### Audit 6: Telemetry Sanity
 
@@ -251,6 +252,7 @@ grep -inE '\bmapped files\b|\bspec-relevant files\b|\bloaded files\b|\bCross-Fil
 
 **Exclude from hits (legitimate retention):**
 - Inside fenced code blocks
+- Contract 0026's file-presence lines (`post-operation-audit.md` Check 2 row 6): Pass 2 keeps them as upstream wrote them
 - Inside hard-excluded files (already skipped)
 - Inside MCP query strings (`memory_search(query="..."`)
 - Where the term describes upstream's file format mechanism (e.g., sdlc-ingest describing what it consumes)
@@ -339,6 +341,7 @@ For `dispatch_mode: path_pairs` actions (`sync_archive_status`), report per pair
 - Never skip the Required Reading step. The pattern-mapping-rules.md file contains specific singular/plural/hyphenated/case variants and post-migration bug-prevention rationale that cannot be reproduced from memory.
 - Never batch transaction log events. Emit per-file, immediately after write.
 - Never transform content inside fenced code blocks or Integration sections.
+- Never transform contract 0026's file-presence lines (`post-operation-audit.md` Check 2 row 6) in either pass, and emit no `transformation_warning` for them.
 - Never transform files on the hard-exclusion list.
 - Never change a backslash-n (or any other escape sequence) inside a quoted string or a fenced block into a real newline, and never unescape or re-wrap a string: match rule 13 in `pattern-mapping-rules.md`. The post-write escape-preservation assertion restores the lines from its baseline (upstream outside preserved regions; the merged version inside them, a preserved region being a PROJECT-SECTION / BUNDLE-SECTION block or a section the Step 2b MCP preservation gate kept) on a drop in the count, and logs an `escape_restored` warning; it does not halt.
 - If you encounter a pattern that looks like it should match a rule but doesn't exactly match — do NOT guess. Leave the text unchanged and emit a `transformation_warning` event. A false negative (missed transformation) is recoverable; a false positive (wrong transformation) corrupts the file.
