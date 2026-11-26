@@ -32,18 +32,19 @@ Read by `/sdlc-port` Stages 4a and 4c (`${CLAUDE_SKILL_DIR}/SKILL.md`).
   exemption.
 - `docs/_index.md` — remains filesystem-local
 - The files and blocks the post-operation audit's Check 2 exempts
-  (`${CLAUDE_PLUGIN_ROOT}/references/post-operation-audit.md`, exemption rows 1 to 6: the framework-
+  (`${CLAUDE_PLUGIN_ROOT}/references/post-operation-audit.md`, exemption rows 1 to 7: the framework-
   mechanics lines of `.claude/skills/sdlc-migrate/`, the quoted span of a reviewer's or auditor's
   `- [ ] No` item, the process docs that name the paths on purpose, such as `path-mappings.md`, the
   changelog, format or command demos in code fences, which row 5 limits (a fenced dispatch
-  prompt, agent template or output template is transformed), and the contract 0026 file-presence
-  lines row 6 names). Stage 4d's path and bare-YAML checks
+  prompt, agent template or output template is transformed), the contract 0026 file-presence
+  lines row 6 names, and the two `sdlc-ingest` destination rows row 7 names). Stage 4d's path and bare-YAML checks
   don't report them either. Two exceptions: (a) `knowledge-routing.md` is replaced whole (above);
   (b) a relative link into `knowledge/` or `disciplines/` on any of these lines except the changelog's
-  (row 6's lines carry none), or a `provenance_log` mention on any of them except the changelog's and
+  (row 6's and row 7's lines carry none), or a `provenance_log` mention on any of them except the changelog's and
   row 6's, is still rewritten (rows 1 and 3 included, e.g. `sdlc-migrate`'s list of project-specific
   files), because Check 2d exempts only the changelog and the audit's provenance scan only the
   changelog and row 6.
+- The `sdlc-migrate` lines that post-operation Check 6 step 4's closed list names (`${CLAUDE_PLUGIN_ROOT}/references/post-operation-audit.md`): they name `agent-context-map.yaml` as a file the project owns or act on it only when it is on disk, and `pattern-mapping-rules.md` keeps them as upstream has them, apart from the `provenance_log.md` item it drops from two of them (`Source-to-project path mappings` and Step 0), so Stage 4d's provenance check finds nothing there. Stage 4d's bare-YAML check doesn't report them either.
 - Agent or skill files with no matching references
 - Historical changelog entries in `ops/sdlc/process/sdlc_changelog.md` and `ops/sdlc/process/changelog-archive/*.md` — these are an accurate
   record of what happened at the time and must not be rewritten

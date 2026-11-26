@@ -125,7 +125,7 @@ transforms:
       - pattern_mapping
 
   - skill: sdlc-ingest
-    description: Route ingested knowledge to Neuroloom backend instead of flat files
+    description: Send the knowledge and discipline files the skill wrote to the Neuroloom backend, then remove them (the skill keeps writing files; pattern-mapping-rules.md § sdlc-ingest writes files)
     target_patterns:
       - "[sdlc-root]/knowledge/**/*.yaml"
       - "[sdlc-root]/disciplines/*.md"
@@ -136,8 +136,8 @@ transforms:
     description: Sync the DocumentSource anchor (source_path, archival_status) of each deliverable doc Step 5 moves, and each idea brief, bug report and handoff Step 7 moves, from docs/current_work/ to docs/chronicle/
     dispatch_mode: path_pairs
     # No target_patterns: the pre-move path no longer exists on disk after Step 5's or Step 7's
-    # copy-then-delete, so glob resolution (the mechanism every other transform below
-    # uses) cannot produce it. The skill assembles {old, new} pairs itself from its own
+    # copy-then-delete, so neither a path the skill names (the files: shape every other
+    # transform uses) nor a glob can produce it. The skill assembles {old, new} pairs itself from its own
     # Step 4 approval table and passes them directly — see dispatch_mode below and
     # references/adapter-lifecycle.md § "Skill transform wiring" for the injected shape.
     actions:

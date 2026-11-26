@@ -486,10 +486,11 @@ After all edits, verify each transformed file. Each check leaves alone exactly w
 it mirrors exempts, and the audit's scans exempt different things; `knowledge-routing.md` is checked
 separately, below:
 - No remaining `ops/sdlc/knowledge/`, `ops/sdlc/disciplines/`, `[sdlc-root]/knowledge/` or
-  `[sdlc-root]/disciplines/` path references outside the audit's Check 2 exemption rows 1 to 6 (as
+  `[sdlc-root]/disciplines/` path references outside the audit's Check 2 exemption rows 1 to 7 (as
   `references/transform-targets.md` lists them)
 - No remaining bare `agent-context-map.yaml` or `agent-communication-protocol.yaml` references
-  outside those same rows
+  outside those same rows and the closed list of `sdlc-migrate` map lines in post-operation Check 6
+  step 4 (kept as upstream has them)
 - No remaining relative markdown link, with or without a `./` or `../` prefix (the audit's Check 2d
   pattern: `\]\((\./|\.\./)*(knowledge|disciplines|bundles)/`), whose target is a file Post-Port
   Cleanup removes or one that doesn't exist, outside `sdlc_changelog.md` and `changelog-archive/*.md`.

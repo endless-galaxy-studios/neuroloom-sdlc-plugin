@@ -21,8 +21,10 @@ has already happened once:
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -379,9 +381,9 @@ class TestCheck2ExemptionTable:
         section = audit.split("### Check 2 — No residual knowledge-layer references", 1)[1].split("### Check 2a", 1)[0]
         return [ln for ln in section.splitlines() if re.match(r"\| [1-9] \|", ln)]
 
-    def test_six_rows_and_no_whole_tree_or_whole_file_exemption(self) -> None:
+    def test_seven_rows_and_no_whole_tree_or_whole_file_exemption(self) -> None:
         rows = self._rows()
-        assert len(rows) == 6, rows
+        assert len(rows) == 7, rows
         assert not rows[0].startswith("| 1 | Everything under"), "sdlc-migrate must be exempt line by line"
         assert "LINE BY LINE" in rows[0]
         assert "Only the span is exempt" in rows[1]
@@ -1343,7 +1345,7 @@ class TestSdlcRootIsOpsSdlc:
         stage_4a = port.split("### Stage 4a", 1)[1].split("### Stage 4b", 1)[0]
         stage_4a += (_ROOT / "skills" / "sdlc-port" / "references" / "transform-targets.md").read_text()
         assert "`[sdlc-root]/knowledge/` and `[sdlc-root]/disciplines/` forms" in stage_4a
-        assert "exemption rows 1 to 6" in stage_4a
+        assert "exemption rows 1 to 7" in stage_4a
         flat = " ".join(stage_4a.split())
         assert "on any of these lines except the changelog's" in flat
         assert "or a `provenance_log` mention on any of them except the changelog's and row 6's, is still rewritten" in flat
@@ -1560,13 +1562,14 @@ class TestPortBugFixes070:
     def test_the_port_and_the_audit_name_the_same_exemption_rows(self) -> None:
         table = _audit().split("**Exemptions.**", 1)[1].split("**Second scan", 1)[0]
         rows = {int(m.group(1)): m.group(0) for m in re.finditer(r"^\| (\d) \|.*$", table, re.MULTILINE)}
-        assert sorted(rows) == [1, 2, 3, 4, 5, 6], sorted(rows)
+        assert sorted(rows) == [1, 2, 3, 4, 5, 6, 7], sorted(rows)
         assert "sdlc-migrate" in rows[1] and "- [ ] No" in rows[2] and "path-mappings.md" in rows[3]
         assert "sdlc_changelog.md" in rows[4] and "fenced block" in rows[5] and "Contract 0026" in rows[6]
+        assert "sdlc-ingest" in rows[7]
         doc = self._manifest_doc()
         for name in ("No stale path references", "No stale YAML references"):
             row = next(line for line in doc.splitlines() if line.startswith(f"| {name} |"))
-            assert "rows 1 to 6" in row and "knowledge-routing.md" in row, row
+            assert "rows 1 to 7" in row and "knowledge-routing.md" in row, row
         # A port installs z-sdlc's file-presence lines too, so its provenance check exempts them as the audit does.
         assert "the `provenance_log` check exempts the changelog and row 6's lines" in doc
         assert "exempts only the changelog and the contract 0026 file-presence lines" in " ".join(self._port().split())
@@ -1672,20 +1675,20 @@ class TestPortBugFixes070:
             assert "**the manifest snapshot** (top of this file) if no earlier phase of this run did" in step
         assert "A failed copy halts the phase before any write." in lifecycle
         # sdlc-ingest carries its report, which the transformer's ingest needs.
-        assert "- report: [for `sdlc-ingest`, its INGESTION REPORT" in lifecycle
+        assert "- report: [only in `sdlc-ingest`'s section: its INGESTION REPORT" in lifecycle
         assert "- `report` (transform mode, `sdlc-ingest` only)" in (_ROOT / "agents" / "neuroloom-transformer.md").read_text()
 
     def test_ingest_sends_only_the_entries_the_run_added(self) -> None:
         # A discipline file sdlc-ingest creates is mostly a stub; sending all of it overwrote the
         # discipline's framework text with the stub's (replayed by the round-19 reviewers).
         transformer = (_ROOT / "agents" / "neuroloom-transformer.md").read_text()
-        assert "Never send an entry the extractor built from a discipline file's framework, status" in transformer
+        assert "never an entry whose id is a discipline's framework, status, Active Questions" in transformer
         # Kept created stubs move out of the extractor's reach on every halt, not only after an attempt.
-        assert "A discipline file the report marks as created is never kept at its path, on this or any halt" in transformer
-        assert "pass `--only-ids <file>`" in transformer
+        assert "**A created discipline file is never kept at its path**, on this or any halt" in transformer
+        assert "run step 3's command again, with `--only-ids <that file> --output <tmp>/send.json` in place of its `--output`" in transformer
         # A report entry that matched no id left its bullet unsent while the created file was deleted.
         assert "Each added entry must match exactly one id" in transformer
-        assert "every id the extractor produced from the file was sent" in transformer
+        assert "every id step 5 chose was sent or found already sent" in transformer
         port = (_ROOT / "skills" / "sdlc-port" / "SKILL.md").read_text()
         assert "rm -f CLAUDE.md.pre-port CLAUDE.md.pre-port.region" in port
         # A marked CLAUDE.md is restored between the copy's own markers: a heading range drops the
@@ -2073,7 +2076,7 @@ class TestSkillWiringCoversEveryListedSkill:
         for line in ("`operation: \"transform\"`", "`plugin_dir:`", "`actions:`", "`report:`", "`path_pairs:`"):
             assert line in check, line
         assert "an older plugin's section" in check and "REGRESSION" in check
-        assert "for a skill listed more than once (`sdlc-develop-agent`), its `actions:` line names every entry's actions" in check
+        assert "for a skill listed more than once, `sdlc-develop-agent`, every entry's actions" in check
 
     def test_the_archive_template_syncs_everything_sdlc_archive_moves(self) -> None:
         # z-sdlc 3.0.0's sdlc-archive moves deliverables in Step 5 and idea briefs, bug reports and
@@ -2105,3 +2108,941 @@ class TestSkillWiringCoversEveryListedSkill:
     def test_the_port_replaces_an_older_section_too(self) -> None:
         port = " ".join((_ROOT / "skills" / "sdlc-port" / "SKILL.md").read_text().split())
         assert "or replace an older plugin's with the current shape" in port
+
+
+def _flat(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _section(text: str, start: str, end: str) -> str:
+    return text.split(start, 1)[1].split(end, 1)[0]
+
+
+class TestSleevedPostOperationGaps072:
+    """Sleeved's migration to z-sdlc 3.0.0 on plugin 0.7.1 (migrate-654e4f, 2026-11-26) passed
+    post-file-write, then post-operation reported four gaps the plugin had all along, and its
+    external review found two in the skill wiring. Each test here failed on 0.7.1."""
+
+    # Gap 1: Check 6 step 4 called any agent-context-map mention a REGRESSION, Check 2b's
+    # not-reported list kept all of sdlc-migrate, and Audit 7 used that list to keep §3.4's gate rule.
+    def test_check_6_step_4_has_a_closed_list_of_map_lines(self) -> None:
+        step4 = _flat(_section(_audit(), "4. All operations:", "**Action on failure:**"))
+        for opening in (
+            "`3. For each moved/renamed file:`",
+            "`**Adapter delegation:**`",
+            "`# Verify all agent-context-map paths resolve`",
+            "`- All agent-context-map paths resolve:`",
+            "`| **Context map** |`",
+        ):
+            assert opening in step4, opening
+        assert "Any other line that names the map is a **REGRESSION**" in step4
+
+    def test_sdlc_migrate_wiring_lines_have_their_own_rows(self) -> None:
+        rules = _rules()
+        assert "| ``- Agent knowledge wiring → edit `agent-context-map.yaml` `` (`sdlc-migrate` §3.4 gate rule) |" in rules
+        assert "| `→ Suggest: add to agent-context-map.yaml` (`sdlc-migrate` §3.4 output template) |" in rules
+
+    def test_audit_7_does_not_keep_a_line_by_check_2bs_reporting_list(self) -> None:
+        agent = _flat((_ROOT / "agents" / "neuroloom-transformer.md").read_text())
+        audit7 = agent.split("### Audit 7: Concept-Terminology Residue", 1)[1].split("### ", 1)[0]
+        assert "Check 2b's not-reported list is a reporting rule, not a reason to keep a line" in audit7
+
+    # Gap 2: Check 1 counted `memory_store(` only, so rule 124's own output scored zero.
+    def test_check_1_counts_the_capture_target_form(self) -> None:
+        check1 = _flat(_section(_audit(), "### Check 1 ", "### Check 2 "))
+        assert "`memory_store with tags [`" in check1
+        assert "from transaction log" not in check1
+        assert "`git grep` over `HEAD`" in check1
+
+    # Gap 3: Check 3 had no scan scope and no exemptions.
+    def test_check_3_has_a_scope_and_a_closed_exemption_list(self) -> None:
+        check3 = _section(_audit(), "### Check 3 ", "### Check 4 ")
+        cmd = next(ln for ln in check3.splitlines() if ln.startswith("grep -rnF"))
+        for part in (".claude/skills", ".claude/agents", "ops/sdlc", "CLAUDE.md", "--include='*.md'"):
+            assert part in cmd, part
+        flat = _flat(check3)
+        assert "`.claude/agents/sdlc-compliance-auditor.md`" in flat and "detector list" in flat
+        assert "changelog-archive/*.md" in flat
+        assert "Every other hit is a **REGRESSION**" in flat
+
+    # Gap 4: §4.1's fenced loop reads a map a Neuroloom project doesn't have, so its report line was empty.
+    def test_knowledge_update_says_what_stands_in_for_section_4_1(self) -> None:
+        lifecycle = _flat((_ROOT / "references" / "adapter-lifecycle.md").read_text())
+        para = lifecycle.split("**No agent-context-map: skip `sdlc-migrate` §3.3 and §4.1's map check.**", 1)
+        assert len(para) == 2
+        assert "`All agent-context-map paths resolve: n/a (no map: Neuroloom holds the knowledge layer)`" in para[1][:1500]
+
+    # F2 (sleeved-4b, 2026-11-26): z-sdlc §3.3 says "The adapter's handler doc says what stands in
+    # for it", and this paragraph said only that agents use memory_search.
+    def test_knowledge_update_names_what_stands_in_for_the_map(self) -> None:
+        lifecycle = _flat((_ROOT / "references" / "adapter-lifecycle.md").read_text())
+        para = lifecycle.split("**No agent-context-map: skip `sdlc-migrate` §3.3 and §4.1's map check.**", 1)[1][:2500]
+        assert "**What stands in for the map:**" in para
+        assert "`## Knowledge Context` section" in para
+        assert "`[sdlc-root]/process/knowledge-routing.md` § \"Domain Assignment\"" in para
+        routing = (_ROOT / "docs" / "knowledge-routing.md").read_text()
+        assert "\n## Domain Assignment\n" in routing
+
+    # E1: the rules turned sdlc-ingest's file writes into memory_store calls that carry no
+    # knowledge id and no sdlc:project-specific, and ingest_to_neuroloom then had no file to send.
+    def test_sdlc_ingest_writes_files_and_the_hook_sends_them(self) -> None:
+        rules = _rules()
+        head = "**`sdlc-ingest` writes files; its Post-Execution Transform sends them — HARD EXCLUSION, with replacements:**"
+        assert head in rules
+        section = _flat(_section(rules, head, "**Fenced code blocks are structurally exempt"))
+        assert "Kept as upstream has them" in section and "is replaced whole" in section
+        assert "`## Parking Lot`" in section  # a created discipline file needs it, or its bullets land in the framework entry
+        assert "`memory_get_index(tags=[\"sdlc:knowledge-id:<id>\"], limit=1)`" in section
+        assert "Never store a copy of an entry to tag it for an agent" in section
+        # The generic rows that modelled ingest as memory_store now point here.
+        row = next(ln for ln in rules.splitlines() if ln.startswith("| `Write new YAML files or append to existing ones`"))
+        assert "not in `sdlc-ingest`" in row
+        assert "If the project wires agents with `sdlc:agent:<name>` tags" not in rules
+
+    def test_the_preservation_gate_does_not_bring_back_0_7_1s_memory_store_calls(self) -> None:
+        # Sleeved's installed sdlc-ingest carries 0.7.1's memory_store calls in Steps 5 and 6. Step 2b
+        # preserves MCP calls no rule produces and halts on a lower count, so the next migration that
+        # rewrites the skill would merge them back or halt.
+        agent = _flat((_ROOT / "agents" / "neuroloom-transformer.md").read_text())
+        gate = agent.split("**2b. MCP preservation gate:**", 1)[1].split("**Heading fuzzy-match", 1)[0]
+        assert "**Except in `.claude/skills/sdlc-ingest/SKILL.md`:**" in gate and "never preserved" in gate
+
+    def test_ingest_to_neuroloom_refuses_an_id_neuroloom_already_holds(self) -> None:
+        agent = _flat((_ROOT / "agents" / "neuroloom-transformer.md").read_text())
+        handler = agent.split("**`ingest_to_neuroloom`:**", 1)[1].split("**`sync_archive_status`:**", 1)[0]
+        assert "`memory_get_index(tags=[\"sdlc:knowledge-id:<id>\"], limit=1)`" in handler
+        assert "id is taken" in handler
+
+    def test_the_ingest_report_line_is_enough_on_its_own(self) -> None:
+        lifecycle = (_ROOT / "references" / "adapter-lifecycle.md").read_text()
+        line = next(ln for ln in lifecycle.splitlines() if ln.startswith("- report: ["))
+        assert "for `sdlc-ingest`" not in line
+        assert "rule id" in line and "bullet text" in line and "not a count" in line
+
+    # E2: the files line was the skill's whole glob, so one new skill re-transformed every skill.
+    def test_files_line_names_this_runs_files_not_the_patterns(self) -> None:
+        lifecycle = (_ROOT / "references" / "adapter-lifecycle.md").read_text()
+        line = next(ln for ln in lifecycle.splitlines() if ln.startswith("- files: ["))
+        assert "target_patterns from transforms.yaml, resolved against project root" not in line
+        assert "this run created or changed" in line
+        agent = _flat((_ROOT / "agents" / "neuroloom-transformer.md").read_text())
+        transform_mode = agent.split("**When `operation == \"transform\"`:**", 1)[1].split("**When `operation == \"initialize\"`", 1)[0]
+        assert "a glob or a bracketed placeholder" in transform_mode and "HALT" in transform_mode
+
+    # Minor: the actions line kept its template placeholder in two skills.
+    def test_actions_line_is_written_out_and_check_8_checks_it(self) -> None:
+        lifecycle = (_ROOT / "references" / "adapter-lifecycle.md").read_text()
+        assert "- actions: [actions list from transforms.yaml]" not in lifecycle
+        check8 = _flat(lifecycle.split("8. **Skill transform wiring intact**", 1)[1].split("\n9. ", 1)[0])
+        assert "names exactly that skill's actions from `transforms.yaml`" in check8
+        assert "a bracketed placeholder" in check8
+
+
+class TestReviewRound1Fixes072:
+    """Round 1 of 0.7.2's review: each assertion names the gap a reviewer found."""
+
+    def _lifecycle(self) -> str:
+        return (_ROOT / "references" / "adapter-lifecycle.md").read_text()
+
+    def _agent(self) -> str:
+        return _flat((_ROOT / "agents" / "neuroloom-transformer.md").read_text())
+
+    def test_sdlc_develop_agent_names_files_not_its_pattern(self) -> None:
+        # One section per skill still wrote `.claude/agents/*.md`, which transform mode now halts on.
+        lifecycle = _flat(self._lifecycle())
+        one = lifecycle.split("**One section per skill.**", 1)[1].split("**Currently declared transforms**", 1)[0]
+        assert "never the pattern itself" in one
+        assert "The skill dispatches the actions for the mode it ran in, never both lists" in one
+        assert "glob shape" not in lifecycle
+        assert "come from glob patterns" not in self._agent()
+
+    def test_transform_mode_does_not_halt_on_the_sdlc_root_token(self) -> None:
+        assert "`[sdlc-root]` is not a placeholder" in self._agent()
+
+    def test_the_map_lines_check_6_keeps_are_kept_by_the_transformer_too(self) -> None:
+        rules = _rules()
+        assert "**`sdlc-migrate`'s map lines are exempt from Pass 1 and Pass 2 — HARD EXCLUSION:**" in rules
+        agent = self._agent()
+        assert "In `.claude/skills/sdlc-migrate/`, the lines `post-operation-audit.md` Check 6 step 4 lists" in agent
+        audit7 = agent.split("### Audit 7: Concept-Terminology Residue", 1)[1].split("### ", 1)[0]
+        assert "The `sdlc-migrate` map lines `post-operation-audit.md` Check 6 step 4 lists" in audit7
+
+    def test_the_preservation_exception_covers_every_mcp_form_in_the_replaced_steps(self) -> None:
+        gate = self._agent().split("**2b. MCP preservation gate:**", 1)[1].split("**Heading fuzzy-match", 1)[0]
+        assert "the MCP references in its Steps 4 to 6 and 8" in gate
+        assert "`memory_store with tags [`" in gate  # one metric with Check 1
+        assert "drop it once none is left" in gate
+
+    def test_replacements_are_written_without_the_quote_prefix(self) -> None:
+        assert "write each quoted replacement below without its `> ` prefix" in _rules()
+
+    def test_the_rest_of_sdlc_ingest_stops_asking_for_wiring(self) -> None:
+        section = _flat(_section(_rules(), "**`sdlc-ingest` writes files; its Post-Execution Transform sends them", "**Fenced code blocks are structurally exempt"))
+        assert "loses `wired to [count] agents. `" in section
+        assert "the Red Flags row starting `| \"I'll wire to all agents\" |` is dropped" in section
+        assert "`` `[sdlc-root]/knowledge/agent-context-map.yaml` (for wiring) `` is dropped" in section
+        assert "each whole bullet" in section
+        assert "in Step 4's shape (a `rules:` list, ids `P-<discipline>-<file>-<n>`)" in section
+        assert "**Write every new file in this shape**" in section and "- rule_id: P-<discipline>-<file>-1" in section
+        rules = _rules()
+        assert "tag-based wiring via memory_store" not in rules
+        assert "Wire needs no step in a Neuroloom project" in rules  # sdlc-audit's prune triage
+        assert "- **Wire:** Nothing to wire in a Neuroloom project" in rules
+
+    def test_created_is_decided_by_git_and_retries_are_safe(self) -> None:
+        handler = self._agent().split("**`ingest_to_neuroloom`:**", 1)[1].split("**`sync_archive_status`:**", 1)[0]
+        assert "**Created or appended, from the facts.**" in handler
+        assert "When the report says the opposite, send nothing from that file and report HALT" in handler
+        assert "From a created knowledge YAML: every entry" in handler
+        assert "this entry, sent by an earlier attempt of this ingest: leave it out and count it as sent" in handler
+        assert "the same SHA-256" in handler
+        # Round 2: a created file is checked for the shape the extractor reads before anything is sent.
+        assert "**Check the shape.**" in handler and "never send its output" in handler
+
+    def test_check_8_warns_on_a_section_in_a_skill_transforms_yaml_does_not_list(self) -> None:
+        check8 = _flat(self._lifecycle().split("8. **Skill transform wiring intact**", 1)[1].split("\n9. ", 1)[0])
+        assert "a skill `transforms.yaml` doesn't list carries one only when someone copied it" in check8
+        assert "a **WARN** naming the skill" in check8
+
+
+class TestReviewRound3Fixes072:
+    def test_a_created_discipline_file_is_renamed_on_every_halt(self) -> None:
+        handler = _flat((_ROOT / "agents" / "neuroloom-transformer.md").read_text()).split("**`ingest_to_neuroloom`:**", 1)[1].split("**`sync_archive_status`:**", 1)[0]
+        assert "Anything else isn't a stub: send nothing, rename it as step 8 says, and report HALT." in handler
+        assert "A discipline file the facts call created is renamed as step 8 says" in handler
+        assert "exactly one `## Parking Lot` heading and no other level-2 (`## `) heading" in handler
+
+    def test_no_kept_sdlc_ingest_line_says_follow_existing_conventions(self) -> None:
+        section = _flat(_section(_rules(), "**`sdlc-ingest` writes files; its Post-Execution Transform sends them", "**Fenced code blocks are structurally exempt"))
+        for opening in ("`**Rule format (follow existing conventions in the target knowledge store):**`",
+                        "the Red Flags row starting `| \"I'll create new YAML conventions for this discipline\" |` becomes",
+                        "the bullet starting `- If the target discipline already has YAML files` becomes"):
+            assert opening in section, opening
+
+    def test_the_upgrade_cuts_a_replaced_section_outside_fences_and_checks_fences(self) -> None:
+        changelog = (_ROOT / "CHANGELOG.md").read_text()
+        upgrade = _flat(changelog.split("### Upgrading a project already on 0.7.1", 1)[1].split("### Known limits", 1)[0])
+        assert "A target section ends at the next heading of the same or a higher level that is outside a code fence" in upgrade
+        assert "the same count of fence lines" in upgrade
+
+
+_UPSTREAM_DISCIPLINES_V3 = (
+    "architecture", "business-analysis", "coding", "data-modeling", "deployment", "design",
+    "dx", "observability", "process-improvement", "product-research", "testing",
+)
+_ROUTING_SECTIONS = {
+    "The discipline list": "## ",
+    "Creating a New Discipline": "## ",
+    "spec_relevant Field": "## ",
+    "Tagging a project's stores": "### ",
+}
+# The twelve files under z-sdlc 3.0.0's knowledge/ and disciplines/ that the extractor never sends and
+# no skill reads (two READMEs are read, through the routing doc's sections).
+_NO_READER_FILES = (
+    "disciplines/README.md",
+    "knowledge/README.md",
+    "knowledge/architecture/README.md",
+    "knowledge/business-analysis/README.md",
+    "knowledge/coding/README.md",
+    "knowledge/data-modeling/README.md",
+    "knowledge/design/README.md",
+    "knowledge/dx/README.md",
+    "knowledge/product-research/README.md",
+    "knowledge/search/README.md",
+    "knowledge/testing/README.md",
+    "knowledge/data-modeling/diagrams/party-role-erd.d2",
+)
+
+
+def _routing_doc() -> str:
+    return (_ROOT / "docs" / "knowledge-routing.md").read_text()
+
+
+def _doc_section(heading: str) -> str:
+    """The body of the doc's section `heading` (`## X` or `### X`), up to the next heading of the same or a higher level."""
+    level = "###" if heading.startswith("### ") else "##"
+    text = _routing_doc()
+    assert f"\n{heading}\n" in text, f"docs/knowledge-routing.md has no `{heading}` heading"
+    body = text.split(f"\n{heading}\n", 1)[1]
+    cut = re.search(rf"\n#{{1,{len(level)}}} ", body)
+    return body[: cut.start()] if cut else body
+
+
+def _row_for(opening: str) -> tuple[str, str]:
+    """(left cell, right cell) of the Pattern Mapping row whose left cell starts with `opening`."""
+    for line in _rules().splitlines():
+        if line.startswith("| " + opening):
+            m = re.match(r"^\| (.*?) \| (.*) \|$", line)
+            assert m, line
+            return m.group(1), m.group(2)
+    raise AssertionError(f"no Pattern Mapping row starts with {opening!r}")
+
+
+class TestF5ReadmeReads072:
+    """F5 (0.7.2): the extractor never sends README files, yet five upstream skill lines read two of them,
+    and the rules sent those reads to `memory_search` calls that can never find the text (a search for
+    `creating a new discipline criteria` in Sleeved's workspace scored 0.23 on an unrelated entry).
+    The routing doc now carries the sections those lines read."""
+
+    # The doc carries what the five reads need.
+    def test_the_routing_doc_carries_every_section_a_read_names(self) -> None:
+        for heading, marker in _ROUTING_SECTIONS.items():
+            assert f"\n{marker}{heading}\n" in _routing_doc(), heading
+
+    def test_the_doc_lists_the_disciplines_and_says_where_a_project_added_one_shows_up(self) -> None:
+        body = _doc_section("## The discipline list")
+        for name in _UPSTREAM_DISCIPLINES_V3:
+            assert f"`{name}`" in body, name
+        assert "`sdlc:discipline:<name>`" in body
+
+    def test_creating_a_new_discipline_carries_when_to_create_and_no_procedure(self) -> None:
+        body = _doc_section("## Creating a New Discipline")
+        assert "all three" in body and "Recurring capability" in body and "Distinct agent role" in body
+        assert "Anti-pattern: premature discipline creation" in body
+        assert "Minimum viable discipline" not in body and "Lifecycle" not in body
+
+    def test_spec_relevant_section_says_only_what_the_handlers_do(self) -> None:
+        body = _flat(_doc_section("## spec_relevant Field") + _doc_section("### Tagging a project's stores"))
+        assert "`.sdlc-manifest.json` → `spec_relevant_domains`" in body
+        assert "`0.9`" in body and "`knowledge-seed`" in body and "`knowledge-update`" in body
+        assert "ADR-11" in body  # rows already in Neuroloom keep their importance
+        assert "`sdlc-ingest`" in body and "does not apply" in body  # its send carries no domain boost
+        assert 'record `"spec_relevant_domains": []`' in body
+        assert "headless" in body and "record nothing" in body
+
+    def test_the_new_text_is_clean_under_the_post_operation_scans(self) -> None:
+        new = "\n".join(_doc_section(f"## {h}") for h, marker in _ROUTING_SECTIONS.items() if marker == "## ")
+        # Check 2's path scan, with its two spellings.
+        assert not re.search(r"(\[sdlc-root\]|ops/sdlc)/(knowledge|disciplines)/", new)
+        # Check 3, Check 6 step 4 and the provenance scan.
+        for bad in ("(Neuroloom projects:", "(skip for Neuroloom", "(Neuroloom projects use", "agent-context-map", "provenance_log"):
+            assert bad not in new, bad
+        # Check 2b / Audit 7's concept-terminology regex.
+        concept = re.compile(
+            r"\bknowledge stores?\b|\bknowledge files?\b|\bdiscipline files?\b|\bparking[- ]lot entr|\bknowledge-store entr"
+            r"|\bdiscipline parking[- ]lots?\b|\bknowledge YAMLs?\b|\bYAML knowledge files?\b|\bknowledge index\b|\bknowledge store gaps?\b",
+            re.IGNORECASE,
+        )
+        hits = [m.group(0) for m in concept.finditer(new)]
+        assert not hits, hits
+
+    # The rules point the reads at the doc.
+    def test_the_discipline_list_and_creation_rows_read_the_routing_doc(self) -> None:
+        _l, right = _row_for("`Read [sdlc-root]/disciplines/README.md` (the discipline list)")
+        assert right == '`Read [sdlc-root]/process/knowledge-routing.md § "The discipline list"`'
+        _l, right = _row_for("`[sdlc-root]/disciplines/README.md § \"Creating a New Discipline\"`")
+        assert right == '`[sdlc-root]/process/knowledge-routing.md § "Creating a New Discipline"`'
+
+    def test_the_section_read_row_covers_the_doc_sections_and_warns_on_any_other(self) -> None:
+        _l, right = _row_for('`Read [sdlc-root]/knowledge/README.md § "<section>"`')
+        assert 'Read [sdlc-root]/process/knowledge-routing.md § "<section>"' in right
+        assert "`spec_relevant Field`" in right and "`Tagging a project's stores`" in right
+        assert "`transformation_warning`" in right and "memory_search" not in right
+
+    def test_no_row_sends_a_readme_read_to_a_search(self) -> None:
+        for line in _rules().splitlines():
+            m = re.match(r"^\| (.*?) \| (.*) \|$", line)
+            if not m:
+                continue
+            left, right = m.groups()
+            if re.search(r"(knowledge|disciplines)/README\.md", left):
+                assert "memory_search(" not in right and "memory_get_index(" not in right, line[:160]
+
+    def test_sdlc_migrates_first_migration_paragraph_has_an_exact_line_row(self) -> None:
+        # Upstream's tail has CD write a `spec_relevant` field into each store and says filtering stays off.
+        # sdlc-initialize's 6d has the same read, but z-sdlc runs that skill from its source and never installs it.
+        left, right = _row_for("`**First migration introducing \\`spec_relevant\\`:**` paragraph of `sdlc-migrate` (exact line;")
+        right = right.replace("\\`", "`")  # the row escapes its inner backticks
+        assert "written to their" not in right and "filtering stays off" not in right
+        assert "`spec_relevant_domains`" in right
+        assert 'read `[sdlc-root]/process/knowledge-routing.md` § "Tagging a project\'s stores"' in right
+        assert 'If CD skips it, record `"spec_relevant_domains": []`.' in right
+        assert "has no `spec_relevant_domains` key at all" in right
+        assert "**6d." not in _rules()  # no dead row for a skill no project carries
+
+    def test_sdlc_ingests_tagging_line_is_kept_except_its_readme_read(self) -> None:
+        head = "**`sdlc-ingest` writes files; its Post-Execution Transform sends them"
+        assert head in _rules(), "the sdlc-ingest section is missing"
+        section = _flat(_section(_rules(), head, "**Fenced code blocks are structurally exempt"))
+        assert "**`spec_relevant` tagging:**" in section
+        assert 'Read `[sdlc-root]/process/knowledge-routing.md` § "spec_relevant Field" for override criteria.' in section
+        agent = _flat((_ROOT / "agents" / "neuroloom-transformer.md").read_text())
+        assert "the one exception is Step 4's `spec_relevant` tagging line" in agent
+
+    # The preservation gate: 0.7.1's outputs of the changed rows are neither counted nor preserved.
+    def test_the_preservation_gate_does_not_bring_back_0_7_1s_readme_searches(self) -> None:
+        agent = _flat((_ROOT / "agents" / "neuroloom-transformer.md").read_text())
+        gate = agent.split("**2b. MCP preservation gate:**", 1)[1].split("**Heading fuzzy-match", 1)[0]
+        for call in (
+            '`memory_search(query="discipline list", ...)`',
+            '`memory_search(query="creating a new discipline criteria", ...)`',
+            '`memory_search(query="knowledge layer <section>", ...)`',
+        ):
+            assert call in gate, call
+        assert "neither counted nor preserved" in gate
+        assert "installs transformed by 0.7.1 or earlier" in gate
+        audit3 = agent.split("### Audit 3: MCP Retention", 1)[1].split("### Audit 4", 1)[0]
+        assert "README" in audit3 and "exception" in audit3
+        merge = _flat((_ROOT / "references" / "content-merge-audits.md").read_text())
+        assert "the README-read searches" in merge
+
+    # The files nothing reads are neither listed nor recorded (round 4, item 8).
+    def test_knowledge_update_neither_lists_nor_records_the_unread_files(self) -> None:
+        lifecycle = _flat((_ROOT / "references" / "adapter-lifecycle.md").read_text())
+        step11 = lifecycle.split("11. **Take the copies Neuroloom holds**", 1)[1].split("## post-file-write", 1)[0]
+        listed = step11.split("- **List**", 1)[1]
+        for path in _NO_READER_FILES:
+            assert f"`{path}`" in listed, path
+        assert "neither listed nor recorded" in listed
+        assert "never asked about or recorded" in listed  # z-sdlc's § Deleted Files, for a file an adapter took
+        assert "Neuroloom project: nothing reads it" not in lifecycle
+        assert "add `\"ops/sdlc/<path>\"" not in listed
+
+    def test_the_upgrade_procedure_covers_the_readme_rows(self) -> None:
+        changelog = (_ROOT / "CHANGELOG.md").read_text()
+        assert "### Upgrading a project already on 0.7.1" in changelog and "### Known limits" in changelog
+        upgrade = _flat(changelog.split("### Upgrading a project already on 0.7.1", 1)[1].split("### Known limits", 1)[0])
+        assert "The six files to restore" in upgrade and "`.claude/skills/sdlc-reflect/SKILL.md`" in upgrade
+        assert "`.claude/skills/sdlc-research/SKILL.md`" in upgrade and "Leave `.claude/skills/sdlc-audit/references/deep-verify.md` out" in upgrade
+        assert "deep-verify" not in upgrade.split("The six files to restore", 1)[1].split("(`sdlc-initialize`", 1)[0]
+        assert "sdlc-initialize" in upgrade and "z-sdlc runs it from its source" in upgrade  # not restored: no project carries it
+        assert "a different set from the six restored files" in upgrade  # the four wired skills are not the restored five
+        assert "cp <plugin_dir>/docs/knowledge-routing.md ops/sdlc/process/knowledge-routing.md" in upgrade
+        assert "declined" not in upgrade  # the twelve files are not recorded (round 4, item 8)
+        assert "the ten files the upgrade wrote" in upgrade and "`ops/sdlc/process/knowledge-routing.md` (step 5)" in upgrade
+        assert [int(n) for n in re.findall(r"(?m)^(\d+)\. ", changelog.split("### Upgrading a project already on 0.7.1", 1)[1].split("### Known limits", 1)[0])] == list(range(1, 9))
+        fixed = _flat(changelog.split("## [0.7.2]", 1)[1].split("### Upgrading", 1)[0])
+        assert "README" in fixed and "knowledge-routing.md" in fixed
+        limits = _flat(changelog.split("## [0.7.2]", 1)[1].split("### Known limits", 1)[1].split("## [0.7.1]", 1)[0])
+        assert "spec-time filter" in limits and "`sdlc-plan`" in limits
+        assert "`ops/sdlc/README.md:80`" in limits and "discipline memory entries tagged" in limits
+
+
+_FENCE = "`" * 3
+_AUDIT_FIXTURE = {
+    ".claude/agents/old.md": "memory_update(memory_id=1)\n",
+    ".claude/skills/a/SKILL.md": "Step 1.\nCall memory_update(memory_id=<id>, tags=[])\n",
+    ".claude/skills/b/references/r.md": (
+        "<!-- PROJECT-SECTION-START: modify-2026-07-15-demote-procedure -->\n"
+        "memory_update(\n  memory_id=K,\n  tags=[])\n"
+        "<!-- PROJECT-SECTION-END: modify-2026-07-15-demote-procedure -->\n"
+    ),
+    # Bundle text is upstream's, regenerated from the bundle on each migration: WARN, not REGRESSION.
+    ".claude/skills/c/SKILL.md": (
+        "<!-- BUNDLE-SECTION-START: github-provenance/sdlc-audit -->\n"
+        "memory_update(memory_id=K)\n"
+        "<!-- BUNDLE-SECTION-END: github-provenance/sdlc-audit -->\n"
+    ),
+    # A mark inside a fence, or inline in a sentence, is an example: it must not turn the real hit into a WARN.
+    ".claude/skills/d/SKILL.md": (
+        "Write `<!-- PROJECT-SECTION-START: x -->` on its own line.\n"
+        f"{_FENCE}\n<!-- PROJECT-SECTION-START: example -->\n{_FENCE}\n"
+        "memory_update(memory_id=1)\n"
+    ),
+    ".claude/skills/e/SKILL.md": "memory_update(tags=f(x), memory_id=1)\n",
+    # A fence inside a list item is indented further than three spaces; its example mark must not count.
+    ".claude/skills/i/SKILL.md": f"10. Example\n    {_FENCE}\n    <!-- PROJECT-SECTION-START: example -->\n    {_FENCE}\nmemory_update(memory_id=1)\n",
+    # An inline span delimited by three backticks is not a fence opener: the real END after it must still close the block.
+    ".claude/skills/g/SKILL.md": (
+        "<!-- PROJECT-SECTION-START: p -->\n"
+        f"{_FENCE}code{_FENCE} starts this line.\n"
+        "<!-- PROJECT-SECTION-END: p -->\n"
+        "memory_update(memory_id=1)\n"
+    ),
+    # A tilde line inside a backtick fence doesn't close it, so the START after it is still an example.
+    ".claude/skills/h/SKILL.md": f"{_FENCE}\n~~~\n<!-- PROJECT-SECTION-START: example -->\n{_FENCE}\nmemory_update(memory_id=1)\n",
+    # An inner three-backtick line doesn't close a four-backtick fence, so the START inside it is still an example.
+    ".claude/skills/f/SKILL.md": f"{_FENCE}`\n{_FENCE}\n<!-- PROJECT-SECTION-START: example -->\n{_FENCE}`\nmemory_update(memory_id=1)\n",
+    ".claude/agents/clean.md": "memory_update(id=<id>, tags=[])\n",
+    "ops/sdlc/knowledge/x.md": "memory_update(memory_id=1)\n",
+    "ops/sdlc/disciplines/y.md": "memory_update(memory_id=1)\n",
+    "ops/sdlc/process/sdlc_changelog.md": "quotes memory_update(memory_id=1)\n",
+    "ops/sdlc/process/changelog-archive/x.md": "quotes memory_update(memory_id=1)\n",
+    "CLAUDE.md": (
+        "project text memory_update(memory_id=1)\n<!-- SDLC-START -->\nmemory_update(memory_id=2)\n"
+        "<!-- SDLC-END -->\nmemory_update(memory_id=3)\n"
+    ),
+}
+_AUDIT_EXPECTED = [
+    "REGRESSION .claude/agents/old.md:1",
+    "REGRESSION .claude/skills/a/SKILL.md:2",
+    "WARN .claude/skills/b/references/r.md:2 (PROJECT-SECTION modify-2026-07-15-demote-procedure)",
+    "WARN .claude/skills/c/SKILL.md:2 (BUNDLE-SECTION github-provenance/sdlc-audit)",
+    "REGRESSION .claude/skills/d/SKILL.md:5",
+    "REGRESSION .claude/skills/e/SKILL.md:1",
+    "REGRESSION .claude/skills/f/SKILL.md:5",
+    "REGRESSION .claude/skills/g/SKILL.md:4",
+    "REGRESSION .claude/skills/h/SKILL.md:5",
+    "REGRESSION .claude/skills/i/SKILL.md:5",
+    "REGRESSION CLAUDE.md:3",
+]
+
+
+class TestOldIdParameterAudit072:
+    """Sleeved's installed sdlc-ingest (:78, :287, :298) and sdlc-research (:170, :181) call `memory_update(memory_id=...)`; the tool takes `id`.
+    The rules were fixed, but upstream never changed those files, so nothing re-transformed them."""
+
+    def _check7(self) -> str:
+        return _section(_audit(), "### Check 7 ", "\n---\n")
+
+    def test_check_7_exists_with_a_runnable_command(self) -> None:
+        check = self._check7()
+        assert "memory_update(" in check and "`memory_id=`" in check
+        assert "**REGRESSION**" in check and "**WARN**" in check and "PROJECT-SECTION" in check
+        assert "python3 - <<'PY'" in check
+
+    def test_the_command_flags_a_hit_outside_a_project_section_and_warns_inside_one(self, tmp_path: Path) -> None:
+        script = re.search(r"python3 - <<'PY'\n(.*?)\nPY\n", self._check7(), re.S)
+        assert script, "Check 7 has no runnable script"
+        for rel, body in _AUDIT_FIXTURE.items():
+            f = tmp_path / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(body)
+        done = subprocess.run(["python3", "-I", "-c", script.group(1)], cwd=tmp_path, capture_output=True, text=True)
+        lines = done.stdout.strip().splitlines()
+        assert lines == _AUDIT_EXPECTED, done.stdout + done.stderr
+        assert done.returncode == 1  # a REGRESSION exits non-zero
+
+    def test_the_command_is_quiet_on_a_clean_tree(self, tmp_path: Path) -> None:
+        script = re.search(r"python3 - <<'PY'\n(.*?)\nPY\n", self._check7(), re.S)
+        assert script
+        (tmp_path / ".claude" / "agents").mkdir(parents=True)
+        (tmp_path / ".claude" / "agents" / "c.md").write_text("memory_update(id=<id>)\n")
+        done = subprocess.run(["python3", "-I", "-c", script.group(1)], cwd=tmp_path, capture_output=True, text=True)
+        assert done.stdout == "" and done.returncode == 0
+
+    def test_the_summary_list_the_output_template_and_the_upgrade_name_check_7(self) -> None:
+        lifecycle = _flat((_ROOT / "references" / "adapter-lifecycle.md").read_text())
+        summary = lifecycle.split("Summary of required checks:", 1)[1].split("### Telemetry assertion", 1)[0]
+        assert "Check 7" in summary and "`memory_update`" in summary
+        assert "No `memory_update` with the old identifier" in _audit().split("## Output Format", 1)[1]
+        changelog = (_ROOT / "CHANGELOG.md").read_text()
+        upgrade = _flat(changelog.split("### Upgrading a project already on 0.7.1", 1)[1].split("### Known limits", 1)[0])
+        assert "Checks 2, 2b, 3, 6 step 4 and 7" in upgrade
+        fixed = _flat(changelog.split("## [0.7.2]", 1)[1].split("### Upgrading", 1)[0])
+        assert "`memory_update(memory_id=" in fixed and "Check 7" in fixed
+
+
+class TestSpecRelevantSkipRecord072:
+    """A skip recorded nothing, so the first-migration question would return on every migration."""
+
+    def test_knowledge_seed_step_4_records_an_empty_list_on_a_skip(self) -> None:
+        lifecycle = _flat((_ROOT / "references" / "adapter-lifecycle.md").read_text())
+        step4 = lifecycle.split("4. **Spec-relevant importance.**", 1)[1].split("5. **Mark the seed as started", 1)[0]
+        assert 'If CD skips it, record `"spec_relevant_domains": []`' in step4
+        assert "an empty list boosts nothing" in step4
+        assert "record nothing" in step4  # headless: nothing recorded, the question listed
+
+    def test_knowledge_update_step_6_boosts_nothing_for_an_empty_list(self) -> None:
+        lifecycle = _flat((_ROOT / "references" / "adapter-lifecycle.md").read_text())
+        step6 = lifecycle.split("6. **Seed, every file with `skip_deprecation: true`,**", 1)[1].split("**When nothing is sent**", 1)[0]
+        assert "an empty `spec_relevant_domains` boosts nothing" in step6
+
+
+def _lifecycle() -> str:
+    return (_ROOT / "references" / "adapter-lifecycle.md").read_text()
+
+
+def _upgrade_steps() -> dict[int, str]:
+    changelog = (_ROOT / "CHANGELOG.md").read_text()
+    assert "### Upgrading a project already on 0.7.1" in changelog
+    body = changelog.split("### Upgrading a project already on 0.7.1", 1)[1].split("### Known limits", 1)[0]
+    parts = re.split(r"(?m)^(\d+)\. ", body)
+    return {int(parts[i]): parts[i + 1] for i in range(1, len(parts) - 1, 2)}
+
+
+class TestReviewRound4Fixes072:
+    """Review round 4 of 0.7.2. Each test names the item the reviewers raised."""
+
+    # 1: step 3 said "those five paths" while step 2 restored six.
+    def test_step_3_names_every_path_step_2_restores(self) -> None:
+        steps = _upgrade_steps()
+        restored = re.findall(r"`(\.claude/skills/[\w./-]+\.md)`", steps[2].split("(`sdlc-initialize`", 1)[0])
+        assert len(restored) == 6, restored
+        for path in restored:
+            assert f"`{path}`" in steps[3].split("`plugin_dir`", 1)[0], path
+        assert "`files:` those" not in steps[3]
+
+    # 2: HEAD's headings were transformed or added by 0.7.1, so a whole-file heading count can't pass.
+    def test_the_heading_check_is_limited_to_the_headings_a_saved_block_names(self) -> None:
+        step2 = _flat(_upgrade_steps()[2])
+        assert "the same count of each heading (`grep" not in step2
+        assert "each heading a saved block sits under or names as its `replaces` target" in step2
+        assert "the same count of fence lines" in step2
+
+    # 3: Check 1 doesn't scan `.claude/skills`, and the restore moves the transformer's baseline.
+    def _mcp_step(self) -> str:
+        steps = _upgrade_steps()
+        step = next((t for t in steps.values() if "lost MCP calls" in t), None)
+        assert step is not None, "the upgrade has no step that checks for lost MCP calls"
+        return step
+
+    def test_the_upgrade_checks_for_lost_mcp_calls_against_head(self) -> None:
+        step = _flat(self._mcp_step())
+        for form in ("`memory_search(`", "`memory_store(`", "`memory_store with tags [`"):
+            assert form in step, form
+        assert "git show HEAD:" in step and "Check 1 doesn't scan `.claude/skills`" in step
+        assert "sdlc-ingest" in step and "Steps 4 to 6 and 8" in step
+
+    def _mcp_script(self) -> str:
+        m = re.search(r"```bash\n(.*?)\n\s*```", self._mcp_step(), re.S)
+        assert m, "the lost-MCP-calls step has no command"
+        return textwrap.dedent(m.group(1))
+
+    def test_the_lost_mcp_command_halts_on_an_unexplained_drop_only(self, tmp_path: Path) -> None:
+        script = self._mcp_script()
+        paths = re.findall(r"\.claude/skills/[\w./-]+\.md", script)
+        assert len(set(paths)) == 6, paths
+        env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t", "PATH": os.environ["PATH"], "HOME": str(tmp_path)}
+
+        def run(*cmd: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(cmd, cwd=tmp_path, capture_output=True, text=True, env=env)
+
+        run("git", "init", "-q")
+        calls = 'memory_search(query="a")\nmemory_store(content=1)\nmemory_store with tags [x]\n'
+        readme = 'memory_search(query="discipline list", tag_prefixes=["sdlc:discipline"])\n'
+        for rel in dict.fromkeys(paths):
+            f = tmp_path / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(calls + (readme if "reflect" in rel else ""))
+        run("git", "add", "-A")
+        assert run("git", "commit", "-q", "-m", "x").returncode == 0
+        # Restored files: reflect lost its README search (expected); nothing else changed.
+        (tmp_path / ".claude/skills/sdlc-reflect/SKILL.md").write_text(calls)
+        ok = run("bash", "-c", script)
+        assert ok.returncode == 0 and "HALT" not in ok.stdout, ok.stdout + ok.stderr
+        # Research loses a call nothing explains.
+        (tmp_path / ".claude/skills/sdlc-research/SKILL.md").write_text("memory_search(query=\"a\")\nmemory_store(content=1)\n")
+        bad = run("bash", "-c", script)
+        assert bad.returncode != 0 and "HALT .claude/skills/sdlc-research/SKILL.md" in bad.stdout, bad.stdout + bad.stderr
+        assert "gained: none" in bad.stdout, bad.stdout
+        # The transformer fills some queries afresh, so a call can come back reworded: the HALT shows
+        # the gained call beside the lost one, and the step tells the operator to pair them.
+        (tmp_path / ".claude/skills/sdlc-research/SKILL.md").write_text(calls.replace('query="a"', 'query="a, reworded"'))
+        reworded = run("bash", "-c", script)
+        assert reworded.returncode != 0 and 'gained: memory_search(query="a, reworded")' in reworded.stdout, reworded.stdout
+        step4 = _flat(_section((_ROOT / "CHANGELOG.md").read_text(), "4. Check for lost MCP calls.", "```bash"))
+        assert "Pair each halted call with its reworded counterpart among the gained ones" in step4
+
+    # 4: sdlc-migrate :610 sits under §2.1b, which upstream :567 skips for an adapter that declares knowledge-update.
+    def test_knowledge_update_asks_the_spec_relevance_question_before_it_sends(self) -> None:
+        lifecycle = _flat(_lifecycle())
+        step6 = lifecycle.split("6. **Seed, every file with `skip_deprecation: true`,**", 1)[1].split("**When nothing is sent**", 1)[0]
+        head = step6.split("Without the flag", 1)[0]
+        assert "no `spec_relevant_domains` key" in head and "which asks nothing" in head and "an ask tool is available" not in head
+        assert '[sdlc-root]/process/knowledge-routing.md` § "Tagging a project\'s stores"' in head
+        assert 'record `"spec_relevant_domains": []`, so no later migration lists the question again' in _flat(_routing_doc())
+        assert "put the question in the migration report" in head and "Record nothing and send unboosted" in head
+        assert "first migration asks" not in lifecycle and "first migration" not in lifecycle.split("4. **Spec-relevant importance.**", 1)[1].split("5. **Mark the seed", 1)[0]
+
+    def test_the_routing_doc_and_changelog_say_knowledge_update_asks(self) -> None:
+        doc = _flat(_routing_doc())
+        assert "its report lists the question" in doc and "runs it before it sends" not in doc and "first migration that brings the field" not in doc
+        rules = _flat(_rules())
+        assert "unreachable" in rules.split("First migration introducing", 1)[1][:900]
+        changelog = _flat((_ROOT / "CHANGELOG.md").read_text())
+        fixed = changelog.split("## [0.7.2]", 1)[1].split("### Upgrading", 1)[0]
+        assert "first-migration question fires only when the key is absent" not in fixed
+        assert "`knowledge-update` lists the question in the migration report" in fixed and "asks before it sends" not in fixed
+
+    # 5: the deep-verify call targets an `sdlc_knowledge` row, which the API never lets a project edit.
+    def test_check_7_and_the_changelog_do_not_promise_a_keyword_fix_for_deep_verify(self) -> None:
+        check = _flat(_section(_audit(), "### Check 7 ", "\n---\n"))
+        assert "so the project changes `memory_id=` to `id=` by hand" not in check
+        assert "`sdlc_knowledge` row" in check and "ADR-11" in check and "redesign" in check
+        changelog = _flat((_ROOT / "CHANGELOG.md").read_text())
+        for part in (changelog.split("## [0.7.2]", 1)[1].split("### Upgrading", 1)[0], _flat(_upgrade_steps()[2])):
+            seg = part[part.index("deep-verify") - 300 : part.index("deep-verify") + 700]
+            assert "ADR-11" in seg and "redesign" in seg, seg
+            assert "edits it by hand" not in seg and "fixes it by hand" not in seg
+
+    # 9: first match wins (~:131), so the exact-line row must come before the generic README row.
+    def test_the_exact_line_row_comes_before_the_generic_readme_row(self) -> None:
+        rows = [ln for ln in _rules().splitlines() if ln.startswith("| ")]
+        exact = next(i for i, ln in enumerate(rows) if ln.startswith("| `**First migration introducing"))
+        generic = next(i for i, ln in enumerate(rows) if ln.startswith('| `Read [sdlc-root]/knowledge/README.md § "<section>"`'))
+        assert exact < generic
+
+    # 10: a 0.7.1 copy already passes the first-5-lines check.
+    def test_the_routing_doc_copy_is_checked_by_content_not_by_its_first_lines(self) -> None:
+        lifecycle = _flat(_lifecycle())
+        assert "diff the first 5 lines" not in lifecycle
+        assert "cmp <plugin_dir>/docs/knowledge-routing.md ops/sdlc/process/knowledge-routing.md" in lifecycle or "cmp \"${CLAUDE_PLUGIN_ROOT}/docs/knowledge-routing.md\"" in lifecycle
+        assert "cmp <plugin_dir>/docs/knowledge-routing.md ops/sdlc/process/knowledge-routing.md" in _flat(_upgrade_steps()[5])
+        assert "first 5 lines" not in _flat(_upgrade_steps()[5])
+
+    # 11 and 12.
+    def test_step_4_says_what_the_boost_does_and_the_doc_says_what_it_doesnt(self) -> None:
+        step4 = _flat(_lifecycle()).split("4. **Spec-relevant importance.**", 1)[1].split("5. **Mark the seed", 1)[0]
+        assert "inform spec writing" not in step4
+        assert "raises those entries' importance to 0.9 and doesn't change what `sdlc-plan` loads" in step4
+        body = _flat(_doc_section("## spec_relevant Field"))
+        assert "does not change what `sdlc-plan` loads" in body and "no `spec_relevant` field" in body
+
+    def test_the_walkthrough_runs_the_domain_check_per_domain_and_asks_with_a_multi_select(self) -> None:
+        body = _flat(_doc_section("### Tagging a project's stores"))
+        assert "once per domain" in body and "multi-select" in body and "`AskUserQuestion`" in body
+        assert "Tag at least 2-3" not in body and "two or three" in body  # upstream's advice, dropped with its reason
+        assert "a domain boost doesn't filter" in body
+
+    # 16: Check 7's script.
+    def test_check_7_reads_utf_8_and_treats_only_whole_line_marks_outside_fences_as_marks(self) -> None:
+        check = _section(_audit(), "### Check 7 ", "\n---\n")
+        assert 'read_text(encoding="utf-8")' in check
+        flat = _flat(check)
+        assert "whole line" in flat and "fence" in flat
+        assert "BUNDLE-SECTION" in flat and "regenerated" in flat
+
+    # 17.
+    def test_the_summary_item_names_the_audit_document_for_check_7(self) -> None:
+        lifecycle = _flat(_lifecycle())
+        summary = lifecycle.split("Summary of required checks:", 1)[1].split("### Telemetry assertion", 1)[0]
+        assert "(`post-operation-audit.md` Check 7)" in summary and "(Check 7)" not in summary
+
+    # 18: the transformer contradicted itself about what a re-port sends.
+    def test_the_created_discipline_file_rule_states_the_real_hazard(self) -> None:
+        agent = _flat((_ROOT / "agents" / "neuroloom-transformer.md").read_text())
+        step8 = agent.split("8. **A created discipline file is never kept at its path**", 1)[1].split("**`sync_archive_status`:**", 1)[0]
+        assert "would read the stub and send its scaffolding as the discipline's framework entry" not in step8
+        assert "post-operation Check 6" in step8 and "`sdlc-migrate`'s ordinary path" in step8
+
+    # 13 and 14: the sdlc-ingest lines that still describe file-mode conventions or an inert field.
+    def test_sdlc_ingest_replaces_the_structure_line_and_the_spec_relevant_report_note(self) -> None:
+        section = _flat(_section(_rules(), "**`sdlc-ingest` writes files; its Post-Execution Transform sends them", "**Fenced code blocks are structurally exempt"))
+        assert "the line starting `Organize extracted rules into structured YAML files`" in section
+        assert "becomes `Organize extracted rules into structured YAML files in the shape shown" in section
+        assert "the bullet starting `- If ingested knowledge is likely spec-relevant`" in section
+        assert "`spec_relevant_domains`" in section.split("- If ingested knowledge is likely spec-relevant", 1)[1][:900].replace("\\`", "`")
+        assert "Organize extracted rules into structured YAML files" not in _kept_openings(section)
+
+
+def _kept_openings(section: str) -> str:
+    """The first list of the sdlc-ingest section: the lines it keeps as upstream has them."""
+    kept = section.split("1. **Kept as upstream has them**", 1)[1].split("2. **Step 5's first placement bullet**", 1)[0]
+    return kept
+
+
+_RETIRED_0_7_1 = (
+    'memory_search(query="discipline list", tag_prefixes=["sdlc:discipline"])',
+    'memory_search(query="creating a new discipline criteria", tag_prefixes=["sdlc:discipline"])',
+)
+
+
+class TestCodexReview072:
+    """The Codex external review of 0.7.2. Each test names the finding."""
+
+    # 1: the upgrade restored upstream over a project's removals.
+    def test_the_upgrade_keeps_project_section_removed_lines(self) -> None:
+        step2 = _flat(_upgrade_steps()[2])
+        assert "`PROJECT-SECTION-REMOVED`" in step2 and "whole-line" in step2
+        assert "delete its target section" in step2 and "put the `PROJECT-SECTION-REMOVED` line where the section was" in step2
+        assert "the same count of `PROJECT-SECTION-START` lines plus whole-line `PROJECT-SECTION-REMOVED` lines" in step2
+        assert "or at the `PROJECT-SECTION-REMOVED` lines" in step2
+        assert "ORPHAN" in step2  # a target the restored text no longer has
+
+    # 2: a created discipline stub with no `## Parking Lot` was deleted unsent.
+    def test_a_created_discipline_file_needs_exactly_one_parking_lot_heading_and_every_bullet_matched(self) -> None:
+        handler = _flat((_ROOT / "agents" / "neuroloom-transformer.md").read_text()).split("**`ingest_to_neuroloom`:**", 1)[1].split("**`sync_archive_status`:**", 1)[0]
+        assert "exactly one `## Parking Lot` heading" in handler
+        assert "every bullet the report names for a created discipline file must match exactly one extracted parking-lot id" in handler
+        assert "Delete a created file only when" in handler and "each bullet the report named for a created discipline file was sent or found already sent" in handler
+
+    # 3: /sdlc-port's final check restored from backup on map lines 0.7.2 keeps.
+    def test_sdlc_ports_checks_exempt_check_6_step_4s_list(self) -> None:
+        step4 = _flat(_section(_audit(), "4. All operations:", "**Action on failure:**"))
+        assert "`Source-to-project path mappings`" in step4  # the closed list the exemption points at
+        for rel in ("skills/sdlc-port/references/verification-manifest.md", "skills/sdlc-port/references/transform-targets.md", "skills/sdlc-port/SKILL.md"):
+            text = _flat((_ROOT / rel).read_text())
+            assert "Check 6 step 4" in text, rel
+        row = next(ln for ln in (_ROOT / "skills/sdlc-port/references/verification-manifest.md").read_text().splitlines() if ln.startswith("| No stale YAML references"))
+        assert "Check 6 step 4" in row
+
+    # 4: the lost-call allowance counted retired calls that survived, and any `knowledge layer` query.
+    def _mcp_run(self, tmp_path: Path, head: dict[str, str], new: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        script = TestReviewRound4Fixes072()._mcp_script()
+        env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t", "PATH": os.environ["PATH"], "HOME": str(tmp_path)}
+        paths = sorted(set(re.findall(r"\.claude/skills/[\w./-]+\.md", script)))
+        subprocess.run(["git", "init", "-q"], cwd=tmp_path, env=env, check=True)
+        for rel in paths:
+            f = tmp_path / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(head.get(rel, 'memory_search(query="a")\n'))
+        subprocess.run(["git", "add", "-A"], cwd=tmp_path, env=env, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "x"], cwd=tmp_path, env=env, check=True)
+        for rel, body in new.items():
+            (tmp_path / rel).write_text(body)
+        return subprocess.run(["bash", "-c", script], cwd=tmp_path, capture_output=True, text=True, env=env)
+
+    def test_a_surviving_retired_search_does_not_excuse_an_unrelated_lost_call(self, tmp_path: Path) -> None:
+        reflect = ".claude/skills/sdlc-reflect/SKILL.md"
+        head = f'memory_search(query="a")\nmemory_search(query="b")\n{_RETIRED_0_7_1[0]}\n'
+        done = self._mcp_run(tmp_path, {reflect: head}, {reflect: f'memory_search(query="a")\n{_RETIRED_0_7_1[0]}\n'})
+        assert done.returncode != 0 and f"HALT {reflect}" in done.stdout, done.stdout + done.stderr
+
+    def test_a_retired_search_that_is_gone_is_allowed(self, tmp_path: Path) -> None:
+        reflect = ".claude/skills/sdlc-reflect/SKILL.md"
+        head = f'memory_search(query="a")\n{_RETIRED_0_7_1[0]}\n{_RETIRED_0_7_1[1]}\n'
+        done = self._mcp_run(tmp_path, {reflect: head}, {reflect: 'memory_search(query="a")\n'})
+        assert done.returncode == 0 and "HALT" not in done.stdout, done.stdout + done.stderr
+
+    def test_a_knowledge_layer_query_for_another_section_is_not_excused(self, tmp_path: Path) -> None:
+        migrate = ".claude/skills/sdlc-migrate/SKILL.md"
+        head = 'memory_search(query="a")\nmemory_search(query="knowledge layer Something Else", tags=["sdlc:knowledge"])\n'
+        done = self._mcp_run(tmp_path, {migrate: head}, {migrate: 'memory_search(query="a")\n'})
+        assert done.returncode != 0 and f"HALT {migrate}" in done.stdout, done.stdout + done.stderr
+
+    def test_the_two_0_7_1_knowledge_layer_outputs_are_excused(self, tmp_path: Path) -> None:
+        migrate = ".claude/skills/sdlc-migrate/SKILL.md"
+        head = 'memory_search(query="a")\nmemory_search(query="knowledge layer Tagging a project\'s stores", tags=["sdlc:knowledge"])\n'
+        done = self._mcp_run(tmp_path, {migrate: head}, {migrate: 'memory_search(query="a")\n'})
+        assert done.returncode == 0, done.stdout + done.stderr
+
+    # 5 to 7, 9: ingest_to_neuroloom.
+    def _handler(self) -> str:
+        agent = _flat((_ROOT / "agents" / "neuroloom-transformer.md").read_text())
+        return agent.split("**`ingest_to_neuroloom`:**", 1)[1].split("**`sync_archive_status`:**", 1)[0]
+
+    def test_a_non_rules_yaml_entry_is_matched_by_id_first_and_the_template_asks_for_it(self) -> None:
+        assert "any other YAML entry by its `id` first, then its title" in self._handler()
+        line = next(ln for ln in _lifecycle().splitlines() if ln.startswith("- report: ["))
+        assert "its rule id or id" in line
+
+    def test_a_pre_existing_uncommitted_file_is_committed_first_not_resent(self) -> None:
+        handler = self._handler()
+        assert "a file that existed before this run (uncommitted) is committed first" in handler
+        assert "“correct the report” applies only" not in handler and "`correct the report` applies only" not in handler
+        assert "Correct the report only when this run created the file" in handler
+
+    def test_a_created_file_is_compared_with_its_temp_copy_before_it_is_deleted(self) -> None:
+        handler = self._handler()
+        assert "`cmp` it with the copy step 3 extracted" in handler and "edited during the upload" in handler
+
+    def test_the_hash_check_reads_every_file_step_3_printed(self) -> None:
+        handler = self._handler()
+        assert "the files step 3 printed" in handler and "`all.json`" not in handler.split("**Which ids to send.**", 1)[1].split("**Send.**", 1)[0]
+
+    # 8: the routing doc copy overwrote an edited installed copy.
+    def test_the_upgrade_checks_the_installed_routing_doc_against_its_hash_before_overwriting_it(self) -> None:
+        step5 = _flat(_upgrade_steps()[5])
+        assert "Before the copy, compare" in step5 and "`installed_files` entry" in step5 and "stop and list it" in step5
+
+    # 10: with a map on disk, z-sdlc runs its ordinary path and the loop works.
+    def test_the_section_4_1_skip_applies_only_when_no_map_is_on_disk(self) -> None:
+        para = _flat(_lifecycle()).split("**No agent-context-map: skip `sdlc-migrate` §3.3 and §4.1's map check.**", 1)[1][:4200]
+        assert "Only when no map is on disk" in para and "z-sdlc runs its ordinary path" in para and "upstream's yes/no" in para
+
+    # 12.
+    def test_the_summary_item_matches_check_7s_two_warn_cases(self) -> None:
+        summary = _flat(_lifecycle()).split("11. **No `memory_update` with the old identifier**", 1)[1].split("### Telemetry assertion", 1)[0][:700]
+        assert "`BUNDLE-SECTION`" in summary and "WARN" in summary and "outside a section block" in summary
+
+    # 13: parking-lot bullets don't carry sdlc:knowledge.
+    def test_step_6_says_how_each_kind_of_entry_is_found(self) -> None:
+        section = _flat(_section(_rules(), "**`sdlc-ingest` writes files; its Post-Execution Transform sends them", "**Fenced code blocks are structurally exempt"))
+        step6 = section.split("### 6. Wire to Agents", 1)[1][:1800]
+        assert "A parking-lot bullet from a discipline file" in step6
+        assert "`sdlc:discipline:<name>`" in step6 and "`sdlc:parking-lot`" in step6 and 'tag_prefixes=["sdlc:discipline"]' in step6.replace("\\", "")
+
+    # Known limits.
+    def test_the_codex_known_limits_are_listed(self) -> None:
+        limits = _flat((_ROOT / "CHANGELOG.md").read_text().split("## [0.7.2]", 1)[1].split("### Known limits", 1)[1].split("## [0.7.1]", 1)[0])
+        for part in (
+            "narrative hash doesn't prove the row came from this ingest",
+            "a migration that seeds the same id between the lookup and the seed is overwritten",
+            "Check 1's `git grep` over `HEAD` misses",
+            "Moving the file to a unique path first",
+            "Check 7's regex matches `memory_id=` inside a string argument",
+        ):
+            assert part in limits, part
+
+
+class TestCodexReview2072:
+    """Codex's second pass over 0.7.2's fixes."""
+
+    _wired = 'Wiring: call `memory_store(...)` with `sdlc:agent:[name]` tags to wire the agent.\n'
+
+    def _run(self, tmp_path: Path, head: dict[str, str], new: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        return TestCodexReview072()._mcp_run(tmp_path, head, new)
+
+    # 2: the allowance counted lines, so an unrelated call on the retired search's line was excused.
+    def test_an_unrelated_call_on_a_retired_searchs_line_is_not_excused(self, tmp_path: Path) -> None:
+        reflect = ".claude/skills/sdlc-reflect/SKILL.md"
+        head = f'memory_search(query="a")\n{_RETIRED_0_7_1[0]} then memory_store(content=1)\n'
+        done = self._run(tmp_path, {reflect: head}, {reflect: 'memory_search(query="a")\n'})
+        assert done.returncode != 0 and f"HALT {reflect}" in done.stdout, done.stdout + done.stderr
+
+    # Final check, item 1: the check is a multiset difference of exact call texts.
+    def test_a_project_specific_discipline_list_search_is_not_the_retired_one(self, tmp_path: Path) -> None:
+        reflect = ".claude/skills/sdlc-reflect/SKILL.md"
+        head = 'memory_search(query="discipline list", tags=["sdlc:project-specific"])\n'
+        done = self._run(tmp_path, {reflect: head}, {reflect: 'memory_search(query="a")\n'})
+        assert done.returncode != 0 and f"HALT {reflect}" in done.stdout, done.stdout + done.stderr
+
+    def test_losing_an_agent_store_and_gaining_a_search_halts_even_when_the_totals_match(self, tmp_path: Path) -> None:
+        research = ".claude/skills/sdlc-research/SKILL.md"
+        done = self._run(tmp_path, {research: 'memory_store(tags=["sdlc:agent:reviewer"])\n'}, {research: 'memory_search(query="z")\n'})
+        assert done.returncode != 0 and f"HALT {research}" in done.stdout, done.stdout + done.stderr
+
+    def test_an_agent_tagged_store_removed_from_sdlc_audit_is_allowed(self, tmp_path: Path) -> None:
+        audit = ".claude/skills/sdlc-audit/SKILL.md"
+        done = self._run(tmp_path, {audit: 'memory_store(tags=["sdlc:agent:reviewer"])\n'}, {audit: "Nothing.\n"})
+        assert done.returncode == 0 and "HALT" not in done.stdout, done.stdout + done.stderr
+
+    # 3: step 2's recovery for a created file committed after a halt, and for a stale entry on a new file.
+    def test_the_git_rm_cached_branch_wins_for_a_file_this_ingest_created_and_committed(self) -> None:
+        handler = TestCodexReview072()._handler()
+        assert "holds only this ingest's entries" in handler and "`git rm --cached <path>`" in handler
+        assert "otherwise it is the project's file and appended" in handler
+        assert "this run's write, so the off-disk condition doesn't apply" in handler
+
+    # 4.
+    def test_an_idless_entries_item_is_reported_by_its_topic_first(self) -> None:
+        line = next(ln for ln in _lifecycle().splitlines() if ln.startswith("- report: ["))
+        assert "by its `topic`" in line and "`title` only when there is no `topic`" in line
+
+    # 3: the `sdlc:agent:` allowance is sdlc-audit's, not every file's.
+    def test_a_dropped_agent_wiring_store_in_sdlc_research_halts(self, tmp_path: Path) -> None:
+        research = ".claude/skills/sdlc-research/SKILL.md"
+        done = self._run(tmp_path, {research: self._wired}, {research: "Nothing.\n"})
+        assert done.returncode != 0 and f"HALT {research}" in done.stdout, done.stdout + done.stderr
+
+    def test_the_agent_wiring_store_sdlc_audit_lost_is_allowed(self, tmp_path: Path) -> None:
+        audit = ".claude/skills/sdlc-audit/SKILL.md"
+        done = self._run(tmp_path, {audit: self._wired}, {audit: "Wire needs no step.\n"})
+        assert done.returncode == 0 and "HALT" not in done.stdout, done.stdout + done.stderr
+
+    # 10: both retired `knowledge layer` outputs are excused.
+    def test_both_retired_knowledge_layer_searches_are_excused(self, tmp_path: Path) -> None:
+        migrate = ".claude/skills/sdlc-migrate/SKILL.md"
+        head = ('memory_search(query="a")\nmemory_search(query="knowledge layer Tagging a project\'s stores", tags=["sdlc:knowledge"])\n'
+                'memory_search(query="knowledge layer spec_relevant Field", tags=["sdlc:knowledge"])\n')
+        done = self._run(tmp_path, {migrate: head}, {migrate: 'memory_search(query="a")\n'})
+        assert done.returncode == 0, done.stdout + done.stderr
+
+    # 4: step 5's matching is one-to-one.
+    def test_matching_is_one_to_one(self) -> None:
+        handler = TestCodexReview072()._handler()
+        assert "two reported bullets or two YAML entries may not match the same extracted id" in handler
+        assert "each extracted id may be claimed at most once" in handler
+
+    # 6 and 7.
+    def test_both_directions_of_the_created_versus_appended_disagreement_are_stated(self) -> None:
+        handler = TestCodexReview072()._handler()
+        assert "when git tracks the file, the report is wrong and is corrected to “appended”" in handler or "when git tracks the file, the report is wrong and is corrected to \"appended\"" in handler
+        assert "Correct the report only when this run created the file" in handler or "when the report says appended and this run created the file" in handler
+
+    def test_the_report_may_name_an_entry_by_its_topic_or_title(self) -> None:
+        line = next(ln for ln in _lifecycle().splitlines() if ln.startswith("- report: ["))
+        assert "by its `topic`" in line
+
+    # 8.
+    def test_the_reports_agent_wiring_line_is_conditional_on_rules_having_been_added(self) -> None:
+        section = _flat(_section(_rules(), "**`sdlc-ingest` writes files; its Post-Execution Transform sends them", "**Fenced code blocks are structurally exempt"))
+        assert "`AGENT WIRING` and `  Not needed: agents find new knowledge through their Knowledge Context search" not in section
+        assert "parking-lot bullets are found by the discipline search" in section
+
+    # 9 and 5: Check 7's fences follow CommonMark.
+    def test_check_7_describes_the_commonmark_fence_rule(self) -> None:
+        check = _flat(_section(_audit(), "### Check 7 ", "\n---\n"))
+        assert "any leading whitespace" in check and "no backtick in the info string" in check
+        assert "nothing after it but whitespace" in check

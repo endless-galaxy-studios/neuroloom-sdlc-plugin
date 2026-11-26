@@ -16,21 +16,21 @@ Run every check. Collect failures. Report together at the end. Do not short-circ
 
 ### Check 1 — MCP integration health (Neuroloom-specific)
 
-For Neuroloom projects (`neuroloom_backend: true` in manifest), the installed files should contain `memory_search(` / `memory_store(` calls in files detected by the phrasing-contract runtime scan (see `${CLAUDE_PLUGIN_ROOT}/agents/neuroloom-transformer.md` § "Step 1: Runtime Scan") and in the Pattern Mapping rules.
+For Neuroloom projects (`neuroloom_backend: true` in manifest), the installed files should contain MCP references in files detected by the phrasing-contract runtime scan (see `${CLAUDE_PLUGIN_ROOT}/agents/neuroloom-transformer.md` § "Step 1: Runtime Scan") and in the Pattern Mapping rules.
 
 **Procedure:**
-1. Count `memory_search(` + `memory_store(` occurrences across `ops/sdlc/` and `.claude/agents/` → `MCP_COUNT_INSTALLED`
-2. Verify at minimum these files each contain at least one MCP call, and where the line names two sections, one in each of them:
+1. Count MCP references across `ops/sdlc/` and `.claude/agents/` (Markdown only, skipping `ops/sdlc/knowledge/` and `ops/sdlc/disciplines/` as every scan here does) → `MCP_COUNT_INSTALLED`. An MCP reference is any of three forms: `memory_search(`, `memory_store(`, and `memory_store with tags [`, the form the capture-target rows write (`pattern-mapping-rules.md`, "Cross-project knowledge updates go to memory_store with tags [...]" in `process/overview.md` is one). Counting only the first two scored `overview.md` zero in Sleeved's migration to z-sdlc 3.0.0, a REGRESSION on the rules' own output.
+2. Verify at minimum these files each contain at least one MCP reference, and where the line names two sections, one in each of them:
    - `ops/sdlc/templates/agent-template.md` — Knowledge Context + Communication Protocol (z-sdlc installs the agent template there; there is no `.claude/agents/AGENT_TEMPLATE.md`)
    - `.claude/agents/sdlc-reviewer.md` — wiring checklist
    - `.claude/agents/sdlc-compliance-auditor.md` — Knowledge Context + Communication Protocol (z-sdlc 2.9.6 gave the auditor both sections; one call in the file no longer shows that both were transformed)
    - `ops/sdlc/process/discipline_capture.md` — agent knowledge lookup
    - `ops/sdlc/process/overview.md` — knowledge capture
-3. If any listed file has zero MCP calls: **REGRESSION** — transformation did not apply
+3. If any listed file has zero MCP references: **REGRESSION** — transformation did not apply
 
 **Expected counts by operation:**
 - `/sdlc-initialize` — expect non-zero (fresh Pattern Mapping applied)
-- `/sdlc-migrate` — expect `>= MCP_COUNT_PRE_MIGRATION` (from transaction log)
+- `/sdlc-migrate` — expect `>= MCP_COUNT_PRE_MIGRATION`: the same count by `git grep` over `HEAD`, the tree as the last commit left it, since a migration commits nothing before this phase. Nothing records the number during the run, so compute it here. A drop names the files whose count fell
 - `/sdlc-port` — expect non-zero (port applies Pattern Mapping in bulk)
 
 ### Check 2 — No residual knowledge-layer references
@@ -59,6 +59,7 @@ The scan is deliberately not fence-aware and not Integration-aware: a hit inside
 | 4 | `ops/sdlc/process/sdlc_changelog.md` and `ops/sdlc/process/changelog-archive/*.md` | History. Entries quote phrases as an accurate record of what happened (z-sdlc contract 0017). |
 | 5 | Hits inside a fenced block that shows a file format or a command and is NOT a dispatch-prompt template block, an agent template block or an output-template block (identification criteria: `pattern-mapping-rules.md` § "Dispatch-prompt template blocks" and § "Output-template blocks"). Upstream examples: `sdlc-ingest/SKILL.md` and `sdlc-develop-agent/SKILL.md` ` ```yaml ` demos of an `agent-context-map.yaml` entry, `process/discipline_capture.md`'s ` ```markdown ` "Promoted entry format", and a ` ```bash ` command | A format or command demo illustrates upstream's file layout; rewriting it removes the example's value and can break its syntax. A ` ```markdown ` or untagged fence holding a prompt sent to a dispatched agent is NOT exempt: a subagent acts on it literally. |
 | 6 | Contract 0026's file-presence lines: z-sdlc's own rules for telling a file the adapter took (no copy on disk, no `installed_files` entry) from a missing one. A closed list, each line found by its opening words: in `.claude/skills/sdlc-migrate/` (the skill file), the paragraph starting `**The knowledge layer is the adapter's** when`, its bullet starting `- **Every other file there**`, its bullet starting `` - **In a full migration** (no `source_version`) ``, the §2.3 line starting `When the knowledge layer is the adapter's (Pre-Flight Check, Step 2, The knowledge layer is the adapter's), skip the discipline files the adapter took.` and the §4.4 auditor-prompt line starting `> - Dimension 7 (Migration Integrity):`; in `.claude/agents/sdlc-compliance-auditor.md`, the item starting `7. **Migration integrity**`; in `.claude/skills/sdlc-audit/references/compliance-methodology.md`, the bullet starting `- **7b. File completeness:**`; in `ops/sdlc/process/adapter-lifecycle-protocol.md` (row 3 already exempts its paths), the paragraph starting `**The knowledge layer is the adapter's** when`, for its `provenance_log.md`. The whole line is exempt from the path scan, the provenance scan and the concept-term scans; any other line in these files is checked as usual. One exception keeps the list honest: if such a line also tells an agent to read, consult, append to or look up a knowledge-layer path, it is not exempt but a **REGRESSION**, since upstream changed it and the plugin needs a review. | They test whether a file is on disk; they don't read it. This plugin depends on them: `sdlc-migrate` leaves alone the files `knowledge-seed` and `knowledge-update` took, and the compliance auditor doesn't report them missing, only because these lines say so. Rewriting them into `memory_search` would break that, so the transformer keeps them verbatim (`pattern-mapping-rules.md` § "Contract 0026's file-presence lines"). They name `provenance_log.md` only as the project's own record, which a migration never copies and nothing reads or writes. Sleeved's migration to z-sdlc 3.0.0 halted on them (2026-11-26). |
+| 7 | `sdlc-ingest`'s write destinations: in `.claude/skills/sdlc-ingest/` (the skill file), the two rows of Step 5's destination table whose first cell is `Validated, testable rules` or `Promising but unvalidated insights`. Any other line in the skill is checked as usual. | The skill writes those files on purpose. Its Post-Execution Transform (`ingest_to_neuroloom`) sends what it wrote to Neuroloom with the knowledge ids every other path uses and `sdlc:project-specific`, then removes the files. Rewritten into `memory_store` destinations, they stored entries with neither, which no migration could match (Sleeved, 2026-11-26). `pattern-mapping-rules.md` § "`sdlc-ingest` writes files" keeps them as upstream has them. |
 
 **Second scan: the on-disk provenance log.** CD decided (2026-10-29) that provenance lives as memories tagged `sdlc:provenance`, so no installed file may tell an agent to read or write an on-disk log, and the string `provenance_log` must not appear in any installed file outside the exemptions below:
 
@@ -99,7 +100,7 @@ Check 2 finds paths. Pass 2 translates bare flat-file vocabulary that names no p
 grep -rinE --include='*.md' '\bknowledge stores?\b|\bknowledge files?\b|\bdiscipline files?\b|\bparking[- ]lot entr|\bknowledge-store entr|\bdiscipline parking[- ]lots?\b|\bknowledge YAMLs?\b|\bYAML knowledge files?\b|\bknowledge index\b|\bknowledge store gaps?\b' .claude/skills .claude/agents ops/sdlc CLAUDE.md | grep -vE '^ops/sdlc/(knowledge|disciplines)/'
 ```
 
-**Not reported** (legitimate retention): everything under `.claude/skills/sdlc-migrate/` (it describes the framework's file layout); `ops/sdlc/process/knowledge-routing.md`, `project-section-markers.md`, `path-mappings.md`, `adapter-lifecycle-protocol.md`; `sdlc_changelog.md` and `changelog-archive/*.md`; hits inside fenced blocks; hits inside a quoted phrase of a trigger list or a `user: \"…\"` line in a skill or agent description (`"verify the knowledge store"`); an `assistant:` line or `<commentary>` text is prose and IS reported; hits inside an MCP `query="…"` string; the Neuroloom replacement strings themselves (`Neuroloom knowledge store`); a hit directly followed by a `(memory …` parenthetical, which is the shape of the replacement's own output (`Update the knowledge index (memory entries tagged sdlc:knowledge + sdlc:knowledge-index)`, `Discipline Parking Lots (memory graph, entries tagged sdlc:discipline:<name>)`); and the quoted span of a `- [ ] No` checklist item.
+**Not reported** (a reporting rule only: it never makes the transformer keep a line, and Check 6 step 4 keeps its own list): everything under `.claude/skills/sdlc-migrate/` (it describes the framework's file layout); the lines of `.claude/skills/sdlc-ingest/` that `pattern-mapping-rules.md` § "`sdlc-ingest` writes files" keeps as upstream has them, and its replacement Step 5 bullet starting `- Write new YAML files or append to existing ones.` (the skill writes files, which its Post-Execution Transform sends); `ops/sdlc/process/knowledge-routing.md`, `project-section-markers.md`, `path-mappings.md`, `adapter-lifecycle-protocol.md`; `sdlc_changelog.md` and `changelog-archive/*.md`; hits inside fenced blocks; hits inside a quoted phrase of a trigger list or a `user: \"…\"` line in a skill or agent description (`"verify the knowledge store"`); an `assistant:` line or `<commentary>` text is prose and IS reported; hits inside an MCP `query="…"` string; the Neuroloom replacement strings themselves (`Neuroloom knowledge store`); a hit directly followed by a `(memory …` parenthetical, which is the shape of the replacement's own output (`Update the knowledge index (memory entries tagged sdlc:knowledge + sdlc:knowledge-index)`, `Discipline Parking Lots (memory graph, entries tagged sdlc:discipline:<name>)`); and the quoted span of a `- [ ] No` checklist item.
 
 **Action on hit:** every other hit is a **WARN**: report file, line and the text, so CD can fix it or accept it. A hit in a file whose `file_merged` event for this run says `subtype: "no_patterns"` is a **REGRESSION**: Step 1 skipped Pass 2 on a file that needed it.
 
@@ -127,12 +128,17 @@ grep -rnoE --include='*.md' '\]\((\./|\.\./)*(knowledge|disciplines|bundles)/[^)
 
 The phrasing contract forbids inline conditionals like `(Neuroloom projects: use memory_search instead)` in z-sdlc source files. After transformation, these should never appear in installed files.
 
-**Search patterns (all should return zero hits):**
-- `(Neuroloom projects:`
-- `(skip for Neuroloom`
-- `(Neuroloom projects use`
+**Scan** (Check 2's trees, Markdown only, with Check 2's rule for the project-root `CLAUDE.md` region):
 
-**Action on hit:** **REGRESSION** — either the upstream file has a contract violation (should be fixed upstream) or the transformation didn't strip it. Halt.
+```bash
+grep -rnF --include='*.md' -e '(Neuroloom projects:' -e '(skip for Neuroloom' -e '(Neuroloom projects use' .claude/skills .claude/agents ops/sdlc CLAUDE.md | grep -vE '^ops/sdlc/(knowledge|disciplines)/'
+```
+
+**Exemptions** (a closed list; Sleeved's migration to z-sdlc 3.0.0 reported both kinds as regressions, 2026-11-26):
+- `ops/sdlc/process/sdlc_changelog.md` and `ops/sdlc/process/changelog-archive/*.md`: history, as in Check 2 row 4.
+- In `.claude/agents/sdlc-compliance-auditor.md`, the three items of its inline-adapter-conditionals detector list: each is a list item that opens with one of the three patterns in backticks (`` - `(Neuroloom projects:` ``), optionally followed by ` — ` and prose. The auditor quotes the patterns it greps for, as this check does.
+
+Every other hit is a **REGRESSION**: either the upstream file has a contract violation (should be fixed upstream) or the transformation didn't strip it.
 
 ### Check 4 — Manifest integrity
 
@@ -171,10 +177,70 @@ A Neuroloom project keeps the knowledge and parking lots Neuroloom holds in the 
 **Procedure:**
 1. `/sdlc-port`: skip steps 2 and 3. The port's source files are still there when this audit runs, and Post-Port Cleanup, which runs after it, offers to remove them.
 2. List the files under `ops/sdlc/knowledge/` and `ops/sdlc/disciplines/` with whether `installed_files` lists each and, for a listed one, whether its SHA-256 (the first column of `shasum -a 256`) matches the recorded hash, and read `git status --porcelain --untracked-files=all -- ops/sdlc/knowledge ops/sdlc/disciplines`. The flag matters: without it, git reports a directory that is wholly untracked as one line (`?? ops/sdlc/knowledge/`) and names no file in it.
-3. A new `ops/sdlc/knowledge/agent-context-map.yaml` (status `??` or `A`) that this run created: **REGRESSION**. On a migration, a `??` or `A` map that `knowledge-update` step 11 listed as left in place was there before the run (an uncommitted map from an older initialize or a port that kept its files): a **WARN**, as for a tracked one below. It is the one file here that changes upstream's behaviour: `sdlc-migrate` §3.3 edits the map whenever it finds one. The `knowledge-update` handler tells a migration never to create it, and the `knowledge-seed` handler (step 8) deletes the one `sdlc-initialize` copies, so a new one means a handler step did not run. A map git already tracks is a **WARN** (an initialize from before plugin 0.7.0 left it, or a port that kept its files; `knowledge-update` step 11 removes it on a migration when git shows it unmodified, and lists it otherwise), with the fix: once any routing in it that isn't committed is saved elsewhere, remove and record it as `knowledge-seed` step 8 does (`rm -f`, a `declined_files` record, and its `installed_files` entry dropped). On `/sdlc-initialize`, an `installed_files` entry here whose content still matches its recorded hash and whose file the extractor seeds (a `.yaml` under `knowledge/` other than the map, a `.md` under `knowledge/` other than a README or `provenance_log.md`, or a `disciplines/*.md` other than `README.md`) is a **REGRESSION**: `knowledge-seed` step 9 didn't remove it (run step 9). On `/sdlc-migrate`, `knowledge-update` step 11 takes only a copy whose every entry it checked this run; a copy it listed as likely redundant is a WARN, pointing at that list (CD compares it with Neuroloom and removes it by hand as the list says). A discipline file it keeps stays for z-sdlc and isn't reported. On a run that began with the map on disk, step 11 took nothing and removed the map only if git showed it unmodified: a map still on disk afterwards is the map WARN above, tracked or not. The files step 9 keeps, and every other file here, are the project's to keep and aren't reported: text Neuroloom doesn't hold (a README, a diagram, `provenance_log.md`) and files the project edited. `sdlc-migrate` updates and merges a kept discipline or other Markdown file on its ordinary path (contract 0026); a kept knowledge YAML stays as the project left it, since its merge is this plugin's and the plugin doesn't merge files. `knowledge-update` step 11 lists an edited one whose upstream text changed, and the files off disk that Neuroloom doesn't hold.
-4. All operations: check for any remaining references to `agent-context-map.yaml` as a runtime lookup (vs. a historical mention in the changelog).
+3. A new `ops/sdlc/knowledge/agent-context-map.yaml` (status `??` or `A`) that this run created: **REGRESSION**. On a migration, a `??` or `A` map that `knowledge-update` step 11 listed as left in place was there before the run (an uncommitted map from an older initialize or a port that kept its files): a **WARN**, as for a tracked one below. It is the one file here that changes upstream's behaviour: `sdlc-migrate` §3.3 edits the map whenever it finds one. The `knowledge-update` handler tells a migration never to create it, and the `knowledge-seed` handler (step 8) deletes the one `sdlc-initialize` copies, so a new one means a handler step did not run. A map git already tracks is a **WARN** (an initialize from before plugin 0.7.0 left it, or a port that kept its files; `knowledge-update` step 11 removes it on a migration when git shows it unmodified, and lists it otherwise), with the fix: once any routing in it that isn't committed is saved elsewhere, remove and record it as `knowledge-seed` step 8 does (`rm -f`, a `declined_files` record, and its `installed_files` entry dropped). On `/sdlc-initialize`, an `installed_files` entry here whose content still matches its recorded hash and whose file the extractor seeds (a `.yaml` under `knowledge/` other than the map, a `.md` under `knowledge/` other than a README or `provenance_log.md`, or a `disciplines/*.md` other than `README.md`) is a **REGRESSION**: `knowledge-seed` step 9 didn't remove it (run step 9). On `/sdlc-migrate`, `knowledge-update` step 11 takes only a copy whose every entry it checked this run; a copy it listed as likely redundant is a WARN, pointing at that list (CD compares it with Neuroloom and removes it by hand as the list says). A discipline file it keeps stays for z-sdlc and isn't reported. On a run that began with the map on disk, step 11 took nothing and removed the map only if git showed it unmodified: a map still on disk afterwards is the map WARN above, tracked or not. The files step 9 keeps, and every other file here, are the project's to keep and aren't reported: text Neuroloom doesn't hold (a README, a diagram, `provenance_log.md`) and files the project edited. `sdlc-migrate` updates and merges a kept discipline or other Markdown file on its ordinary path (contract 0026); a kept knowledge YAML stays as the project left it, since its merge is this plugin's and the plugin doesn't merge files. `knowledge-update` step 11 lists an edited one whose upstream text changed, and the files off disk that Neuroloom doesn't hold, except the twelve nothing reads, which it leaves alone.
+4. All operations: find the lines that use the map at run time. Scan with `grep -rn --include='*.md' 'agent-context-map' .claude/skills .claude/agents ops/sdlc CLAUDE.md | grep -vE '^ops/sdlc/(knowledge|disciplines)/'` (with Check 2's rule for the `CLAUDE.md` region). A hit uses the map at run time when it tells an agent to read, consult, search, load, edit, update, append to or create it, or to route agents by it. A hit that only names it is not one: an example in authoring guidance, a quoted pattern, a line that says the map doesn't exist in a Neuroloom project. These lines use it and are expected, so they are not reported:
+   - lines Check 2 exempts: rows 2 to 6 (the quoted span of a `- [ ] No` item, the process docs that document the map, the changelog and its archive, fenced format demos, contract 0026's file-presence lines);
+   - in `.claude/skills/sdlc-migrate/` (the skill file), a closed list, each line found by its opening words. First, the lines that list the map as a file the project owns and z-sdlc never overwrites: `Source-to-project path mappings`, `| **Context map** |`, `` Read and follow `[sdlc-root]/process/project-section-markers.md` ``, `**Step 0 — Load exclusion list before any writes.**` and `` - `knowledge/**/*.yaml` the project doesn't have yet ``. Second, the lines that act on the map only when it is on disk, which in a Neuroloom project it never is: `3. For each moved/renamed file:` (§2.1a, which defers to §3.3); every line of §3.3 from `**Adapter delegation:**` up to the next heading, since that first line skips the subsection when the adapter holds the knowledge layer; §4.1's fenced `# Verify all agent-context-map paths resolve` and the loop line after it; and the report's `- All agent-context-map paths resolve:` line (`adapter-lifecycle.md` § knowledge-update tells the migration to skip §4.1's check and report n/a). Third, in its `references/recovery-procedures.md`, the line starting `3. Manually re-apply project customizations from the backup`: a recovery step, and with no map there are no map additions to re-apply. `pattern-mapping-rules.md` keeps every line on this list as upstream has it, except that it drops the `provenance_log.md` item from the two lines that list it (`Source-to-project path mappings` and Step 0), so the provenance scan has nothing to report there.
+
+   Any other line that names the map is a **REGRESSION** if it uses it at run time, wherever it is, including `sdlc-migrate` §3.4's `→ Suggest:` and gate-rule lines, which `pattern-mapping-rules.md` rewrites by exact line. Check 2b's not-reported list doesn't cover this step: it says which concept terms aren't reported, not which lines may use the map. A line in `.claude/skills/sdlc-migrate/` that names the map and is on neither list means upstream added one: review it, then add it to this list or a rewrite row.
 
 **Action on failure:** as in step 3: only a new map, and on initialize a seeded copy step 9 didn't remove, is a **REGRESSION** there. A runtime reference (step 4) is a **REGRESSION**.
+
+### Check 7 — No `memory_update` call with the old identifier parameter
+
+`memory_update` takes the memory's identifier as `id`. Plugin 0.5.7 wrote `memory_id=` into `sdlc-ingest` and `sdlc-research`, and a call with that keyword fails. The rules write `id=` now, but a file upstream never changes is never re-transformed, so Sleeved still carried the old name in `sdlc-ingest/SKILL.md` and `sdlc-research/SKILL.md`.
+
+**Scan** (Check 2's trees, Markdown only, skipping `ops/sdlc/knowledge/` and `ops/sdlc/disciplines/` and, as Checks 2a and 3 do, `ops/sdlc/process/sdlc_changelog.md` and `changelog-archive/*.md` (history that quotes the old form), and the project-root `CLAUDE.md` only between its `<!-- SDLC-START -->` and `<!-- SDLC-END -->` lines). It matches `memory_id` as any keyword argument of a `memory_update(` call, including a backtick-quoted name and a call split over lines, and prints one line per hit. A `PROJECT-SECTION` or `BUNDLE-SECTION` mark counts only as a whole line outside a code fence (z-sdlc's marker rule 8: a mark inside a fence or inline in a sentence is an example; a fence follows CommonMark: it opens on any leading whitespace (a fence inside a list item is indented further) and then three or more backticks or tildes, with no backtick in the info string of a backtick fence, so a line that starts with an inline triple-backtick span opens nothing, and it closes on the same character, at least as long as the opener, with nothing after it but whitespace), so an example mark can't turn a real REGRESSION into a WARN. It exits 1 when any hit is a REGRESSION:
+
+```bash
+python3 - <<'PY'
+import pathlib, re, sys
+CALL = re.compile(r"memory_update\((?:[^()]|\([^()]*\))*?`?\bmemory_id\b`?\s*=")
+START = re.compile(r"^\s*<!--\s*(PROJECT|BUNDLE)-SECTION-START:\s*(\S+)(?:\s[^>]*)?-->\s*$")
+END = re.compile(r"^\s*<!--\s*(PROJECT|BUNDLE)-SECTION-END\b.*-->\s*$")
+files = sorted(p for root in (".claude/skills", ".claude/agents", "ops/sdlc") for p in pathlib.Path(root).rglob("*.md")
+               if not p.as_posix().startswith(("ops/sdlc/knowledge/", "ops/sdlc/disciplines/", "ops/sdlc/process/changelog-archive/"))
+               and p.as_posix() != "ops/sdlc/process/sdlc_changelog.md")
+claude = pathlib.Path("CLAUDE.md")
+if claude.is_file():
+    files.append(claude)
+bad = False
+for p in files:
+    lines = p.read_text(encoding="utf-8").split("\n")
+    if p == claude:
+        keep, inside = [], False
+        for ln in lines:
+            if "<!-- SDLC-START -->" in ln: inside = True
+            keep.append(ln if inside else "")
+            if "<!-- SDLC-END -->" in ln: inside = False
+        lines = keep
+    fence, kind, label, owner = None, None, None, {}
+    for n, ln in enumerate(lines, 1):
+        f = re.match(r"^\s*(`{3,}|~{3,})(.*)$", ln)
+        if fence:
+            if f and f.group(1)[0] == fence[0] and len(f.group(1)) >= len(fence) and not f.group(2).strip():
+                fence = None
+        elif f and not (f.group(1)[0] == "`" and "`" in f.group(2)):
+            fence = f.group(1)
+        else:
+            m = START.match(ln)
+            if m:
+                kind, label = m.group(1), m.group(2)
+            elif END.match(ln):
+                kind = label = None
+        owner[n] = (kind, label)
+    text = "\n".join(lines)
+    for m in CALL.finditer(text):
+        n = text.count("\n", 0, m.start()) + 1
+        if owner[n][0]:
+            print(f"WARN {p}:{n} ({owner[n][0]}-SECTION {owner[n][1]})")
+        else:
+            print(f"REGRESSION {p}:{n}"); bad = True
+sys.exit(1 if bad else 0)
+PY
+```
+
+**Action on hit:** a hit outside a section is a **REGRESSION**: the file kept 0.5.7's transform and the call fails (recovery: restore the file from z-sdlc and re-transform it, as the plugin's upgrade procedure does for `sdlc-ingest` and `sdlc-research`; a file upstream changes is rewritten by the next migration anyway). A hit inside a `PROJECT-SECTION` block is a **WARN** naming the block: it is the project's own text, which the transformer keeps byte for byte, so the project reviews it by hand. Renaming the keyword is enough only when the call targets a row the API lets it edit: Sleeved's `sdlc-audit/references/deep-verify.md:79` targets an `sdlc_knowledge` row, which the API refuses to edit (ADR-11), so that Demote step needs a redesign by the project. A hit inside a `BUNDLE-SECTION` block is a **WARN** too, not a REGRESSION: bundle text is upstream's and is regenerated from the bundle on each migration, so the fix belongs in the bundle's fragment, not in the installed file.
 
 ---
 
@@ -234,6 +300,7 @@ SHARED CHECKS
 [✓] Manifest integrity:           valid JSON, all required fields, hashes match
 [✓] Knowledge layer reachable:    sentinel found, version tag current
 [✓] No file-mode knowledge layer: no agent-context-map.yaml created by this run (a tracked map, and a copy of what Neuroloom holds left on disk: WARN, each listed)
+[✓] No `memory_update` with the old identifier: 0 `memory_id=` hits (a hit inside a PROJECT-SECTION block: WARN, each listed)
 
 OPERATION-SPECIFIC CHECKS
 [✓] {operation-specific check 1}

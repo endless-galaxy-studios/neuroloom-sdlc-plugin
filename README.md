@@ -99,7 +99,7 @@ However, those skills contain references to file-based knowledge (e.g., `consult
 | Lifecycle Moment | What Happens |
 |------------------|--------------|
 | `/sdlc-initialize` | Fetches z-sdlc from upstream, transforms skill/agent/process files via the Pattern Mapping rules, writes transformed versions to `.claude/` and `ops/sdlc/` |
-| `/sdlc-migrate` | Pulls newer z-sdlc, applies Pattern Mapping rules while preserving any `memory_search(` / `memory_store(` calls already present in the project copy |
+| `/sdlc-migrate` | Pulls newer z-sdlc, applies Pattern Mapping rules while preserving any MCP references (`memory_search(`, `memory_store(`, `memory_store with tags [`) already present in the project copy |
 | `/sdlc-port` | Converts an existing file-based z-sdlc install into a Neuroloom workspace, applying Pattern Mapping in bulk |
 
 Which files need transformation is determined at runtime by scanning each upstream file for phrasing-contract anchors (`[sdlc-root]/knowledge/`, `[sdlc-root]/disciplines/`, `consult [sdlc-root]/knowledge/`, `agent-context-map.yaml`). See `agents/neuroloom-transformer.md` § "Step 1: Runtime Scan" for the algorithm and special-case overrides.
@@ -108,7 +108,7 @@ Which files need transformation is determined at runtime by scanning each upstre
 
 Each of the three operations runs a post-operation audit (defined in `references/post-operation-audit.md`) as its final stage. The audit:
 
-- Counts `memory_search(` / `memory_store(` calls across all installed files and verifies the Pattern Mapping targets landed
+- Counts MCP references (`memory_search(`, `memory_store(` and the capture-target rows' `memory_store with tags [`) across `ops/sdlc/` and `.claude/agents/` and verifies the Pattern Mapping targets landed
 - Scans `.claude/skills/` (including each skill's `references/`), `.claude/agents/` and `ops/sdlc/` for any remaining `[sdlc-root]/knowledge/` or `[sdlc-root]/disciplines/` path outside a closed exemption list, and for a `*` inside a `tags=[...]` / `tag_prefixes=[...]` argument (the API matches tags literally, so a wildcard returns nothing)
 - Scans for inline adapter conditionals that violate the contract
 - Verifies manifest-to-filesystem hash consistency

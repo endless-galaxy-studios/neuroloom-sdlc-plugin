@@ -230,6 +230,72 @@ Entries that are too project-specific to be reusable stay in the parking lot or 
 
 ---
 
+## The discipline list
+
+z-sdlc 3.0.0 ships eleven disciplines. Neuroloom holds each as a `discipline:<name>:framework` entry tagged `sdlc:discipline:<name>`:
+
+- `architecture`
+- `business-analysis`
+- `coding`
+- `data-modeling`
+- `deployment`
+- `design`
+- `dx`
+- `observability`
+- `process-improvement`
+- `product-research`
+- `testing`
+
+A discipline the project added shows up the same way, as entries tagged `sdlc:discipline:<name>`.
+
+---
+
+## Creating a New Discipline
+
+Disciplines are not created speculatively. They emerge from real work when a recurring capability doesn't fit any existing discipline.
+
+### When to create
+
+A new discipline is warranted when **all three** conditions are met:
+
+1. **Recurring capability.** You've done this type of work on 2+ deliverables and expect to do it again.
+2. **No existing home.** The insights don't naturally fit in any current discipline's parking lot. If they do fit (even loosely), add them to the existing discipline instead of creating a new one.
+3. **Distinct agent role.** The work would be dispatched to a different type of agent than any existing discipline's agents. If the same architect or developer handles it, it's probably a sub-concern of an existing discipline, not a new one.
+
+**Anti-pattern: premature discipline creation.** Creating a discipline for a one-time concern (e.g., "migration discipline" for a single database migration) adds overhead without value. If it turns out to be recurring, you can always create it later. The parking lot for the closest existing discipline is the right interim home.
+
+These are the criteria only. This section carries no steps for creating a discipline.
+
+---
+
+## spec_relevant Field
+
+z-sdlc puts a `spec_relevant` field in each of its YAML stores, saying what kind of knowledge the store holds:
+
+- `spec_relevant: true` marks knowledge that shapes **what** gets built: domain models, design methodologies, product research frameworks, security taxonomies, accessibility principles.
+- `spec_relevant: false` marks knowledge that shapes **how** it gets built: code patterns, debugging methodologies, test tooling, deployment patterns.
+
+Neuroloom keeps no such field on an entry. A Neuroloom project makes the choice per domain and records it in `.sdlc-manifest.json` → `spec_relevant_domains`, a list of domain names such as `design`.
+
+**What the choice does.** `knowledge-seed` and `knowledge-update` send the entries of the recorded domains with importance `0.9`. Without it the extractor gives an entry 0.55, 0.65 or 0.75, depending on the entry. It does not change what `sdlc-plan` loads: its spec-time filter checks a per-entry `spec_relevant` field that a Neuroloom entry doesn't carry (there is no `spec_relevant` field on an entry), so spec writing loads every mapped entry whatever domains are recorded.
+
+**When it takes effect.** Only on entries sent after the choice. A row already in Neuroloom keeps its importance: the API refuses edits to `sdlc_knowledge` memories (ADR-11), and sending an unchanged entry again leaves the row alone. A domain chosen after the seed therefore reaches the entries `knowledge-update` sends later, which are the ones upstream adds or changes.
+
+**`sdlc-ingest` does not apply it.** The files it writes carry `spec_relevant: false` (its Step 4 shape, a `rules:` list), and the field does not change their importance: the extractor takes a rule's importance from its `severity` (0.75 for high, 0.65 for medium, 0.55 otherwise). The Post-Execution Transform sends them without the domain boost.
+
+### Tagging a project's stores
+
+The walkthrough for choosing a project's spec-relevant domains. `knowledge-seed` asks it at install. A migration can't stop to ask, so when the manifest has no `spec_relevant_domains` key its report lists the question, and CD answers it by running this walkthrough in any session, which is also how CD reviews the choice later.
+
+1. Read `.sdlc-manifest.json` → `spec_relevant_domains`. If the key is there, even as `[]` (`knowledge-seed` asked at this install, or CD skipped before), show CD the recorded set and change it only if CD asks.
+2. Otherwise list the knowledge domains the workspace holds: take the Valid Domain Values above and run `memory_get_index(tags=["sdlc:knowledge", "sdlc:domain:<domain>"], limit=1)` once per domain (a domain that returns no row holds nothing). Mark with `*` the domains that hold stores upstream lists as commonly spec-relevant: `architecture` (the security review taxonomy), `data-modeling` (people and organizations), `design` (UX modeling, accessibility), `product-research` (product methodology) and `testing` (the testing paradigm). `architecture` and `testing` also hold stores upstream lists as not spec-relevant, such as debugging and deployment patterns, so the mark is a prompt, not a verdict.
+3. Ask CD with a multi-select question (`AskUserQuestion` when it is available), one option per domain, and record the choice in `.sdlc-manifest.json` → `spec_relevant_domains`. Upstream advises tagging two or three stores or none, because a spec-time filter that keeps one store alone gives under-informed specs; a domain boost doesn't filter, so any number of domains works.
+4. If CD skips it, record `"spec_relevant_domains": []`, so no later migration lists the question again. In a headless run, record nothing and list the question in the run's result.
+
+Nothing in this walkthrough writes a `spec_relevant` field anywhere.
+
+---
+
 ## Troubleshooting
 
 When `memory_search()` returns no results, work through these checks in order:
