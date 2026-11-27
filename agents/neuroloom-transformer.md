@@ -147,7 +147,7 @@ Respect all exclusion zones:
 - Non-transformable path prefixes: `[sdlc-root]/process/`, `[sdlc-root]/templates/`, `[sdlc-root]/agents/`. `[sdlc-root]/knowledge/provenance_log.md` is NOT on this list any more: provenance is a set of `sdlc:provenance` memories, and every mention of the file is rewritten (§ "Provenance records" in `pattern-mapping-rules.md`) except on the changelog's lines and the lines in the next bullet.
 - Contract 0026's file-presence lines, the closed list in `post-operation-audit.md` Check 2 row 6: write them byte for byte in this pass and in Pass 2, and emit no `transformation_warning` for them. They decide from what is on disk whether a knowledge-layer file is one the adapter took; rewriting them breaks that (`pattern-mapping-rules.md` § "Contract 0026's file-presence lines").
 - In `.claude/skills/sdlc-ingest/SKILL.md`, the lines `pattern-mapping-rules.md` § "`sdlc-ingest` writes files" keeps as upstream has them: write them byte for byte in this pass and in Pass 2 (the one exception is Step 4's `spec_relevant` tagging line, whose README read becomes `[sdlc-root]/process/knowledge-routing.md`, as that section says), emit no `transformation_warning` for them, and apply that section's replacements (Step 4's first line and its id and shape lines, Step 5's spec-relevant report note, Step 5's placement bullets, Step 6 whole, Step 8's `AGENT WIRING` and `wired to` lines, the Red Flags rows, the Integration `Uses:` item and `Downstream:` sentence) and nothing else to the lines they cover. They are the exceptions to the fenced-block and Integration exclusions. The skill writes files, and its Post-Execution Transform sends them; storing its rules with `memory_store` loses the knowledge ids and `sdlc:project-specific`. Never write a `memory_store` call into that skill's Steps 4 to 6 or 8.
-- In `.claude/skills/sdlc-migrate/`, the lines `post-operation-audit.md` Check 6 step 4 lists (the ones that name `agent-context-map.yaml` as a file the project owns, or use it only when it is on disk): write them byte for byte in this pass and in Pass 2, with no `transformation_warning` (`pattern-mapping-rules.md` § "`sdlc-migrate`'s map lines"), except that the two lines that also list `provenance_log.md` lose that one item to its provenance row. §3.4's `→ Suggest:` and gate-rule lines aren't on that list: their rows rewrite them.
+- In `.claude/skills/sdlc-migrate/`, the lines `post-operation-audit.md` Check 6 step 4 lists in its closed list: write them byte for byte in this pass and in Pass 2, with no `transformation_warning` (`pattern-mapping-rules.md` § "`sdlc-migrate`'s map lines"), except that the two lines that also list `provenance_log.md` lose that one item to its provenance row. §3.4's `→ Suggest:` and gate-rule lines aren't on that list: their rows rewrite them.
 
 Write the transformed content to the file.
 
@@ -216,7 +216,7 @@ For every transformed file, compute six structural counts from the project's pre
 5. `mandatory_step_count` — numbered-bold steps within MANDATORY-tagged sections
 6. `bullet_count` — lines matching `^\s*[-*] ` (excluding table rows, fenced blocks)
 
-If `post < upstream` by more than 1 (non-mandatory) or by any amount (mandatory) → **HALT**. Before comparing, take out of the upstream count what the project's marks and the rules set aside (`content-merge-audits.md` § the comparison rules). In `.claude/skills/sdlc-ingest/SKILL.md`, also take out what `pattern-mapping-rules.md` § "`sdlc-ingest` writes files" drops on purpose: Step 6's body (its two fenced blocks and their bullets and rows), the two README bullets of Step 5, and the Red Flags row starting `| "I'll wire to all agents" |`. Against z-sdlc v3.0.0, a 0.7.2 output of that skill has two fenced blocks, nine bullets and one table row fewer than upstream, and that isn't content loss.
+If `post < upstream` by more than 1 (non-mandatory) or by any amount (mandatory) → **HALT**. Before comparing, take out of the upstream count what the project's marks set aside and the file's planned drops, the lines the rules remove on purpose (`content-merge-audits.md` § the comparison rules, and `content-merge-audits.md` § "Planned drops", the one list of them).
 
 ### Audit 2: PROJECT-SECTION Preservation
 
@@ -232,7 +232,7 @@ Scan every written file for agent-name references that don't resolve to `.claude
 
 ### Audit 5: Contract Residue
 
-Scan all non-exempt written files, including `.claude/skills/*/references/*.md`, for knowledge-layer paths and wildcard tag arguments, using the three greps in `content-merge-audits.md` § "Mandatory: Contract Residue Audit" (path residue, concept-terminology residue, `*` inside `tags=[…]` / `tag_prefixes=[…]`). Classify each hit against `post-operation-audit.md` Check 2's exemption table, the one list, as `content-merge-audits.md` describes: fenced data-format demos (row 5) are the only fence exemption, contract 0026's file-presence lines (row 6) are exempt line by line, and Integration sections are NOT exempt for knowledge-layer paths. Any other hit → **HALT**.
+Scan all non-exempt written files, including `.claude/skills/*/references/*.md`, for knowledge-layer paths and wildcard tag arguments, using the three greps in `content-merge-audits.md` § "Mandatory: Contract Residue Audit" (path residue, concept-terminology residue, `*` inside `tags=[…]` / `tag_prefixes=[…]`). Classify each hit against `post-operation-audit.md` Check 2's exemption table, the one list, as `content-merge-audits.md` describes: fenced data-format demos (row 5) are the only fence exemption, contract 0026's file-presence lines (row 6) are exempt line by line, and Integration sections are NOT exempt for knowledge-layer paths. Two kinds of line are not a hit for the concept-terminology grep, because the passes keep them as upstream has them or write them by a hard exclusion: in `sdlc-ingest`, the lines `pattern-mapping-rules.md` § "`sdlc-ingest` writes files" keeps or writes, and the `sdlc-migrate` map lines on `post-operation-audit.md` Check 6 step 4's closed list, which matches the name in any case (this audit halted on `> - Agent-context-map paths all resolve` in Sleeved's upgrade to 0.7.2, before the list named it). A path on one of those lines is still classified by Check 2's table. Any other hit → **HALT**.
 
 ### Audit 6: Telemetry Sanity
 
@@ -256,7 +256,7 @@ grep -inE '\bmapped files\b|\bspec-relevant files\b|\bloaded files\b|\bCross-Fil
 **Exclude from hits (legitimate retention):**
 - Inside fenced code blocks
 - Contract 0026's file-presence lines (`post-operation-audit.md` Check 2 row 6): Pass 2 keeps them as upstream wrote them
-- `sdlc-ingest`'s kept lines and its replacement Step 5 bullet (`pattern-mapping-rules.md` § "`sdlc-ingest` writes files"): the skill writes files
+- In `sdlc-ingest`, the lines `pattern-mapping-rules.md` § "`sdlc-ingest` writes files" keeps or writes: the skill writes files
 - The `sdlc-migrate` map lines `post-operation-audit.md` Check 6 step 4 lists: kept as upstream has them
 - Inside hard-excluded files (already skipped)
 - Inside MCP query strings (`memory_search(query="..."`)

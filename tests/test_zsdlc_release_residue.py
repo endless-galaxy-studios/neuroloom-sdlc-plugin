@@ -296,7 +296,15 @@ MAP_LINES_KEPT = [
     ("3. For each moved/renamed file:", "65e6e64c70b8df7d"),
     ("# Verify all agent-context-map paths resolve", "b3f7333095ff1e66"),
     ("- All agent-context-map paths resolve:", "fa7e1171415c2e60"),
+    # 0.7.3: the lines that capitalise the name, which the case-sensitive scans never saw.
+    ("### 3.3 Update Agent-Context-Map (if needed)", "d49ebc51f87ba4ec"),
+    ("> - Agent-context-map paths all resolve", "14203e27bbec3ced"),
+    ("- Agent-context-map paths updated:", "78462cbcb14a039c"),
+    ("- Agent-context-map agent names and project-specific mappings", "7a0e19ed78d5fa68"),
 ]
+# §3.3's output in the report, which says "context-map" only and so is on no map-line list; the
+# knowledge-update handler has it written as n/a when no map is on disk.
+_NEW_ROLES_LINE = ("- New agent roles added to context-map: N [list roles]", "d93fe23126805e72")
 _LOOP_LINE = ("for path in $(grep -E '^\\s+- ' [sdlc-root]/knowledge/agent-context-map.yaml", "20c506f437718dc8")
 _MAP_ADAPTER_SKIP = ("**Adapter delegation:** If the adapter declares a `knowledge-update` phase and the project has no `agent-context-map.yaml`", "c8eb53d09c7e63bc")
 _RECOVERY_LINE = "3. Manually re-apply project customizations from the backup"
@@ -324,10 +332,12 @@ class TestAgentContextMapLines:
         end = next(n for n in range(start + 1, len(lines) + 1) if lines[n - 1].startswith("### "))
         kept = {_one_line(release, _MIGRATE, o)[0]: (o, h) for o, h in MAP_LINES_KEPT + [_LOOP_LINE]}
         rewritten = {_one_line(release, _MIGRATE, o)[0]: (o, h) for o, h in MAP_LINES_REWRITTEN}
-        unlisted = []
+        unlisted, scanned = [], set()
         for n, line in enumerate(lines, start=1):
-            if "agent-context-map" not in line:
+            # Any case: Audit 5 greps with -i, and halted on `> - Agent-context-map paths all resolve` (Sleeved, 0.7.2).
+            if "agent-context-map" not in line.lower():
                 continue
+            scanned.add(n)
             if _is_presence_line(release, _MIGRATE, n) or start <= n < end:
                 continue
             entry = kept.get(n) or rewritten.get(n)
@@ -336,6 +346,7 @@ class TestAgentContextMapLines:
                 continue
             assert _sha(line) == entry[1], f"sdlc-migrate:{n} changed upstream ({_sha(line)}): re-review it"
         assert not unlisted, f"sdlc-migrate lines naming the map on neither list: {unlisted}"
+        assert {817, 1019, 1151, 1179} <= scanned, "the scan no longer sees the lines that capitalise the name"
 
     def test_no_other_file_of_sdlc_migrate_names_the_map_unlisted(self, release: Path) -> None:
         listed = {"skills/sdlc-migrate/references/recovery-procedures.md": [(_RECOVERY_LINE, _RECOVERY_SHA)]}
@@ -345,7 +356,7 @@ class TestAgentContextMapLines:
             if rel == _MIGRATE:
                 continue
             for n, line in enumerate(f.read_text().split("\n"), start=1):
-                if "agent-context-map" not in line:
+                if "agent-context-map" not in line.lower():
                     continue
                 hit = next((sha for o, sha in listed.get(rel, []) if line.strip().startswith(o)), None)
                 if hit is None:
@@ -360,6 +371,12 @@ class TestAgentContextMapLines:
         for opening, _h in MAP_LINES_KEPT:
             assert opening in step4, opening
         assert "`**Adapter delegation:**` up to the next heading" in step4
+
+    def test_the_new_roles_report_line_is_upstreams(self, release: Path) -> None:
+        n, line = _one_line(release, _MIGRATE, _NEW_ROLES_LINE[0])
+        assert _sha(line) == _NEW_ROLES_LINE[1], f"sdlc-migrate:{n} changed upstream ({_sha(line)}): re-review knowledge-update's n/a line"
+        lifecycle = " ".join((_ROOT / "references" / "adapter-lifecycle.md").read_text().split())
+        assert "`New agent roles added to context-map: n/a (no map: Neuroloom holds the knowledge layer)`" in lifecycle
 
     def test_the_rules_rewrite_the_two_wiring_lines(self) -> None:
         rules = lint._rules()
@@ -467,6 +484,63 @@ class TestSdlcAuditWireRows:
             assert f"``{text}``" in rules, text
 
 
+_METHODOLOGY = "skills/sdlc-audit/references/compliance-methodology.md"
+
+
+class TestComplianceMethodologyRows073:
+    """No row wrote compliance-methodology.md's 6b table or 6k.1 exclusion list, so Sleeved's 3.0.0 migration
+    on 0.7.1 left them in file-mode form and Check 2 called the list's map line a REGRESSION. The rows that
+    write them are scoped to their section; these pins say the lines they match are still upstream's, once each."""
+
+    # (opening words, sha16 of the line at the supported tag)
+    LINES_6K1 = [
+        ("- `[sdlc-root]/knowledge/agent-context-map.yaml` itself", "25b6e5d955bd1b00"),
+        ("- `README.md` files", "d4c8293ac548f773"),
+    ]
+    HEADER_6B = ("| Directory | Purpose |", "5628acd9623d90d6")
+    HEADING_6B = ("### 6b. Knowledge Stores (`[sdlc-root]/knowledge/`)", "e3afa07604c9207d")
+
+    def _section(self, release: Path, heading: str) -> list[str]:
+        lines = (release / _METHODOLOGY).read_text().split("\n")
+        start = next(i for i, ln in enumerate(lines) if ln.startswith(heading))
+        end = next(i for i in range(start + 1, len(lines)) if lines[i].startswith("#"))
+        return lines[start:end]
+
+    def test_the_6k1_lines_are_upstreams_and_in_step_6k1(self, release: Path) -> None:
+        lines = (release / _METHODOLOGY).read_text().split("\n")
+        excl = lines.index("Exclude from orphan detection:")
+        for opening, sha in self.LINES_6K1:
+            n, line = _one_line(release, _METHODOLOGY, opening)
+            assert _sha(line) == sha, f"compliance-methodology.md:{n} changed upstream ({_sha(line)}): re-review its row"
+            assert excl < n - 1 <= excl + 3, f"{opening!r} is no longer in 6k.1's exclusion list"
+
+    def test_the_6b_header_is_upstreams_and_every_row_names_a_folder(self, release: Path) -> None:
+        n, line = _one_line(release, _METHODOLOGY, self.HEADER_6B[0])
+        assert _sha(line) == self.HEADER_6B[1], f"compliance-methodology.md:{n} changed upstream ({_sha(line)})"
+        section = self._section(release, "### 6b. ")
+        assert line in section
+        rows = [ln for ln in section if ln.startswith("|")][2:]  # past the header and the separator
+        assert rows and all(re.fullmatch(r"\| `[a-z-]+/` \| [^|]+ \|", ln) for ln in rows), rows
+
+    def test_the_6b_heading_is_upstreams_and_has_its_row(self, release: Path) -> None:
+        n, line = _one_line(release, _METHODOLOGY, self.HEADING_6B[0])
+        assert line == self.HEADING_6B[0] and _sha(line) == self.HEADING_6B[1], f"compliance-methodology.md:{n} changed upstream"
+        assert f"| `` {line} `` " in lint._rules()
+
+
+class TestSdlcReflectContextAndResearchDryLine073:
+    """The rows sdlc-reflect's and sdlc-research's lines reach depend on upstream's wording of them."""
+
+    def test_reflect_still_writes_the_session_context(self, release: Path) -> None:
+        _n, line = _one_line(release, "skills/sdlc-reflect/SKILL.md", "**Context format:**")
+        assert line.startswith("**Context format:** `[session: {brief-slug}]`"), line
+        assert "`[session: {slug}]`" in lint._rules()
+
+    def test_research_dry_note_still_says_ingest_produces_knowledge_yaml(self, release: Path) -> None:
+        _n, line = _one_line(release, "skills/sdlc-research/SKILL.md", "- **DRY notes:**")
+        assert "`sdlc-ingest` produces knowledge YAML in `[sdlc-root]/knowledge/`." in line, line
+
+
 
 def _structure(lines: list[str]) -> tuple[int, int, int]:
     """Audit 1's fenced-block, bullet and table-row counts (bullets outside fences; no header or separator rows)."""
@@ -521,8 +595,189 @@ class TestAudit1KnowsSdlcIngestsDrops:
         up, post = _structure(lines), _structure(_apply_ingest_drops(lines))
         assert tuple(a - b for a, b in zip(up, post)) == (2, 9, 1), (up, post)
         sentence = "a 0.7.2 output of that skill has two fenced blocks, nine bullets and one table row fewer than upstream"
-        for rel in ("agents/neuroloom-transformer.md", "references/content-merge-audits.md"):
-            assert sentence in " ".join((_ROOT / rel).read_text().split()), rel
+        assert sentence in " ".join((_ROOT / "references" / "content-merge-audits.md").read_text().split())
+        agent = " ".join((_ROOT / "agents" / "neuroloom-transformer.md").read_text().split())
+        assert "`content-merge-audits.md` § \"Planned drops\"" in agent.split("### Audit 1: Structural Content-Loss", 1)[1][:1500]
+
+
+# Audit 1's planned drops: the upstream lines pattern-mapping-rules.md removes whole on purpose, which
+# content-merge-audits.md § "Planned drops" lists (installed path, opening words, sha16 at the supported tag).
+# Step 6 of sdlc-ingest is a region, pinned by its heading in INGEST_REPLACED.
+PLANNED_DROPS = [
+    ("skills/sdlc-ingest/SKILL.md", "- Update the knowledge store's `README.md` to list new files", "2fdb515d7837268f"),
+    ("skills/sdlc-ingest/SKILL.md", "- If new files are created, add them to the README's structure listing", "107591a06dea8ece"),
+    ("skills/sdlc-ingest/SKILL.md", "| \"I'll wire to all agents\" |", "e6e376b6e8aeaad4"),
+    ("skills/sdlc-audit/references/compliance-methodology.md", "- `provenance_log.md`", "30a7522058bf4293"),
+]
+# Every rule in pattern-mapping-rules.md that removes text, reviewed against the supported release: a table row
+# whose replacement mentions dropping, removing, deleting or omitting (or is empty), and a prose line saying
+# something "is dropped" or "are dropped". Keyed by the row's left cell, or the prose line up to that phrase,
+# matched exactly. Each value is the regex for the upstream lines the rule applies to.
+#
+# WHOLE_DROPS remove whole lines: what they match upstream must be exactly their Audit 1 planned drops.
+WHOLE_DROPS = {
+    'a bare list item `- provenance_log.md` in an exclusion list': (r"^\s*- `?provenance_log\.md`?\s*$", {('skills/sdlc-audit/references/compliance-methodology.md', "- `provenance_log.md`")}),
+    '`Update the knowledge store\'s README.md to list new files` / `add them to the README\'s structure listing and "Knowledge Categories" table`': (
+        r"Update the knowledge store's `?README\.md`? to list new files|add them to the README's structure listing",
+        {('skills/sdlc-ingest/SKILL.md', PLANNED_DROPS[0][1]), ('skills/sdlc-ingest/SKILL.md', PLANNED_DROPS[1][1])},
+    ),
+    "3. **Step 5's README bullets are dropped": (
+        r"Update the knowledge store's `?README\.md`? to list new files|add them to the README's structure listing",
+        {('skills/sdlc-ingest/SKILL.md', PLANNED_DROPS[0][1]), ('skills/sdlc-ingest/SKILL.md', PLANNED_DROPS[1][1])},
+    ),
+    '- the Red Flags row starting `| "I\'ll wire to all agents" |` is dropped': (r"^\s*\| \"I'll wire to all agents\" \|", {('skills/sdlc-ingest/SKILL.md', PLANNED_DROPS[2][1])}),
+}
+# PART_DROPS remove part of a line; REPLACES write a line in place of the one they match. Each pins the upstream
+# lines it matches (path, sha16), so an upstream bullet such a rule would consume whole fails the gate.
+PART_DROPS = {
+    '`sdlc-migrate`: `provenance_log.md` in the list of project-specific files that must never be overwritten (also the `Current exclusions:` list of Step 0)': (r"`agent-context-map\.yaml`, `provenance_log\.md`", {('skills/sdlc-migrate/SKILL.md', "47a96489beddac46"), ('skills/sdlc-migrate/SKILL.md', "3d2ca31e877f2e62")}),
+    "`sdlc-migrate`: `NOT knowledge/provenance_log.md; that's project-specific` after the `knowledge/README.md` copy entry": (r"NOT `?knowledge/provenance_log\.md`?; that's project-specific", {('skills/sdlc-migrate/SKILL.md', "81e64025c50bf62c")}),
+    '`sdlc:knowledge` together with `sdlc:agent:<a>` (with or without a domain tag)': (r'tags=\[[^\]]*"sdlc:agent:', set()),  # project calls, not upstream text
+    'a markdown link whose target is the map: `A map ([\\`knowledge/agent-context-map.yaml\\`](knowledge/agent-context-map.yaml)) names the structured YAML knowledge files each agent role should read before it works` (the link has no `[sdlc-root]/` prefix, and the target does not exist in a Neuroloom project)': (r"\]\(knowledge/agent-context-map\.yaml\)", set()),
+    'a markdown link whose target is a relative `disciplines/…` or `knowledge/…` path with no `[sdlc-root]/` prefix (the file does not exist in a Neuroloom project): `([\\`disciplines/README.md\\`](disciplines/README.md))`': (r"\]\((?:\./|\.\./)*(?:disciplines|knowledge)/[^)]*\)", set()),
+    "`knowledge store's README.md` (live reference to file-mode index)": (r"(?i)knowledge store's `?README\.md", {('skills/sdlc-ingest/SKILL.md', "2fdb515d7837268f")}),  # whole by WHOLE_DROPS there
+    "`knowledge index` (bare, describing the knowledge layer's table of contents)": (r"(?i)\bknowledge index\b", set()),
+    '`under the ## Parking Lot heading` / `under the Parking Lot heading` / `in the parking lot section` (markdown-structure reference to discipline file layout)': (r"(?i)under the `?(?:## )?Parking Lot`? heading|in the parking lot section", {("process/discipline_capture.md", "09a8bd662f041553")}),
+    "- in the Integration section's line starting `- **Uses:** file reading, existing knowledge stores (for deduplication)`, the item `` `[sdlc-root]/knowledge/agent-context-map.yaml` (for wiring) `` is dropped": (r"`\[sdlc-root\]/knowledge/agent-context-map\.yaml` \(for wiring\)", {('skills/sdlc-ingest/SKILL.md', "1d0fd9348513b793")}),
+}
+REPLACES = {
+    '`1. Read [sdlc-root]/knowledge/provenance_log.md` (select a record by status, e.g. `approved-for-ingest`)': (r"^\s*1\. Read `?\[sdlc-root\]/knowledge/provenance_log\.md`?\s*$", {('skills/sdlc-ingest/SKILL.md', "655661f0fbad64e3")}),
+    '`**\\`[sdlc-root]/knowledge/[discipline]/README.md\\`** — updated structure listing`': (r"\*\*`\[sdlc-root\]/knowledge/\[discipline\]/README\.md`\*\* — updated structure listing", {('skills/sdlc-ingest/SKILL.md', "014d147718854c3b")}),
+}
+# Rows whose replacement names a removal verb only to explain the text it writes (a full tag list,
+# or the article a query drops), not to drop upstream text.
+NOT_DROPS = {
+    "`Consult [sdlc-root]/knowledge/agent-context-map.yaml for where <X> live(s)` (with or without backticks around the path; `<X>` is a noun phrase such as `the project's standing principles`; fires before the generic `for <purpose>` row below)",
+    "`update that entry's status to \\`ingested\\` and populate the ingestion fields` (also `update the selected provenance entry's status to \\`ingested\\``)",
+    "`the user approves them to \\`approved-for-ingest\\`` (the approval step, which upstream does by editing the file)",
+}
+_REMOVES = re.compile(r"(?i)\b(drop\w*|remov\w*|delet\w*|omit\w*|strip\w*|leave out|left out|not kept)\b")
+_PROSE_DROP = re.compile(r"(?i)\b(is|are|be|been|get|gets|got)\s+(dropped|removed|deleted|omitted|stripped|left out)\b")
+_EMPTY_REPLACEMENT = ("", "(nothing)", "(none)", "-", "nothing", "none")
+
+
+def _rule_line(rules: str, key: str) -> str:
+    """The one line of pattern-mapping-rules.md a classified key names: a table row by its exact left cell, or a prose line by its start."""
+    hits = [ln for ln in rules.splitlines()
+            if (ln.strip().strip("|").split(" | ")[0].strip() == key if ln.startswith("|") else ln.strip().startswith(key))]
+    assert len(hits) == 1, f"{len(hits)} lines of pattern-mapping-rules.md match {key[:60]!r}"
+    return hits[0]
+
+
+# sha16 of each classified rule's full line, so an edit to a reviewed row (its replacement included) fails
+# until the row is reviewed and its class and pin updated.
+RULE_PINS = {
+    'a bare list item `- provenance_log.md` in an exclusion list': '8ceabb3fae65b7d8',
+    '`Update the knowledge store\'s README.md to list new files` / `add them to the README\'s structure listing and "Knowledge Categories" table`': '23ad58c79c631949',
+    "3. **Step 5's README bullets are dropped": '99fa61e382244810',
+    '- the Red Flags row starting `| "I\'ll wire to all agents" |` is dropped': 'db99a75de0da9571',
+    '`sdlc-migrate`: `provenance_log.md` in the list of project-specific files that must never be overwritten (also the `Current exclusions:` list of Step 0)': 'ac7e5d09e7117700',
+    "`sdlc-migrate`: `NOT knowledge/provenance_log.md; that's project-specific` after the `knowledge/README.md` copy entry": '2189368006afe230',
+    '`sdlc:knowledge` together with `sdlc:agent:<a>` (with or without a domain tag)': '569887649dcbbf8b',
+    'a markdown link whose target is the map: `A map ([\\`knowledge/agent-context-map.yaml\\`](knowledge/agent-context-map.yaml)) names the structured YAML knowledge files each agent role should read before it works` (the link has no `[sdlc-root]/` prefix, and the target does not exist in a Neuroloom project)': 'ebac64517a3f584c',
+    'a markdown link whose target is a relative `disciplines/…` or `knowledge/…` path with no `[sdlc-root]/` prefix (the file does not exist in a Neuroloom project): `([\\`disciplines/README.md\\`](disciplines/README.md))`': '9c462fc7969aca9b',
+    "`knowledge store's README.md` (live reference to file-mode index)": '3b849fd04662e6af',
+    "`knowledge index` (bare, describing the knowledge layer's table of contents)": '2682b95e2ddd70db',
+    '`under the ## Parking Lot heading` / `under the Parking Lot heading` / `in the parking lot section` (markdown-structure reference to discipline file layout)': 'e87930a8d66f7bae',
+    "- in the Integration section's line starting `- **Uses:** file reading, existing knowledge stores (for deduplication)`, the item `` `[sdlc-root]/knowledge/agent-context-map.yaml` (for wiring) `` is dropped": 'bb81cca0658ccf21',
+    '`1. Read [sdlc-root]/knowledge/provenance_log.md` (select a record by status, e.g. `approved-for-ingest`)': '8152dae27ade80a3',
+    '`**\\`[sdlc-root]/knowledge/[discipline]/README.md\\`** — updated structure listing`': '8f088c792a2ca284',
+    "`Consult [sdlc-root]/knowledge/agent-context-map.yaml for where <X> live(s)` (with or without backticks around the path; `<X>` is a noun phrase such as `the project's standing principles`; fires before the generic `for <purpose>` row below)": '6ef2c53055100e17',
+    "`update that entry's status to \\`ingested\\` and populate the ingestion fields` (also `update the selected provenance entry's status to \\`ingested\\``)": '2ee5589cdb4ebdad',
+    '`the user approves them to \\`approved-for-ingest\\`` (the approval step, which upstream does by editing the file)': 'ded848bdcd8a1c96',
+}
+
+
+def _planned_drops_doc() -> str:
+    cma = (_ROOT / "references" / "content-merge-audits.md").read_text()
+    return " ".join(cma.split("**Planned drops", 1)[1].split("\n\n", 1)[0].split())
+
+
+def _removing_rules(rules: str) -> list[str]:
+    keys = []
+    for ln in rules.splitlines():
+        if ln.startswith("|"):
+            if re.match(r"^\|[\s:|-]+\|\s*$", ln):
+                continue
+            cells = ln.strip().strip("|").split(" | ")
+            rep = " | ".join(cells[1:]).strip()
+            if len(cells) < 2 or _REMOVES.search(rep) or rep.strip(" |").lower() in _EMPTY_REPLACEMENT:
+                keys.append(cells[0].strip())
+        elif (m := _PROSE_DROP.search(ln)):
+            keys.append(ln.strip()[: ln.strip().index(m.group(0)) + len(m.group(0))])
+    return keys
+
+
+def _matches(release: Path, rx: str) -> list[tuple[str, str, str]]:
+    found = []
+    for f in sorted(release.rglob("*.md")):
+        rel = str(f.relative_to(release))
+        if rel.startswith(_NOT_INSTALLED) or rel.startswith(lint._BARE_EXEMPT_FILES):
+            continue
+        found += [(rel, ln, _sha(ln)) for ln in f.read_text().split("\n") if re.search(rx, ln)]
+    return found
+
+
+def _planned_opening(rel: str, line: str) -> str:
+    """The PLANNED_DROPS opening a line starts with, or the line itself when it is on no list."""
+    return next((o for r, o, _h in PLANNED_DROPS if r == rel and line.strip().startswith(o)), line.strip()[:80])
+
+
+class TestAudit1PlannedDrops073:
+    """Round 2: Audit 1 allows one missing bullet for a project's own change, and a drop row used it up
+    unseen. Audit 1 now subtracts a closed per-file list of planned drops, and every rule that removes
+    text is classified here against the supported release."""
+
+    def test_each_listed_line_is_upstreams_and_named_in_the_list(self, release: Path) -> None:
+        doc = _planned_drops_doc()
+        for rel, opening, sha in PLANNED_DROPS:
+            n, line = _one_line(release, rel, opening)
+            assert _sha(line) == sha, f"{rel}:{n} changed upstream ({_sha(line)}): re-review the planned drops"
+            assert f"`{_installed(rel)}`" in doc, rel
+            assert opening in doc, opening
+
+    def test_every_rule_that_removes_text_is_classified(self) -> None:
+        keys = _removing_rules(lint._rules())
+        known = {**WHOLE_DROPS, **PART_DROPS, **REPLACES, **dict.fromkeys(NOT_DROPS)}
+        unclassified = [k for k in keys if k not in known]
+        assert not unclassified, f"rules that remove text, neither a planned drop nor reviewed as partial: {unclassified}"
+        stale = [k for k in known if k not in keys]
+        assert not stale, f"classified rules no longer in pattern-mapping-rules.md: {stale}"
+
+    def test_each_classified_rule_is_pinned(self) -> None:
+        rules = lint._rules()
+        known = [*WHOLE_DROPS, *PART_DROPS, *REPLACES, *NOT_DROPS]
+        assert sorted(RULE_PINS) == sorted(known), "RULE_PINS and the classified rules differ"
+        changed = [k[:60] for k in known if _sha(_rule_line(rules, k)) != RULE_PINS[k]]
+        assert not changed, f"classified rules edited since review (re-review each, then its class and pin): {changed}"
+
+    def test_whole_line_drops_are_exactly_the_planned_ones(self, release: Path) -> None:
+        planned = {(rel, o) for rel, o, _h in PLANNED_DROPS}
+        reached = set()
+        for key, (rx, targets) in WHOLE_DROPS.items():
+            assert targets <= planned, (key, targets - planned)
+            hit = {(rel, _planned_opening(rel, ln)) for rel, ln, _s in _matches(release, rx)}
+            assert hit == targets, f"{key[:60]}: upstream lines it drops whole {hit} are not its planned drops {targets}"
+            reached |= targets
+        assert reached == planned, f"planned drops no rule removes: {planned - reached}"
+        # The doc names exactly these lines (a quoted row name is not a listed line).
+        doc = _planned_drops_doc()
+        for key in WHOLE_DROPS:
+            doc = doc.replace(key, "")
+        spans = {s.strip() for s in re.findall(r"``(.+?)``|`([^`]+)`", doc) for s in s if s.strip().startswith(("- ", "| "))}
+        assert spans == {o for _r, o, _h in PLANNED_DROPS}, spans
+
+    def test_partial_drops_and_replacements_never_take_a_whole_line(self, release: Path) -> None:
+        for key, (rx, pins) in {**PART_DROPS, **REPLACES}.items():
+            hits = _matches(release, rx)
+            assert {(rel, sha) for rel, _ln, sha in hits} == pins, f"{key[:60]}: matched upstream lines changed: {[(r, s, ln[:60]) for r, ln, s in hits]}"
+            if key in REPLACES:
+                continue
+            for rel, ln, _sha16 in hits:
+                if re.match(r"^\s*([-*]|\d+\.|\|) ", ln):
+                    rest = re.sub(r"[\s\-*|`.,;:()>]", "", re.sub(rx, "", ln))
+                    assert rest, f"{rel}: {key[:60]} would remove the whole line {ln.strip()[:80]}"
+
 
 
 # ---- F5: the READMEs the extractor never sends ------------------------------------------------------
