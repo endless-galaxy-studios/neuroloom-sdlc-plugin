@@ -486,7 +486,7 @@ After all edits, verify each transformed file. Each check leaves alone exactly w
 it mirrors exempts, and the audit's scans exempt different things; `knowledge-routing.md` is checked
 separately, below:
 - No remaining `ops/sdlc/knowledge/`, `ops/sdlc/disciplines/`, `[sdlc-root]/knowledge/` or
-  `[sdlc-root]/disciplines/` path references outside the audit's Check 2 exemption rows 1 to 7 (as
+  `[sdlc-root]/disciplines/` path references outside the audit's Check 2 exemption rows 1 to 8 (as
   `references/transform-targets.md` lists them)
 - No remaining bare `agent-context-map.yaml` or `agent-communication-protocol.yaml` references
   outside those same rows and the closed list of `sdlc-migrate` map lines in post-operation Check 6

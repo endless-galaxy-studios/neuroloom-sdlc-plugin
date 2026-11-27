@@ -119,7 +119,8 @@ pytestmark = pytest.mark.skipif(not _has_tag(), reason=f"needs ~/Projects/cc-sdl
 def release(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     out = tmp_path_factory.mktemp("zsdlc")
     tar = subprocess.run(
-        ["git", "-C", str(_UPSTREAM), "archive", _TAG, "skills", "process", "templates", "agents", "playbooks", "CLAUDE-SDLC.md"],
+        ["git", "-C", str(_UPSTREAM), "archive", _TAG, "skills", "process", "templates", "agents", "playbooks", "CLAUDE-SDLC.md",
+         "skeleton/manifest.json"],
         capture_output=True, check=True, timeout=60,
     ).stdout
     with tarfile.open(fileobj=io.BytesIO(tar)) as t:
@@ -245,6 +246,234 @@ class TestContract0026FilePresenceLines:
         assert "`post-operation-audit.md` Check 2" in hard  # the one list; no second copy here
 
 
+# The factory's access-control lines: they name the discipline and knowledge files a factory agent may commit, which
+# the project's CODEOWNERS leaves without an owner and implement_guard.py's check_commits then lets through (it refuses
+# what CODEOWNERS owns and GOVERNING_KNOWLEDGE), plus the two lines that act on that grant in words a row rewrites
+# (sdlc-revise's hygiene paragraph, sdlc-audit's `hygiene` route). Post-operation Check 2 row 8 keeps them; (upstream
+# path, opening words, sha16 of the whole item at the supported tag). An item runs from its opening line through every
+# following line indented deeper than it, so factory.md's wrapped CODEOWNERS items are pinned with their continuation
+# and nested lines.
+FACTORY_ACCESS = [
+    ("skills/sdlc-implement/SKILL.md", "- **Off-limits paths:**", "2e297ad679085bee"),
+    ("skills/sdlc-revise/SKILL.md", "- **Off-limits paths:**", "2e297ad679085bee"),
+    ("skills/sdlc-reproduce/SKILL.md", "- **Off-limits paths:**", "2e297ad679085bee"),
+    ("skills/sdlc-revise/SKILL.md", "SDLC hygiene is part of the work:", "9d1c779a5ca2d359"),
+    ("process/factory.md", "- CODEOWNERS on", "c26bacea39619c29"),
+    ("process/factory.md", "- **Off-limits paths:**", "2e297ad679085bee"),
+    ("process/factory.md", "- **Owner-less lines, after the owned ones,**", "c970aa9af1ef01eb"),
+    ("process/factory.md", "- **Then owned again, after the owner-less lines**", "4d030a3cf0a7e55c"),
+    ("process/factory.md", "- **The other knowledge YAMLs are agent-writable on purpose**", "9de3596be6b0f73f"),
+    ("process/factory-runbook.md", "| E2 |", "67a3a4bacb2a5ac6"),
+    ("skills/sdlc-audit/SKILL.md", "- `hygiene`: SDLC hygiene an agent may write", "e793ecd02d8a9663"),
+]
+# The other instructions that act on the grant, in words no scan or row matches, so they stay as upstream has them
+# without a place on row 8.
+UNTOUCHED_HYGIENE = [
+    ("skills/sdlc-implement/SKILL.md", "**Fix what the issue names, and finish small related fixes here.**"),
+    ("skills/sdlc-execute/SKILL.md", "**Add-ons and follow-ups.**"),
+]
+
+
+def _concept_row_phrases() -> list[str]:
+    """The literal z-sdlc phrases the concept-term rows of pattern-mapping-rules.md match: each row's first cell, from
+    the concept-terminology table through the heading-label table, before its parenthetical, without placeholders."""
+    rules = lint._rules()
+    start, end = "**Knowledge-layer concept terminology", "**Label-prefix-before-parenthetical"
+    assert start in rules and end in rules, f"pattern-mapping-rules.md lost a heading the phrase list is cut by: {start!r} or {end!r}"
+    body = rules.split(start, 1)[1].split(end, 1)[0]
+    phrases = set()
+    for ln in body.splitlines():
+        if ln.startswith("| `"):
+            cell = ln.split(" | ", 1)[0].split(" (", 1)[0]
+            phrases |= {p for p in re.findall(r"`([^`]+)`", cell) if not re.search(r"[<\[]|\bN\b", p)}
+    # A phrase with no word in it (punctuation from a malformed row) would match nearly every line.
+    return sorted((p for p in phrases if re.search(r"[A-Za-z]{3}", p)), key=len, reverse=True)
+
+
+# What a residue scan's pattern or a concept-term row's phrase matches: Check 2's path scan, the terms of Check 2b,
+# Audit 5, Audit 7 and Pass 2's residue scan, the map's name in any case (Check 6 step 4), the provenance log, Check
+# 2d's links, an unprefixed knowledge-layer path, the communication protocol's name (the port's named-YAML check), and
+# every concept-term row's phrase. Path rows all name a `[sdlc-root]/` path, which the first pattern covers.
+_ANY_SCAN = re.compile(
+    "|".join([
+        _RESIDUE.pattern, r"\bknowledge index\b|\bknowledge store gaps?\b|\bknowledge area\b",
+        r"\]\((\./|\.\./)*(knowledge|disciplines|bundles)/", r"(?<![\w\]/.-])(knowledge|disciplines)/",
+        r"\bagent-communication-protocol\b", *(r"(?<!\w)" + re.escape(p) + r"(?!\w)" for p in _concept_row_phrases()),
+    ]),
+    re.IGNORECASE,
+)
+# A line that hits _ANY_SCAN and says who may write what looks like an access-control line wherever it is, as the
+# `hygiene` route in sdlc-audit, a core skill, does. A keyword tripwire, like _LOOKS_LIKE_PRESENCE.
+_GRANT_VERBS = ("write", "edit", "commit", "change", "correct", "update", "modify", "touch", "append", "add")
+_LOOKS_LIKE_GRANT = re.compile(
+    r"(?i)CODEOWNERS|implement_guard|publish guard|write guard|owner-less|agent-writable|off-limits"
+    r"|\b(?:an? agent|the agent|agents|you|it|they|a stage|this stage|the stage) (?:may|can) (?:" + "|".join(_GRANT_VERBS) + r")\b"
+)
+
+
+def _grant_lines_outside_row_8(release: Path, lines: Iterable[tuple[str, int, str]]) -> list[str]:
+    return [f"{rel}:{n}: {line.strip()[:100]}" for rel, n, line in lines
+            if _ANY_SCAN.search(line) and _LOOKS_LIKE_GRANT.search(line) and not _is_factory_access_line(release, rel, n)]
+
+
+def _left_cell_patterns() -> list[re.Pattern[str]]:
+    """Every phrase a row of pattern-mapping-rules.md matches, from its first cell before the cell's parenthetical notes,
+    as a pattern: an exact-line row quotes its line there. `<X>` and bracketed placeholders other than `[sdlc-root]`
+    match any text; a phrase whose literal text has no three-letter word (`<X>`, `, <section>`) is left out."""
+    pats = []
+    for ln in lint._rules().splitlines():
+        if not ln.startswith("| ") or re.match(r"^\|[\s:|-]+\|\s*$", ln):
+            continue
+        cell = ln.replace("\\`", "\0").split(" | ", 1)[0].split(" (", 1)[0]
+        for a, b in re.findall(r"``\s?(.+?)\s?``|`([^`]+)`", cell):
+            parts = re.split(r"(<[^>]+>|\[(?!sdlc-root\])[^\]]+\])", (a or b).replace("\0", "`"))
+            if not re.search(r"[A-Za-z]{3}", "".join(parts[0::2])):
+                continue
+            pats.append(re.compile("".join(".+?" if i % 2 else re.escape(s) for i, s in enumerate(parts)), re.IGNORECASE))
+    return pats
+
+
+_BUNDLE_MARKDOWN = ("skills", "process", "agents", "playbooks")
+_BUNDLE_KEYS = {"description", "pilot", "fragments", "tree", "seed", "render", "requires", *_BUNDLE_MARKDOWN}
+
+
+def _factory_files(release: Path) -> list[str]:
+    """The skills and process docs of the factory bundle and of every bundle that requires it, per the release's manifest."""
+    manifest = json.loads((release / "skeleton" / "manifest.json").read_text())
+    bundles = {k: v for k, v in manifest["bundles"].items() if isinstance(v, dict)}
+    names = {k for k, v in bundles.items() if k == "factory" or "factory" in (v.get("requires") or {}).get("bundles", [])}
+    for k in names:
+        unknown = set(bundles[k]) - _BUNDLE_KEYS
+        assert not unknown, f"bundle {k} gained {unknown}: decide whether its files need the scan below"
+        # A fragment's text lands in a framework file, which the completeness scan doesn't read.
+        assert not bundles[k].get("fragments"), f"bundle {k} now injects fragments: scan their text too"
+    return sorted({p for k in names for key in _BUNDLE_MARKDOWN for p in bundles[k].get(key, [])})
+
+
+def _factory_item(release: Path, rel: str, opening: str) -> tuple[int, int, str]:
+    """(first line, last line, text) of the one item that starts with `opening`, 1-based and inclusive."""
+    lines = (release / rel).read_text().split("\n")
+    hits = [i for i, ln in enumerate(lines) if ln.strip().startswith(opening)]
+    assert len(hits) == 1, f"{rel}: {len(hits)} lines start {opening!r}; revisit Check 2 row 8"
+    start = end = hits[0]
+    depth = len(lines[start]) - len(lines[start].lstrip(" "))
+    while end + 1 < len(lines) and lines[end + 1].strip() and len(lines[end + 1]) - len(lines[end + 1].lstrip(" ")) > depth:
+        end += 1
+    return start + 1, end + 1, "\n".join(lines[start : end + 1])
+
+
+def _is_factory_access_line(release: Path, rel: str, n: int) -> bool:
+    return any(rel == r and a <= n <= b for r, o, _h in FACTORY_ACCESS for a, b, _t in [_factory_item(release, r, o)])
+
+
+def _row_openings(row: str) -> list[str]:
+    """Row 8's items by opening words; a table row is named by its first cell, `| <cell> |` here."""
+    spans = re.findall(r" (starting|whose first cell is) (?:`` (.+?) ``|`([^`]+)`)", row)
+    return [(a or b) if kind == "starting" else f"| {a or b} |" for kind, a, b in spans]
+
+
+def _row_pairs(row: str) -> set[tuple[str, str]]:
+    """(installed file, opening) for each item row 8 lists: its list reads `in <files>, <items>; in <files>, <items>`."""
+    listed = row.split("each item found by its opening words: ", 1)[1].split(". An item is", 1)[0]
+    pairs = set()
+    for clause in re.split(r"; (?=in `)", listed):
+        files = re.findall(r"`((?:\.claude|ops/sdlc)/[^`]+)`", clause)
+        pairs |= {(f, o) for f in files for o in _row_openings(clause)}
+    return pairs
+
+
+def _factory_row() -> str:
+    rows = [r for r in _check2_rows() if "factory's access-control lines" in r]
+    assert len(rows) == 1, "Check 2's table needs exactly one row for the factory's access-control lines"
+    return rows[0]
+
+
+class TestFactoryAccessControlLines074:
+    """z-sdlc's factory bundle names `[sdlc-root]/disciplines/` and `[sdlc-root]/knowledge/` as repository paths for its
+    write guard and CODEOWNERS. 0.7.3's generic rows rewrote those lines into memory-graph wording, so an installed
+    factory doc said agents may write memory entries while the guard and CODEOWNERS govern files."""
+
+    def test_each_item_is_still_upstream_unchanged(self, release: Path) -> None:
+        for rel, opening, sha in FACTORY_ACCESS:
+            _a, _b, text = _factory_item(release, rel, opening)
+            assert _sha(text) == sha, f"{rel} item {opening!r} changed upstream ({_sha(text)}): re-review it before keeping it again"
+            assert "provenance_log" not in text, (rel, opening)  # row 8 is not a provenance-scan exemption
+
+    def test_the_bundle_files_come_from_the_manifest(self, release: Path) -> None:
+        files = _factory_files(release)
+        # The `hygiene` route is a core skill's; the write-grant tripwire, not the bundle scan, sees it.
+        assert {rel for rel, _o, _h in FACTORY_ACCESS} - set(files) == {"skills/sdlc-audit/SKILL.md"}, files
+        assert {"skills/sdlc-triage/SKILL.md", "process/factory-broker.md"} <= set(files), files
+
+    def test_the_scan_regex_sees_the_concept_rows_phrases(self) -> None:
+        for text in ("a parking lot candidate", "the rule file", "the agent's mapped files", "new YAML files",
+                     "project-specific files", "see knowledge/testing/", "`agent-communication-protocol.yaml`",
+                     "### Cross-File Contradiction", "per-file staleness"):
+            assert _ANY_SCAN.search(text), text
+        assert len(_concept_row_phrases()) > 50
+
+    def test_every_line_a_scan_or_concept_row_matches_in_the_bundle_is_on_the_list(self, release: Path) -> None:
+        outside = []
+        for rel in _factory_files(release):
+            for n, line in enumerate((release / rel).read_text().split("\n"), start=1):
+                if _ANY_SCAN.search(line) and not _is_factory_access_line(release, rel, n):
+                    outside.append(f"{rel}:{n}: {line.strip()[:100]}")
+        assert not outside, f"factory bundle lines no Check 2 row 8 item covers (review each; keep it there, or give it a rule): {outside}"
+
+    def _release_lines(self, release: Path) -> list[tuple[str, int, str]]:
+        out = []
+        for f in sorted(release.rglob("*.md")):
+            rel = str(f.relative_to(release))
+            if not (rel.startswith(_NOT_INSTALLED) or rel.startswith(lint._BARE_EXEMPT_FILES)):
+                out += [(rel, n, line) for n, line in enumerate(f.read_text().split("\n"), start=1)]
+        return out
+
+    def test_every_line_elsewhere_that_looks_like_a_write_grant_is_on_the_list(self, release: Path) -> None:
+        outside = _grant_lines_outside_row_8(release, self._release_lines(release))
+        assert not outside, f"lines that say what an agent may write, on no Check 2 row 8 item: {outside}"
+
+    def test_the_write_grant_tripwire_sees_each_grant_verb(self, release: Path) -> None:
+        for verb in _GRANT_VERBS:
+            for text in (f"Agents may {verb} discipline files.", f"An agent can {verb} the knowledge YAMLs."):
+                assert _grant_lines_outside_row_8(release, [("skills/sdlc-plan/SKILL.md", 9999, text)]) == [
+                    f"skills/sdlc-plan/SKILL.md:9999: {text}"], text
+
+    def test_the_other_hygiene_instructions_match_no_scan_or_row(self, release: Path) -> None:
+        for rel, opening in UNTOUCHED_HYGIENE:
+            _n, line = _one_line(release, rel, opening)
+            assert "knowledge entry" in line, (rel, opening)  # still an instruction that acts on the grant
+            assert not _ANY_SCAN.search(line), f"{rel} {opening!r} now matches {_ANY_SCAN.search(line).group(0)!r}: put it on row 8"
+            # An exact-line Pass 1 row quotes its line in its first cell; none may reach these paragraphs.
+            hits = [pat.pattern[:60] for pat in _left_cell_patterns() if pat.search(line)]
+            assert not hits, f"{rel} {opening!r}: a row of pattern-mapping-rules.md matches it: {hits}"
+        row = _factory_row()
+        assert "`sdlc-implement`" in row and "`sdlc-execute`" in row and "no row matches" in row
+
+    def test_their_path_tokens_are_exempt_through_row_8_not_a_rule_family(self, release: Path) -> None:
+        files = set(_factory_files(release))
+        occ = [(rel, n) for rel, n, _fam, _l in lint._upstream_occurrences() if rel in files]
+        assert len(occ) >= 20, occ  # 4 on each Off-limits bullet, 1 on `- CODEOWNERS on`, 3 in Enablement step 9
+        _factory_row()  # exempt only once the row exists
+        assert all(_is_factory_access_line(release, rel, n) for rel, n in occ), occ
+
+    def test_check_2_row_8_names_exactly_these_items_by_installed_file_and_opening_words(self) -> None:
+        row = _factory_row()
+        assert row.startswith("| 8 |"), row[:20]
+        # Each listed file with its own item's opening words, so naming an item under the wrong file fails.
+        assert _row_pairs(row) == {(_installed(rel), opening) for rel, opening, _h in FACTORY_ACCESS}, _row_pairs(row)
+        # A raw `|` would split the row into extra table cells; the runbook row is named by its first cell.
+        assert "`| E2 |`" not in row and " whose first cell is `E2`" in row
+        assert "any other line in these files is checked as usual" in row
+        # Matched by opening words at run time, so a read added upstream must void it, as row 6's does.
+        assert "it is not exempt but a **REGRESSION**" in row
+        assert "/implement_guard.py`" in row and "/test_codeowners.py`" in row
+        # check_commits refuses what CODEOWNERS owns and GOVERNING_KNOWLEDGE; SDLC_HYGIENE only labels the PR.
+        assert "`check_commits`" in row and "`GOVERNING_KNOWLEDGE`" in row and "`SDLC_HYGIENE`" not in row
+        assert "the one instruction" not in row
+        assert "indented deeper" in row  # the extent rule for the wrapped items
+        assert "\\`" not in row
+
+
 class TestReleaseResidueHasAHome:
     def test_every_path_token_falls_in_a_family_with_a_rule_row(self, release: Path) -> None:
         rules = lint._rules()
@@ -254,6 +483,9 @@ class TestReleaseResidueHasAHome:
         assert len(occ) > 150, f"inventory looks wrong: only {len(occ)} occurrences"
         for rel, n, family, _line in occ:
             if family == "EXEMPT" or _is_presence_line(release, rel, n):
+                continue
+            if _is_factory_access_line(release, rel, n):
+                _factory_row()  # exempt only once the row exists
                 continue
             marker = lint._FAMILY_MARKERS.get(family)
             if marker is None:

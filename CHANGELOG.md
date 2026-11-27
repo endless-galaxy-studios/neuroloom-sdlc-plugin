@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-11-27
+
+### Fixed
+
+- **The factory bundle's access-control lines came out in memory-graph wording.** z-sdlc's factory bundle (`sdlc-implement`, `sdlc-revise`, `sdlc-reproduce`, `process/factory.md`, `process/factory-runbook.md`) names `[sdlc-root]/disciplines/` and `[sdlc-root]/knowledge/` as repository paths: the discipline files and knowledge YAMLs the project's CODEOWNERS leaves without an owner, which the publish guard (`.github/factory/implement_guard.py`) then lets an agent commit. The generic path and concept-term rows rewrote those lines, so an installed copy disagreed with the CODEOWNERS and the guard, and the release gate counted them as covered. Post-operation Check 2's new row 8 lists them by file and opening words, with the two lines that send an agent to those files in words a row rewrites: `sdlc-revise`'s hygiene paragraph and `sdlc-audit`'s `hygiene` route. The transformer writes them as upstream has them, and the residue audits, Check 2b, Check 6 step 4 and `/sdlc-port` point at the row. The gate pins each item's text and fails on any line of the bundle's skills and process docs that a residue scan's pattern or a concept-term row's phrase matches and the row doesn't cover, and on a line elsewhere that matches one and says what an agent may write.
+
+### Known limits
+
+- **The factory doesn't work in a Neuroloom project yet.** 0.7.4 only keeps its docs true to the CODEOWNERS and the guard; Neuroloom support for the factory is later work in both z-sdlc and this plugin. Two things stop it:
+  - Its agent stages run with `--strict-mcp-config` and an MCP config that holds only Context7 (z-sdlc `process/factory.md` D2 rule 2). A project can add MCP services in `.github/factory/services.json` (D2 rule 9 for the execute stages, D3 rule 4 for the plan stages), whose seed lists none, and on both tiers a service must be read-only: rule 8's keys that can write aren't built (`services.py` still requires `read_only`). So the memory writes in the transformed skills those stages run (`sdlc-plan`, `sdlc-lite-plan`, `sdlc-execute`, `sdlc-lite-execute`) can't be made, and their searches only through a read-only Neuroloom service a project adds, which none does.
+  - A factory agent's hygiene edit writes a knowledge YAML or a discipline file in a folder whose files Neuroloom holds. Nothing sends it to Neuroloom: the stages' sandbox settings set `disableAllHooks`, and this plugin's one file hook watches only `docs/current_work/**`. The next migration then handles that file like any other on disk (`sdlc-migrate`'s "Every other file there"), and its text and Neuroloom's entry disagree.
+
+### Upgrading a project on 0.7.3 or earlier
+
+Every Neuroloom project has one transformed item: `sdlc-audit`'s `hygiene` route, which is a core skill's line. Sleeved's reads `(discipline memory entries, knowledge memory entries other than the context map and agent-governing files, the SDLC changelog)`, and its `sdlc-audit/SKILL.md` matches its `installed_files` hash (checked 2026-11-27). The bundle's own lines are transformed only in a Neuroloom project that installed the factory bundle, and none is known: Sleeved has none of its files (its bundles are `design` and `github-provenance`), and the Neuroloom monorepo's factory install runs without this adapter (its manifest sets no `neuroloom_backend`), so the transformer never touched it. A migration rewrites a file only when upstream changes it, so put the lines back by hand, before the project's next migration. For each installed file that row 8 names:
+
+1. Compare the file's SHA-256 with its `installed_files` entry in `.sdlc-manifest.json`.
+2. Read upstream's copy at the project's `source_version`: `git -C <z-sdlc clone> show <source_version>:<path>`, with the file's upstream path (`skills/sdlc-revise/SKILL.md`, `process/factory.md`, and so on). Find each item row 8 lists by its place in the file, not its opening words: Pass 2 may have rewritten the opening words of one of Enablement step 9's items. A wrapped item is all of its lines, as row 8 says.
+3. If they match, replace each item with upstream's text, change nothing else, and update the file's `installed_files` hash (`shasum -a 256`).
+4. If they don't match, the project edited the file since its last migration, and the edit may be in one of these items: replace nothing yet. Show CD each item's installed text beside upstream's, replace only the items CD approves, leave the hash, and list the file for CD.
+
 ## [0.7.3] - 2026-11-26
 
 Sleeved, the one project on 0.7.1, ran 0.7.2's upgrade procedure, and the transformer halted. The review of that run found the gaps below. Line numbers are z-sdlc v3.0.0's.

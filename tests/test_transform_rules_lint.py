@@ -381,9 +381,9 @@ class TestCheck2ExemptionTable:
         section = audit.split("### Check 2 — No residual knowledge-layer references", 1)[1].split("### Check 2a", 1)[0]
         return [ln for ln in section.splitlines() if re.match(r"\| [1-9] \|", ln)]
 
-    def test_seven_rows_and_no_whole_tree_or_whole_file_exemption(self) -> None:
+    def test_eight_rows_and_no_whole_tree_or_whole_file_exemption(self) -> None:
         rows = self._rows()
-        assert len(rows) == 7, rows
+        assert len(rows) == 8, rows
         assert not rows[0].startswith("| 1 | Everything under"), "sdlc-migrate must be exempt line by line"
         assert "LINE BY LINE" in rows[0]
         assert "Only the span is exempt" in rows[1]
@@ -1345,7 +1345,7 @@ class TestSdlcRootIsOpsSdlc:
         stage_4a = port.split("### Stage 4a", 1)[1].split("### Stage 4b", 1)[0]
         stage_4a += (_ROOT / "skills" / "sdlc-port" / "references" / "transform-targets.md").read_text()
         assert "`[sdlc-root]/knowledge/` and `[sdlc-root]/disciplines/` forms" in stage_4a
-        assert "exemption rows 1 to 7" in stage_4a
+        assert "exemption rows 1 to 8" in stage_4a
         flat = " ".join(stage_4a.split())
         assert "on any of these lines except the changelog's" in flat
         assert "or a `provenance_log` mention on any of them except the changelog's and row 6's, is still rewritten" in flat
@@ -1562,14 +1562,14 @@ class TestPortBugFixes070:
     def test_the_port_and_the_audit_name_the_same_exemption_rows(self) -> None:
         table = _audit().split("**Exemptions.**", 1)[1].split("**Second scan", 1)[0]
         rows = {int(m.group(1)): m.group(0) for m in re.finditer(r"^\| (\d) \|.*$", table, re.MULTILINE)}
-        assert sorted(rows) == [1, 2, 3, 4, 5, 6, 7], sorted(rows)
+        assert sorted(rows) == [1, 2, 3, 4, 5, 6, 7, 8], sorted(rows)
         assert "sdlc-migrate" in rows[1] and "- [ ] No" in rows[2] and "path-mappings.md" in rows[3]
         assert "sdlc_changelog.md" in rows[4] and "fenced block" in rows[5] and "Contract 0026" in rows[6]
-        assert "sdlc-ingest" in rows[7]
+        assert "sdlc-ingest" in rows[7] and "factory's access-control lines" in rows[8]
         doc = self._manifest_doc()
         for name in ("No stale path references", "No stale YAML references"):
             row = next(line for line in doc.splitlines() if line.startswith(f"| {name} |"))
-            assert "rows 1 to 7" in row and "knowledge-routing.md" in row, row
+            assert "rows 1 to 8" in row and "knowledge-routing.md" in row, row
         # A port installs z-sdlc's file-presence lines too, so its provenance check exempts them as the audit does.
         assert "the `provenance_log` check exempts the changelog and row 6's lines" in doc
         assert "exempts only the changelog and the contract 0026 file-presence lines" in " ".join(self._port().split())
@@ -3351,3 +3351,102 @@ class TestSleevedUpgradeGaps073:
 
 _REFLECT_STORE = 'memory_store(tags=["sdlc:discipline:{name}", "sdlc:parking-lot", "sdlc:context:{context}"])'
 _REFLECT_CONTEXT = "`{context}` is `session:{slug}` for the session entries and `memory:{agent-name}` for Step 5's promotion candidates."
+
+
+def _factory_row() -> str:
+    table = _audit().split("**Exemptions.**", 1)[1].split("**Second scan", 1)[0]
+    rows = [ln for ln in table.splitlines() if ln.startswith("| 8 |")]
+    assert len(rows) == 1, "post-operation Check 2 needs row 8, the factory's access-control lines"
+    return rows[0]
+
+
+class TestFactoryAccessControlPointers074:
+    """Check 2 row 8 is the one list of the factory bundle's access-control lines. Every pass, audit and port check
+    that must leave them alone names that row; none repeats its items."""
+
+    def test_the_transformer_points_at_row_8_in_each_pass_and_audit(self) -> None:
+        _factory_row()
+        agent = _flat((_ROOT / "agents" / "neuroloom-transformer.md").read_text())
+        pass1 = agent.split("### Step 3: Pass 1", 1)[1].split("### Step 4:", 1)[0]
+        assert "The factory's access-control lines, the closed list in `post-operation-audit.md` Check 2 row 8" in pass1
+        pass2 = agent.split("### Step 4: Pass 2", 1)[1].split("**Pass 2b", 1)[0]
+        assert "the factory's access-control lines, `post-operation-audit.md` Check 2 row 8," in pass2
+        audit5 = agent.split("### Audit 5: Contract Residue", 1)[1].split("### Audit 6", 1)[0]
+        assert "the factory's access-control lines (row 8) are exempt item by item" in audit5
+        audit7 = agent.split("### Audit 7: Concept-Terminology Residue", 1)[1].split("### ", 1)[0]
+        assert "The factory's access-control lines (`post-operation-audit.md` Check 2 row 8)" in audit7
+        constraints = agent.split("## Constraints", 1)[1]
+        assert "Never transform the factory's access-control lines (`post-operation-audit.md` Check 2 row 8)" in constraints
+        assert agent.count("emit no `transformation_warning` for them") >= 3
+
+    def test_the_rules_and_audits_point_at_row_8(self) -> None:
+        rules = _flat(_rules())
+        head = "**The factory's access-control lines are exempt from Pass 1 and Pass 2 — HARD EXCLUSION:**"
+        assert head in rules
+        assert "`post-operation-audit.md` Check 2 row 8" in rules.split(head, 1)[1].split(" **", 1)[0]
+        retention = rules.split("**Legitimate-retention contexts", 1)[1].split("**Halt condition:**", 1)[0]
+        assert "the factory's access-control lines (`post-operation-audit.md` Check 2 row 8)" in retention
+        cma = _flat((_ROOT / "references" / "content-merge-audits.md").read_text())
+        listed = cma.split("exactly the rows of the table in `post-operation-audit.md` Check 2", 1)[1].split(")", 1)[0]
+        assert "the factory's access-control lines" in listed
+        check2b = _flat(_section(_audit(), "### Check 2b", "### Check 2c"))
+        assert "the factory's access-control lines Check 2 row 8 lists" in check2b
+        step4 = _flat(_audit().split("4. All operations:", 1)[1].split("**Action on failure:**", 1)[0])
+        assert "lines Check 2 exempts: rows 2 to 6 and 8" in step4 and "the factory's access-control lines" in step4
+
+    def test_the_claims_about_the_row_match_what_the_gate_checks(self) -> None:
+        # The gate matches the scans' patterns and the concept rows' phrases, not every row's every shape.
+        claim = "a residue scan's pattern or a concept-term row's phrase matches"
+        rules = _flat(_rules())
+        hard = rules.split("**The factory's access-control lines are exempt from Pass 1 and Pass 2", 1)[1].split(" **", 1)[0]
+        entry = _flat((_ROOT / "CHANGELOG.md").read_text().split("## [0.7.4]", 1)[1].split("\n## [", 1)[0])
+        for name, text in (("rules", hard), ("changelog", entry)):
+            assert claim in text, name
+            assert "a scan or a row would touch" not in text, name
+            # z-sdlc 3.0.0's sdlc-migrate already offers the bundle (§4.7, contract 0020) and migrates it (§2.0a).
+            assert "3.1.0" not in text, name
+        assert "`/sdlc-migrate`" in hard and "§4.7" in hard
+
+    def test_the_0_7_4_entry_records_that_the_factory_has_no_neuroloom_support(self) -> None:
+        entry = _flat((_ROOT / "CHANGELOG.md").read_text().split("## [0.7.4]", 1)[1].split("\n## [", 1)[0])
+        limits = entry.split("### Known limits", 1)[1].split("###", 1)[0]
+        for fact in ("`--strict-mcp-config`", "D2 rule 9", "/services.json`", "rule 8", "`disableAllHooks`",
+                     "`docs/current_work/**`", "Every other file there", "later work"):
+            assert fact in limits, fact
+
+    def test_every_row_of_check_2s_table_has_the_headers_cell_count(self) -> None:
+        # GitHub splits a table cell at every unescaped `|`, inside a code span too; `\|` is text.
+        table = _audit().split("**Exemptions.**", 1)[1].split("**Second scan", 1)[0]
+        rows = [ln for ln in table.splitlines() if ln.startswith("|")]
+        counts = [len(re.split(r"(?<!\\)\|", ln.strip())) - 2 for ln in rows]
+        assert len(rows) == 10 and counts == [counts[0]] * len(rows), list(zip([r[:6] for r in rows], counts))
+
+    def test_the_upgrade_note_replaces_nothing_on_a_hash_mismatch(self) -> None:
+        note = _flat((_ROOT / "CHANGELOG.md").read_text().split("### Upgrading a project on 0.7.3 or earlier", 1)[1].split("\n## [", 1)[0])
+        mismatch = note.split("If they don't match", 1)[1]
+        assert "replace nothing" in mismatch and "beside upstream's" in mismatch and "CD approves" in mismatch
+        assert "leave the hash" in mismatch
+        assert note.index("If they match") < note.index("If they don't match")
+
+    def test_the_port_applies_rows_1_to_8(self) -> None:
+        port = _flat((_ROOT / "skills" / "sdlc-port" / "SKILL.md").read_text())
+        assert "rows 1 to 8" in port.split("### Stage 4d", 1)[1].split("### Stage 4g", 1)[0]
+        targets = _flat((_ROOT / "skills" / "sdlc-port" / "references" / "transform-targets.md").read_text())
+        assert "exemption rows 1 to 8" in targets and "the factory's access-control lines row 8 names" in targets
+        doc = (_ROOT / "skills" / "sdlc-port" / "references" / "verification-manifest.md").read_text()
+        assert "rows 1 to 7" not in doc and doc.count("rows 1 to 8") >= 2
+
+    def test_no_second_copy_of_the_list(self) -> None:
+        # The runbook row is named by its first cell (`E2`), too short to search for; every other item by its opening.
+        openings = {a or b for a, b in re.findall(r" starting (?:`` (.+?) ``|`([^`]+)`)", _factory_row())}
+        assert len(openings) >= 7, openings
+        copies = []
+        for path in _text_files():
+            rel = path.relative_to(_ROOT).as_posix()
+            if rel.startswith("tests/"):
+                continue  # the release gate pins each item's text
+            for n, line in enumerate(path.read_text().split("\n"), start=1):
+                if rel == "references/post-operation-audit.md" and line.startswith("| 8 |"):
+                    continue
+                copies += [f"{rel}:{n}: {o}" for o in openings if o in line]
+        assert not copies, f"the factory's access-control items are listed outside Check 2 row 8: {copies}"
